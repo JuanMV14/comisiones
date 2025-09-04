@@ -6,8 +6,8 @@ from supabase import create_client, Client
 # ======================
 # CONFIGURACIÓN SUPABASE
 # ======================
-SUPABASE_URL = "TU_SUPABASE_URL"
-SUPABASE_KEY = "TU_SUPABASE_KEY"
+SUPABASE_URL = "https://ihncwagxefayefcdngkw.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlobmN3YWd4ZWZheWVmY2RuZ2t3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwMDYwNDksImV4cCI6MjA3MjU4MjA0OX0.tzgjBgMJoZdSSw29661PDARz0wfQcdI2bNtZrOqwG54"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ======================
