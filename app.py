@@ -140,7 +140,7 @@ with tabs[1]:
                 st.subheader(f"🧾 Factura {row['factura']}")
                 st.write(f"📌 Pedido: {row['pedido']}")
                 st.write(f"👤 Cliente: {row['cliente']}")
-                st.write(f"💵 Valor: ${row['valor_factura']:,.2f}")
+                st.write(f"💵 Valor: ${row['valor']:,.2f}")
                 st.write(f"📅 Fecha Pedido: {row['fecha_pedido']}")
                 st.write(f"📅 Fecha Factura: {row['fecha_factura'].date()}")
                 st.write(f"⏳ Fecha Estimada Pago: {row['fecha_pago'].date()}")
