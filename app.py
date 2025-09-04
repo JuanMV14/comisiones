@@ -38,7 +38,7 @@ def insertar_venta(pedido, cliente, referencia, factura, valor_factura, fecha_pe
         "cliente": cliente,
         "referencia": referencia,
         "factura": factura,
-        "valor_factura": valor_factura,
+        "valor": valor_factura,
         "fecha_pedido": fecha_pedido.isoformat(),
         "fecha_factura": fecha_factura.isoformat(),
         "fecha_pago": fecha_pago.isoformat(),
@@ -167,12 +167,12 @@ with tabs[2]:
         st.info("No hay datos.")
     else:
         df = pd.DataFrame(ventas)
-        df["valor_factura"] = df["valor_factura"].astype(float)
+        df["valor"] = df["valor"].astype(float)
         df["fecha_factura"] = pd.to_datetime(df["fecha_factura"])
 
         # Ranking clientes
         st.subheader("🏆 Ranking Clientes")
-        ranking = df.groupby("cliente")["valor_factura"].sum().sort_values(ascending=False).head(5)
+        ranking = df.groupby("cliente")["valor"].sum().sort_values(ascending=False).head(5)
         st.bar_chart(ranking)
 
         # Alertas
@@ -189,8 +189,8 @@ with tabs[2]:
         # Ventas por mes
         st.subheader("📅 Ventas por Mes")
         df["mes"] = df["fecha_factura"].dt.to_period("M").astype(str)
-        resumen = df.groupby("mes")["valor_factura"].sum().reset_index()
-        fig = px.bar(resumen, x="mes", y="valor_factura", title="Ventas por Mes")
+        resumen = df.groupby("mes")["valor"].sum().reset_index()
+        fig = px.bar(resumen, x="mes", y="valor", title="Ventas por Mes")
         st.plotly_chart(fig, use_container_width=True)
 
 # -----------------------
