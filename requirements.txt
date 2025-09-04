@@ -1,4 +1,5 @@
 streamlit
 pandas
-supabase
 plotly
+supabase
+python-dotenv
