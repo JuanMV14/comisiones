@@ -32,6 +32,9 @@ def insertar_comision(fecha, pedido, cliente, factura, valor, porcentaje, comisi
     }
     return supabase.table("comisiones").insert(data).execute()
 
+def actualizar_pago(id_registro, fecha_pago_real):
+    return supabase.table("comisiones").update({"pagado": True, "fecha_pago_real": str(fecha_pago_real)}).eq("id", id_registro).execute()
+
 def obtener_comisiones():
     res = supabase.table("comisiones").select("*").execute()
     if res.data:
@@ -44,7 +47,6 @@ def obtener_comisiones():
 st.set_page_config(page_title="📊 Control de Comisiones", layout="wide")
 
 st.title("📊 Control de Comisiones")
-st.markdown("Registra y controla tus comisiones de ventas usando **Supabase**.")
 
 tabs = st.tabs(["➕ Nueva Comisión", "📈 Dashboard", "📑 Historial"])
 
@@ -109,6 +111,7 @@ with tabs[1]:
         st.info("Aún no tienes comisiones registradas.")
     else:
         df["fecha_factura"] = pd.to_datetime(df["fecha_factura"])
+        df["fecha_maxima"] = pd.to_datetime(df["fecha_maxima"])
         df["mes"] = df["fecha_factura"].dt.to_period("M").astype(str)
 
         mes_sel = st.selectbox("Selecciona el mes", sorted(df["mes"].unique()), index=len(df["mes"].unique())-1)
@@ -125,7 +128,20 @@ with tabs[1]:
         col3.metric("✅ Pagado", f"${pagado:,.2f}")
         col4.metric("⏳ Pendiente", f"${pendiente:,.2f}")
 
-        st.bar_chart(df_mes.groupby("cliente")["comision"].sum())
+        # Ranking clientes
+        st.subheader("🏆 Ranking de clientes por compras")
+        ranking = df_mes.groupby("cliente")["valor"].sum().sort_values(ascending=False).reset_index()
+        st.table(ranking)
+
+        # Alertas de vencimiento
+        st.subheader("⚠️ Facturas próximas a vencerse")
+        hoy = date.today()
+        alertas = df_mes[(df_mes["pagado"] == False) & ((df_mes["fecha_maxima"] - pd.to_datetime(hoy)).dt.days <= 5)]
+        if alertas.empty:
+            st.success("✅ No hay facturas próximas a vencerse")
+        else:
+            st.error("⚠️ Facturas próximas a vencerse")
+            st.dataframe(alertas[["cliente", "factura", "fecha_factura", "fecha_maxima", "valor"]])
 
 # ======================
 # TAB 3: HISTORIAL
@@ -137,4 +153,18 @@ with tabs[2]:
     if df.empty:
         st.info("No hay registros aún.")
     else:
-        st.dataframe(df, use_container_width=True)
+        for _, row in df.iterrows():
+            with st.expander(f"📄 {row['cliente']} - Factura {row['factura']}"):
+                st.write(f"Pedido: {row['pedido']}")
+                st.write(f"Valor: ${row['valor']:,.2f}")
+                st.write(f"Comisión: ${row['comision']:,.2f}")
+                st.write(f"Fecha factura: {row['fecha_factura']}")
+                st.write(f"Fecha máxima: {row['fecha_maxima']}")
+                st.write(f"Pagado: {'✅ Sí' if row['pagado'] else '❌ No'}")
+
+                if not row["pagado"]:
+                    if st.button(f"Marcar como pagado ({row['factura']})", key=f"pago_{row['id']}"):
+                        actualizar_pago(row["id"], date.today())
+                        st.success("✅ Pago registrado")
+                        st.rerun()
+
