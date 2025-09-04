@@ -1,6 +1,7 @@
+import os
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from supabase import create_client, Client
 
 # ======================
@@ -82,17 +83,24 @@ if not df.empty:
     st.subheader("🏆 Ranking de Clientes por Compras")
     st.dataframe(ranking, use_container_width=True)
 
-    # Alertas de vencimiento
-    hoy = date.today()
-    vencimientos = df[(~df["pagado"]) & (pd.to_datetime(df["fecha_pago_max"]) <= pd.to_datetime(hoy + timedelta(days=5)))]
-    if not vencimientos.empty:
-        st.warning("⚠️ Hay facturas próximas a vencer en los próximos 5 días")
-        st.dataframe(vencimientos[["factura", "cliente", "fecha_factura", "fecha_pago_max"]], use_container_width=True)
+    # Alertas de vencimiento (protegido contra columnas faltantes)
+    if "fecha_pago_max" in df.columns and "pagado" in df.columns:
+        hoy = date.today()
+        vencimientos = df[
+            (~df["pagado"]) &
+            (pd.to_datetime(df["fecha_pago_max"]) <= pd.to_datetime(hoy + timedelta(days=5)))
+        ]
+        if not vencimientos.empty:
+            st.warning("⚠️ Hay facturas próximas a vencer en los próximos 5 días")
+            st.dataframe(
+                vencimientos[["factura", "cliente", "fecha_factura", "fecha_pago_max"]],
+                use_container_width=True
+            )
 
     # Resumen de pagos
     total_comisiones = df["comision"].sum()
-    comisiones_pendientes = df.loc[~df["pagado"], "comision"].sum()
-    comisiones_pagadas = df.loc[df["pagado"], "comision"].sum()
+    comisiones_pendientes = df.loc[~df.get("pagado", False), "comision"].sum()
+    comisiones_pagadas = df.loc[df.get("pagado", False), "comision"].sum()
 
     col1, col2, col3 = st.columns(3)
     col1.metric("💰 Total Comisiones", f"${total_comisiones:,.2f}")
@@ -115,12 +123,12 @@ if not df.empty:
             st.write(f"**Valor Venta:** ${row['valor']:,.2f}")
             st.write(f"**Comisión:** ${row['comision']:,.2f}")
             st.write(f"**Fecha Factura:** {row['fecha_factura']}")
-            st.write(f"**Fecha Estimada Pago:** {row['fecha_pago_estimada']}")
-            st.write(f"**Fecha Máxima Pago:** {row['fecha_pago_max']}")
-            st.write(f"**Pagado:** {'✅ Sí' if row['pagado'] else '❌ No'}")
+            st.write(f"**Fecha Estimada Pago:** {row.get('fecha_pago_estimada', 'N/A')}")
+            st.write(f"**Fecha Máxima Pago:** {row.get('fecha_pago_max', 'N/A')}")
+            st.write(f"**Pagado:** {'✅ Sí' if row.get('pagado') else '❌ No'}")
 
             # Si no está pagado, permitir marcar como pagado + comprobante
-            if not row["pagado"]:
+            if not row.get("pagado"):
                 comprobante = st.file_uploader(
                     f"Subir comprobante de pago (opcional) para factura {row['factura']}",
                     type=["jpg", "png", "pdf"],
