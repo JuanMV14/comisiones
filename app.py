@@ -191,10 +191,14 @@ with tabs[2]:
 with tabs[3]:
     st.header("⚠️ Alertas de vencimiento")
     df = cargar_datos()
-    hoy = datetime.now().date()
+    hoy = datetime.now()
+
     if not df.empty and "fecha_pago_max" in df.columns:
         fechas_pago = pd.to_datetime(df["fecha_pago_max"], errors="coerce")
-        alertas = df[(df["pagado"] == False) & (fechas_pago.dt.date <= hoy + timedelta(days=5))]
+
+        # ✅ Convertimos todo a datetime para evitar el TypeError
+        limite = hoy + timedelta(days=5)
+        alertas = df[(df["pagado"] == False) & (fechas_pago <= limite)]
 
         if alertas.empty:
             st.success("✅ No hay facturas próximas a vencerse")
