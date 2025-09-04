@@ -1,19 +1,20 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
 from supabase import create_client, Client
 
 # ======================
 # CONFIGURACIÓN SUPABASE
 # ======================
-SUPABASE_URL = "https://ihncwagxefayefcdngkw.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlobmN3YWd4ZWZheWVmY2RuZ2t3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwMDYwNDksImV4cCI6MjA3MjU4MjA0OX0.tzgjBgMJoZdSSw29661PDARz0wfQcdI2bNtZrOqwG54"
+SUPABASE_URL = "TU_SUPABASE_URL"
+SUPABASE_KEY = "TU_SUPABASE_KEY"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ======================
 # FUNCIONES BD
 # ======================
-def insertar_comision(fecha, pedido, cliente, factura, valor, porcentaje, comision, pagado):
+def insertar_comision(fecha, pedido, cliente, factura, valor, porcentaje, comision,
+                      pagado, fecha_pedido, fecha_factura, fecha_pago, fecha_maxima, condicion_especial):
     data = {
         "fecha": str(fecha),
         "pedido": pedido,
@@ -23,6 +24,11 @@ def insertar_comision(fecha, pedido, cliente, factura, valor, porcentaje, comisi
         "porcentaje": porcentaje,
         "comision": comision,
         "pagado": pagado,
+        "fecha_pedido": str(fecha_pedido),
+        "fecha_factura": str(fecha_factura),
+        "fecha_pago": str(fecha_pago),
+        "fecha_maxima": str(fecha_maxima),
+        "condicion_especial": condicion_especial
     }
     return supabase.table("comisiones").insert(data).execute()
 
@@ -48,7 +54,23 @@ tabs = st.tabs(["➕ Nueva Comisión", "📈 Dashboard", "📑 Historial"])
 with tabs[0]:
     st.header("➕ Registrar nueva comisión")
     with st.form("form_comision"):
-        fecha = st.date_input("Fecha", value=date.today())
+        # Fechas principales
+        fecha_pedido = st.date_input("📅 Fecha del pedido", value=date.today())
+        fecha_factura = st.date_input("📅 Fecha de la factura", value=date.today())
+
+        # Condición especial
+        condicion_especial = st.checkbox("¿Cliente con condición especial?", value=False)
+
+        if condicion_especial:
+            fecha_pago = st.date_input("📅 Fecha de pago (manual)")
+            fecha_maxima = st.date_input("📅 Fecha máxima (manual)")
+        else:
+            fecha_pago = fecha_factura + timedelta(days=35)
+            fecha_maxima = fecha_factura + timedelta(days=45)
+            st.info(f"✅ Fecha de pago estimada: {fecha_pago.strftime('%Y-%m-%d')} | "
+                    f"⏳ Fecha máxima: {fecha_maxima.strftime('%Y-%m-%d')}")
+
+        # Datos del pedido
         pedido = st.text_input("N° Pedido")
         cliente = st.text_input("Cliente")
         factura = st.text_input("N° Factura")
@@ -59,7 +81,21 @@ with tabs[0]:
 
         submitted = st.form_submit_button("Guardar")
         if submitted:
-            insertar_comision(fecha, pedido, cliente, factura, valor, porcentaje, comision, pagado)
+            insertar_comision(
+                fecha=date.today(),
+                pedido=pedido,
+                cliente=cliente,
+                factura=factura,
+                valor=valor,
+                porcentaje=porcentaje,
+                comision=comision,
+                pagado=pagado,
+                fecha_pedido=fecha_pedido,
+                fecha_factura=fecha_factura,
+                fecha_pago=fecha_pago,
+                fecha_maxima=fecha_maxima,
+                condicion_especial=condicion_especial
+            )
             st.success("✅ Comisión registrada correctamente")
 
 # ======================
@@ -72,8 +108,8 @@ with tabs[1]:
     if df.empty:
         st.info("Aún no tienes comisiones registradas.")
     else:
-        df["fecha"] = pd.to_datetime(df["fecha"])
-        df["mes"] = df["fecha"].dt.to_period("M").astype(str)
+        df["fecha_factura"] = pd.to_datetime(df["fecha_factura"])
+        df["mes"] = df["fecha_factura"].dt.to_period("M").astype(str)
 
         mes_sel = st.selectbox("Selecciona el mes", sorted(df["mes"].unique()), index=len(df["mes"].unique())-1)
         df_mes = df[df["mes"] == mes_sel]
