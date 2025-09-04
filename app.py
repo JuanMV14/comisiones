@@ -125,7 +125,25 @@ with tabs[2]:
             df["fecha_factura"] = pd.to_datetime(df["fecha_factura"]).dt.date
             df["fecha_maxima"] = pd.to_datetime(df["fecha_maxima"]).dt.date
 
-            st.dataframe(df, use_container_width=True)
+            for i, row in df.iterrows():
+                with st.expander(f"📌 {row['cliente']} - Factura {row['factura']}"):
+                    st.write(f"💰 Valor: ${row['valor']:,.0f}")
+                    st.write(f"💵 Comisión: ${row['comision']:,.0f}")
+                    st.write(f"📅 Fecha Factura: {row['fecha_factura']}")
+                    st.write(f"⏰ Fecha Máxima: {row['fecha_maxima']}")
+                    st.write(f"✅ Pagado: {'Sí' if row['pagado'] else 'No'}")
+
+                    if not row['pagado']:
+                        if st.button(f"Marcar como Pagada", key=f"pago_{row['id']}"):
+                            try:
+                                supabase.table("comisiones").update({
+                                    "pagado": True,
+                                    "fecha_pago_real": str(date.today())
+                                }).eq("id", row["id"]).execute()
+                                st.success("Factura marcada como pagada ✅")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al actualizar: {e}")
 
             # Alertas de vencimiento
             hoy = date.today()
@@ -140,3 +158,4 @@ with tabs[2]:
 
     except Exception as e:
         st.error(f"❌ Error al cargar los datos: {e}")
+
