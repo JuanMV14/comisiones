@@ -226,16 +226,21 @@ with tabs[5]:
     if df.empty:
         st.info("No hay facturas registradas todavía.")
     else:
-        df_mes = df.copy() if st.session_state["mes_global"] == "Todos" else df[df["mes_factura"] == st.session_state["mes_global"]]
+        # Filtrar solo pendientes o pagadas
+        df_filtrado = df[(df["pagado"] == False) | (df["pagado"] == True)]
 
-        if df_mes.empty:
-            st.info("No hay facturas en este mes.")
+        # Filtrar por mes global
+        if st.session_state["mes_global"] != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["mes_factura"] == st.session_state["mes_global"]]
+
+        if df_filtrado.empty:
+            st.info("No hay facturas en este mes para editar.")
         else:
             pedido_seleccionado = st.selectbox(
                 "Selecciona la factura a editar",
-                df_mes["pedido"].astype(str).tolist()
+                df_filtrado["pedido"].astype(str).tolist()
             )
-            factura = df_mes[df_mes["pedido"] == pedido_seleccionado].iloc[0]
+            factura = df_filtrado[df_filtrado["pedido"] == pedido_seleccionado].iloc[0]
 
             st.write(f"Cliente: {factura['cliente']}")
             valor_factura = st.number_input("Valor Factura", value=float(factura["valor_factura"]))
@@ -248,13 +253,19 @@ with tabs[5]:
                 value=factura["fecha_pago_real"].date() if pd.notna(factura.get("fecha_pago_real")) else date.today()
             )
 
+            # Campo para comprobante (url o archivo)
+            comprobante_url = st.text_input("Comprobante URL", value=factura.get("comprobante_url", ""))
+
             if st.button("💾 Guardar cambios"):
                 valor_comision = valor_factura * (porcentaje / 100)
+
                 supabase.table("comisiones").update({
                     "valor_factura": valor_factura,
                     "valor_comision": valor_comision,
                     "pagado": (pagado == "Sí"),
-                    "fecha_pago_real": fecha_pago_real.isoformat() if pagado == "Sí" else None
+                    "fecha_pago_real": fecha_pago_real.isoformat() if pagado == "Sí" else None,
+                    "comprobante_url": comprobante_url if comprobante_url else None
                 }).eq("id", factura["id"]).execute()
+
                 st.success("✅ Cambios guardados correctamente")
                 st.rerun()
