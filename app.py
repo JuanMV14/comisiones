@@ -2,7 +2,6 @@ import os
 from datetime import datetime, timedelta, date
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -29,7 +28,7 @@ def subir_comprobante(file, pedido_id):
         supabase.storage.from_(BUCKET).upload(
             path,
             file.getvalue(),
-            file_options={"upsert": "true"}  # ✅ Fix aplicado
+            file_options={"upsert": "true"}
         )
         return path
     except Exception as e:
@@ -45,17 +44,16 @@ def link_comprobante(path):
         return None
 
 def cargar_datos():
-    """Carga los datos desde Supabase"""
+    """Carga los datos desde Supabase y calcula fechas de pago si faltan"""
     try:
         data = supabase.table("comisiones").select("*").execute()
         if not data.data:
             return pd.DataFrame()
         df = pd.DataFrame(data.data)
 
-        # Normalizar columnas que pueden variar de nombre
+        # Normalizar columnas
         if "valor" in df.columns and "valor_factura" not in df.columns:
             df.rename(columns={"valor": "valor_factura"}, inplace=True)
-
         if "comision" in df.columns and "valor_comision" not in df.columns:
             df.rename(columns={"comision": "valor_comision"}, inplace=True)
 
@@ -68,17 +66,28 @@ def cargar_datos():
         if "pagado" not in df.columns:
             df["pagado"] = False
 
+        # Recalcular fechas de pago si faltan
+        for idx, row in df.iterrows():
+            if pd.isna(row.get('fecha_pago_est')) or pd.isna(row.get('fecha_pago_max')):
+                if pd.notna(row.get('fecha_factura')):
+                    fecha_factura = row['fecha_factura']
+                    if row.get('condicion_especial'):
+                        df.at[idx, 'fecha_pago_est'] = fecha_factura + timedelta(days=60)
+                        df.at[idx, 'fecha_pago_max'] = fecha_factura + timedelta(days=60)
+                    else:
+                        df.at[idx, 'fecha_pago_est'] = fecha_factura + timedelta(days=35)
+                        df.at[idx, 'fecha_pago_max'] = fecha_factura + timedelta(days=45)
+
         return df
     except Exception as e:
         st.error(f"⚠️ Error cargando datos: {e}")
         return pd.DataFrame()
 
 # ========================
-# Layout principal con Tabs
+# Layout principal
 # ========================
 st.set_page_config(page_title="Gestión de Comisiones", layout="wide")
 st.title("📊 Gestión de Comisiones")
-
 tabs = st.tabs(["➕ Registrar Venta", "📑 Facturas", "📈 Dashboard", "⚠️ Alertas"])
 
 # ========================
@@ -86,7 +95,6 @@ tabs = st.tabs(["➕ Registrar Venta", "📑 Facturas", "📈 Dashboard", "⚠�
 # ========================
 with tabs[0]:
     st.header("➕ Registrar nueva venta")
-
     with st.form("form_venta"):
         pedido = st.text_input("Número de Pedido")
         cliente = st.text_input("Cliente")
@@ -95,7 +103,6 @@ with tabs[0]:
         comision = st.number_input("Porcentaje Comisión (%)", min_value=0.0, max_value=100.0, step=0.5)
         fecha_factura = st.date_input("Fecha de Factura", value=date.today())
         condicion_especial = st.selectbox("Condición Especial?", ["No", "Sí"])
-
         submit = st.form_submit_button("💾 Registrar")
 
     if submit:
@@ -132,7 +139,6 @@ with tabs[0]:
 with tabs[1]:
     st.header("📑 Facturas registradas")
     df = cargar_datos()
-    
     if df.empty:
         st.info("No hay facturas registradas todavía.")
     else:
@@ -213,8 +219,6 @@ with tabs[3]:
 
     if not df.empty and "fecha_pago_max" in df.columns:
         fechas_pago = pd.to_datetime(df["fecha_pago_max"], errors="coerce")
-
-        # ✅ Convertimos todo a datetime para evitar el TypeError
         limite = hoy + timedelta(days=5)
         alertas = df[(df["pagado"] == False) & (fechas_pago <= limite)]
 
