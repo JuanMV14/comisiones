@@ -90,17 +90,12 @@ st.title("📊 Gestión de Comisiones")
 tabs = st.tabs(["➕ Registrar Venta", "📑 Facturas", "📈 Dashboard", "⚠️ Alertas"])
 
 # ========================
-# CONTROL GLOBAL DE MES
+# CONTROL GLOBAL DE MES (por Fecha Factura)
 # ========================
 df = cargar_datos()
 if not df.empty:
-    df["mes_pago"] = df.apply(
-        lambda row: row["fecha_pago_real"].strftime("%Y-%m") 
-                    if row["pagado"] and pd.notna(row.get("fecha_pago_real"))
-                    else (row["fecha_pago_est"].strftime("%Y-%m") if pd.notna(row.get("fecha_pago_est")) else None),
-        axis=1
-    )
-    meses_disponibles = sorted(df["mes_pago"].dropna().unique())
+    df["mes_factura"] = df["fecha_factura"].dt.strftime("%Y-%m")
+    meses_disponibles = sorted(df["mes_factura"].dropna().unique())
 else:
     meses_disponibles = []
 
@@ -108,7 +103,7 @@ if "mes_seleccionado" not in st.session_state:
     st.session_state["mes_seleccionado"] = "Todos"
 
 st.selectbox(
-    "Selecciona el mes a visualizar",
+    "Selecciona el mes a visualizar (Fecha Factura)",
     ["Todos"] + meses_disponibles,
     key="mes_seleccionado"
 )
@@ -165,7 +160,7 @@ with tabs[1]:
         st.info("No hay facturas registradas todavía.")
     else:
         mes_seleccionado = st.session_state["mes_seleccionado"]
-        df_mes = df.copy() if mes_seleccionado=="Todos" else df[df["mes_pago"]==mes_seleccionado]
+        df_mes = df.copy() if mes_seleccionado=="Todos" else df[df["mes_factura"]==mes_seleccionado]
 
         # Facturas Pendientes
         st.subheader("📌 Facturas Pendientes")
@@ -177,13 +172,13 @@ with tabs[1]:
                 with st.container():
                     st.subheader(f"🧾 Pedido: {row['pedido']} - Cliente: {row['cliente']}")
                     st.write(f"💵 Valor: ${row['valor_factura']:,.2f}")
-                    st.write(f"💰 Comisión: ${row.get('valor_comision', 0):,.2f}")
-                    fecha_factura = row['fecha_factura'].date() if isinstance(row['fecha_factura'], pd.Timestamp) else '-'
-                    fecha_pago_est = row['fecha_pago_est'].date() if isinstance(row['fecha_pago_est'], pd.Timestamp) else '-'
-                    fecha_pago_max = row['fecha_pago_max'].date() if isinstance(row['fecha_pago_max'], pd.Timestamp) else '-'
-                    st.write(f"📅 Fecha Factura: {fecha_factura}")
-                    st.write(f"📅 Fecha Estimada Pago: {fecha_pago_est}")
-                    st.write(f"📅 Fecha Máxima Pago: {fecha_pago_max}")
+                    st.write(f"💰 Comisión: ${row.get('valor_comision',0):,.2f}")
+                    fecha_factura_val = row['fecha_factura'].date() if isinstance(row['fecha_factura'], pd.Timestamp) else '-'
+                    fecha_pago_est_val = row['fecha_pago_est'].date() if isinstance(row['fecha_pago_est'], pd.Timestamp) else '-'
+                    fecha_pago_max_val = row['fecha_pago_max'].date() if isinstance(row['fecha_pago_max'], pd.Timestamp) else '-'
+                    st.write(f"📅 Fecha Factura: {fecha_factura_val}")
+                    st.write(f"📅 Fecha Estimada Pago: {fecha_pago_est_val}")
+                    st.write(f"📅 Fecha Máxima Pago: {fecha_pago_max_val}")
                     st.write(f"✅ Pagado: {'Sí' if row['pagado'] else 'No'}")
 
                     comprobante = st.file_uploader(
@@ -227,7 +222,7 @@ with tabs[2]:
         st.info("No hay datos para mostrar en el dashboard.")
     else:
         mes_seleccionado = st.session_state["mes_seleccionado"]
-        df_mes = df.copy() if mes_seleccionado=="Todos" else df[df["mes_pago"]==mes_seleccionado]
+        df_mes = df.copy() if mes_seleccionado=="Todos" else df[df["mes_factura"]==mes_seleccionado]
 
         total_facturado = df_mes["valor_factura"].sum()
         total_comisiones = df_mes.get("valor_comision", pd.Series([0])).sum()
@@ -245,12 +240,12 @@ with tabs[2]:
             st.progress(min(1.0,row["valor_factura"]/max(total_facturado,1)))
 
         st.subheader(f"📅 Flujo de Comisiones - {mes_seleccionado}")
-        comisiones_mes = df_mes.groupby("mes_pago")["valor_comision"].sum().reset_index().sort_values("mes_pago")
+        comisiones_mes = df_mes.groupby("mes_factura")["valor_comision"].sum().reset_index().sort_values("mes_factura")
         if comisiones_mes.empty:
             st.info("No hay comisiones registradas para este mes.")
         else:
             for _, row in comisiones_mes.iterrows():
-                st.write(f"📌 {row['mes_pago']} → 💰 ${row['valor_comision']:,.2f}")
+                st.write(f"📌 {row['mes_factura']} → 💰 ${row['valor_comision']:,.2f}")
 
 # ========================
 # TAB 4 - Alertas
@@ -258,17 +253,18 @@ with tabs[2]:
 with tabs[3]:
     st.header("⚠️ Alertas de vencimiento")
     if df.empty:
-        st.info("No hay datos de fechas de pago para generar alertas.")
+        st.info("No hay datos de fechas de pago.")
     else:
         mes_seleccionado = st.session_state["mes_seleccionado"]
-        df_mes = df.copy() if mes_seleccionado=="Todos" else df[df["mes_pago"]==mes_seleccionado]
+        df_mes = df.copy() if mes_seleccionado=="Todos" else df[df["mes_factura"]==mes_seleccionado]
 
         hoy = datetime.now()
-        limite = hoy + timedelta(days=5)
-        alertas = df_mes[(df_mes["pagado"]==False) & (df_mes["fecha_pago_max"]<=limite)]
-
-        if alertas.empty:
-            st.success("✅ No hay facturas próximas a vencerse")
-        else:
-            for _, row in alertas.iterrows():
-                st.error(f"⚠️ Pedido {row['pedido']} ({row['cliente']}) vence el {row['fecha_pago_max'].date()}")
+        if "fecha_pago_max" in df_mes.columns:
+            fechas_pago = pd.to_datetime(df_mes["fecha_pago_max"], errors="coerce")
+            limite = hoy + timedelta(days=5)
+            alertas = df_mes[(df_mes["pagado"]==False) & (fechas_pago <= limite)]
+            if alertas.empty:
+                st.success("✅ No hay facturas próximas a vencerse")
+            else:
+                for _, row in alertas.iterrows():
+                    st.error(f"⚠️ Pedido {row['pedido']} ({row['cliente']}) vence el {row['fecha_pago_max'].date()}")
