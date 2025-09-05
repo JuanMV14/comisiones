@@ -61,7 +61,14 @@ st.set_page_config(page_title="Gestión de Comisiones", layout="wide")
 st.title("📊 Gestión de Comisiones")
 
 # Estado global para mes seleccionado
+df_tmp = cargar_datos()
+meses_disponibles = ["Todos"] + (sorted(df_tmp["mes_factura"].dropna().unique().tolist()) if not df_tmp.empty else [])
+
 if "mes_global" not in st.session_state:
+    st.session_state["mes_global"] = "Todos"
+
+# Forzar index válido para el selectbox
+if st.session_state["mes_global"] not in meses_disponibles:
     st.session_state["mes_global"] = "Todos"
 
 tabs = st.tabs([
@@ -128,8 +135,8 @@ with tabs[1]:
     else:
         st.session_state["mes_global"] = st.selectbox(
             "📅 Filtrar por mes (Fecha Factura)",
-            ["Todos"] + sorted(df["mes_factura"].dropna().unique()),
-            index=(0 if st.session_state["mes_global"] not in df["mes_factura"].unique() else ["Todos"] + sorted(df["mes_factura"].dropna().unique())).index(st.session_state["mes_global"])
+            meses_disponibles,
+            index=meses_disponibles.index(st.session_state["mes_global"])
         )
 
         df_pendientes = df[df["pagado"] == False]
@@ -253,7 +260,6 @@ with tabs[5]:
                 value=factura["fecha_pago_real"].date() if pd.notna(factura.get("fecha_pago_real")) else date.today()
             )
 
-            # Campo para comprobante (url o archivo)
             comprobante_url = st.text_input("Comprobante URL", value=factura.get("comprobante_url", ""))
 
             if st.button("💾 Guardar cambios"):
