@@ -4,6 +4,7 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import altair as alt
 
 # ========================
 # Cargar variables de entorno
@@ -87,12 +88,13 @@ def cargar_datos():
 # ========================
 st.set_page_config(page_title="Gestión de Comisiones", layout="wide")
 st.title("📊 Gestión de Comisiones")
-tabs = st.tabs(["➕ Registrar Venta", "📑 Facturas", "📈 Dashboard", "⚠️ Alertas"])
+tabs = st.tabs(["➕ Registrar Venta", "📌 Facturas Pendientes", "💸 Facturas Pagadas", "📈 Dashboard", "⚠️ Alertas"])
+
+df = cargar_datos()
 
 # ========================
 # CONTROL GLOBAL DE MES (por Fecha Factura)
 # ========================
-df = cargar_datos()
 if not df.empty:
     df["mes_factura"] = df["fecha_factura"].dt.strftime("%Y-%m")
     meses_disponibles = sorted(df["mes_factura"].dropna().unique())
@@ -152,33 +154,27 @@ with tabs[0]:
             st.error(f"❌ Error al registrar la venta: {e}")
 
 # ========================
-# TAB 2 - Facturas
+# TAB 2 - Facturas Pendientes
 # ========================
 with tabs[1]:
-    st.header("📑 Facturas registradas")
+    st.header("📌 Facturas Pendientes")
     if df.empty:
         st.info("No hay facturas registradas todavía.")
     else:
         mes_seleccionado = st.session_state["mes_seleccionado"]
         df_mes = df.copy() if mes_seleccionado=="Todos" else df[df["mes_factura"]==mes_seleccionado]
-
-        # Facturas Pendientes
-        st.subheader("📌 Facturas Pendientes")
         pendientes = df_mes[df_mes["pagado"]==False]
         if pendientes.empty:
             st.success("✅ No hay facturas pendientes")
         else:
             for _, row in pendientes.iterrows():
                 with st.container():
-                    st.subheader(f"🧾 Pedido: {row['pedido']} - Cliente: {row['cliente']}")
+                    st.write(f"🧾 Pedido: {row['pedido']} - Cliente: {row['cliente']}")
                     st.write(f"💵 Valor: ${row['valor_factura']:,.2f}")
                     st.write(f"💰 Comisión: ${row.get('valor_comision',0):,.2f}")
-                    fecha_factura_val = row['fecha_factura'].date() if isinstance(row['fecha_factura'], pd.Timestamp) else '-'
-                    fecha_pago_est_val = row['fecha_pago_est'].date() if isinstance(row['fecha_pago_est'], pd.Timestamp) else '-'
-                    fecha_pago_max_val = row['fecha_pago_max'].date() if isinstance(row['fecha_pago_max'], pd.Timestamp) else '-'
-                    st.write(f"📅 Fecha Factura: {fecha_factura_val}")
-                    st.write(f"📅 Fecha Estimada Pago: {fecha_pago_est_val}")
-                    st.write(f"📅 Fecha Máxima Pago: {fecha_pago_max_val}")
+                    st.write(f"📅 Fecha Factura: {row['fecha_factura'].date()}")
+                    st.write(f"📅 Estimada Pago: {row['fecha_pago_est'].date()}")
+                    st.write(f"📅 Máxima Pago: {row['fecha_pago_max'].date()}")
                     st.write(f"✅ Pagado: {'Sí' if row['pagado'] else 'No'}")
 
                     comprobante = st.file_uploader(
@@ -197,15 +193,23 @@ with tabs[1]:
                             st.success("📎 Comprobante cargado y factura marcada como pagada")
                             st.rerun()
 
-        # Facturas Pagadas
-        st.subheader("💸 Facturas Pagadas")
+# ========================
+# TAB 3 - Facturas Pagadas
+# ========================
+with tabs[2]:
+    st.header("💸 Facturas Pagadas")
+    if df.empty:
+        st.info("No hay facturas registradas todavía.")
+    else:
+        mes_seleccionado = st.session_state["mes_seleccionado"]
+        df_mes = df.copy() if mes_seleccionado=="Todos" else df[df["mes_factura"]==mes_seleccionado]
         pagadas = df_mes[df_mes["pagado"]==True]
         if pagadas.empty:
             st.info("No hay facturas pagadas para este mes.")
         else:
             for _, row in pagadas.iterrows():
                 with st.container():
-                    st.subheader(f"🧾 Pedido: {row['pedido']} - Cliente: {row['cliente']}")
+                    st.write(f"🧾 Pedido: {row['pedido']} - Cliente: {row['cliente']}")
                     st.write(f"💵 Valor: ${row['valor_factura']:,.2f}")
                     st.write(f"💰 Comisión: ${row.get('valor_comision',0):,.2f}")
                     if row.get("comprobante_url"):
@@ -214,9 +218,9 @@ with tabs[1]:
                             st.markdown(f"[🔗 Ver comprobante]({url})", unsafe_allow_html=True)
 
 # ========================
-# TAB 3 - Dashboard
+# TAB 4 - Dashboard Mejorado
 # ========================
-with tabs[2]:
+with tabs[3]:
     st.header("📈 Dashboard de Comisiones")
     if df.empty:
         st.info("No hay datos para mostrar en el dashboard.")
@@ -233,24 +237,32 @@ with tabs[2]:
         col2.metric("💰 Total Comisiones", f"${total_comisiones:,.2f}")
         col3.metric("✅ Total Pagado", f"${total_pagado:,.2f}")
 
+        # Ranking de Clientes
         st.subheader(f"🏆 Ranking de Clientes - {mes_seleccionado}")
-        ranking = df_mes.groupby("cliente")["valor_factura"].sum().reset_index().sort_values(by="valor_factura", ascending=False)
-        for _, row in ranking.iterrows():
-            st.write(f"**{row['cliente']}** - 💵 ${row['valor_factura']:,.2f}")
-            st.progress(min(1.0,row["valor_factura"]/max(total_facturado,1)))
+        ranking = df_mes.groupby("cliente")["valor_factura"].sum().reset_index().sort_values(by="valor_factura", ascending=True)
+        if not ranking.empty:
+            chart_ranking = alt.Chart(ranking).mark_bar().encode(
+                x=alt.X("valor_factura", title="Valor Facturado"),
+                y=alt.Y("cliente", sort='-x', title="Cliente"),
+                tooltip=["cliente","valor_factura"]
+            )
+            st.altair_chart(chart_ranking, use_container_width=True)
 
+        # Flujo de Comisiones por Mes
         st.subheader(f"📅 Flujo de Comisiones - {mes_seleccionado}")
-        comisiones_mes = df_mes.groupby("mes_factura")["valor_comision"].sum().reset_index().sort_values("mes_factura")
-        if comisiones_mes.empty:
-            st.info("No hay comisiones registradas para este mes.")
-        else:
-            for _, row in comisiones_mes.iterrows():
-                st.write(f"📌 {row['mes_factura']} → 💰 ${row['valor_comision']:,.2f}")
+        flujo = df_mes.groupby("mes_factura")["valor_comision"].sum().reset_index().sort_values("mes_factura")
+        if not flujo.empty:
+            chart_flujo = alt.Chart(flujo).mark_bar(color="#FF7F0E").encode(
+                x=alt.X("mes_factura", title="Mes (Fecha Factura)"),
+                y=alt.Y("valor_comision", title="Comisiones"),
+                tooltip=["mes_factura","valor_comision"]
+            )
+            st.altair_chart(chart_flujo, use_container_width=True)
 
 # ========================
-# TAB 4 - Alertas
+# TAB 5 - Alertas
 # ========================
-with tabs[3]:
+with tabs[4]:
     st.header("⚠️ Alertas de vencimiento")
     if df.empty:
         st.info("No hay datos de fechas de pago.")
@@ -268,3 +280,4 @@ with tabs[3]:
             else:
                 for _, row in alertas.iterrows():
                     st.error(f"⚠️ Pedido {row['pedido']} ({row['cliente']}) vence el {row['fecha_pago_max'].date()}")
+
