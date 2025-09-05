@@ -251,20 +251,35 @@ with tabs[5]:
 
             st.write(f"Cliente: {factura['cliente']}")
             valor_factura = st.number_input("Valor Factura", value=float(factura["valor_factura"]))
-            porcentaje = st.number_input("Porcentaje Comisión (%)",
-                                         value=float(factura.get("valor_comision", 0) / valor_factura * 100 if valor_factura else 0),
-                                         min_value=0.0, max_value=100.0, step=0.1)
+            porcentaje = st.number_input(
+                "Porcentaje Comisión (%)",
+                value=float(factura.get("valor_comision", 0) / valor_factura * 100 if valor_factura else 0),
+                min_value=0.0, max_value=100.0, step=0.1
+            )
             pagado = st.selectbox("Pagado?", ["No", "Sí"], index=0 if not factura["pagado"] else 1)
             fecha_pago_real = st.date_input(
                 "Fecha de Pago Real",
                 value=factura["fecha_pago_real"].date() if pd.notna(factura.get("fecha_pago_real")) else date.today()
             )
 
-            comprobante_url = st.text_input("Comprobante URL", value=factura.get("comprobante_url", ""))
+            # ✅ Subir comprobante en vez de pedir URL
+            comprobante_file = st.file_uploader("Subir comprobante de pago", type=["pdf", "jpg", "png"])
+            comprobante_url = factura.get("comprobante_url", "")
 
             if st.button("💾 Guardar cambios"):
                 valor_comision = valor_factura * (porcentaje / 100)
 
+                # Si se subió archivo, guardarlo en Supabase Storage
+                if comprobante_file is not None:
+                    file_path = f"{BUCKET}/{factura['id']}_{comprobante_file.name}"
+                    supabase.storage.from_(BUCKET).upload(
+                        file_path,
+                        comprobante_file.getbuffer(),
+                        {"upsert": True}
+                    )
+                    comprobante_url = supabase.storage.from_(BUCKET).get_public_url(file_path)
+
+                # Actualizar en la base de datos
                 supabase.table("comisiones").update({
                     "valor_factura": valor_factura,
                     "valor_comision": valor_comision,
