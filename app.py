@@ -19,29 +19,34 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Funciones auxiliares
 # ========================
 def subir_comprobante(file, pedido_id):
-    """Sube un comprobante al bucket privado"""
+    """Sube un comprobante al bucket público y evita duplicados"""
     if file is None:
         return None
+
     extension = os.path.splitext(file.name)[1]
-    path = f"comprobantes/{pedido_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{extension}"
+    path = f"comprobantes/{pedido_id}{extension}"  # mismo nombre por pedido (sobrescribe)
+
     try:
         supabase.storage.from_(BUCKET).upload(
             path,
-            file.getvalue(),
-            file_options={"upsert": "true"}
+            file.read(),
+            {"content-type": file.type},
+            upsert=True  # sobrescribe si ya existe
         )
         return path
     except Exception as e:
         st.error(f"❌ Error al subir comprobante: {e}")
         return None
 
+
 def link_comprobante(path):
-    """Genera un link firmado temporal al comprobante"""
+    """Genera un link público permanente al comprobante"""
     try:
-        res = supabase.storage.from_(BUCKET).create_signed_url(path, 300)
-        return res["signedURL"]
+        url = supabase.storage.from_(BUCKET).get_public_url(path)
+        return url
     except Exception:
         return None
+
 
 def cargar_datos():
     """Carga los datos desde Supabase y calcula fechas de pago si faltan"""
@@ -57,7 +62,7 @@ def cargar_datos():
         if "comision" in df.columns and "valor_comision" not in df.columns:
             df.rename(columns={"comision": "valor_comision"}, inplace=True)
 
-        # Convertir fechas a datetime
+        # Convertir fechas
         for col in ["fecha", "fecha_factura", "fecha_pago_est", "fecha_pago_max", "fecha_pago_real"]:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors="coerce")
@@ -88,6 +93,7 @@ def cargar_datos():
 # ========================
 st.set_page_config(page_title="Gestión de Comisiones", layout="wide")
 st.title("📊 Gestión de Comisiones")
+
 tabs = st.tabs(["➕ Registrar Venta", "📑 Facturas", "📈 Dashboard", "⚠️ Alertas"])
 
 # ========================
@@ -95,6 +101,7 @@ tabs = st.tabs(["➕ Registrar Venta", "📑 Facturas", "📈 Dashboard", "⚠�
 # ========================
 with tabs[0]:
     st.header("➕ Registrar nueva venta")
+
     with st.form("form_venta"):
         pedido = st.text_input("Número de Pedido")
         cliente = st.text_input("Cliente")
@@ -148,7 +155,6 @@ with tabs[1]:
                 st.write(f"💵 Valor: ${row['valor_factura']:,.2f}")
                 st.write(f"💰 Comisión: ${row.get('valor_comision', 0):,.2f}")
 
-                # Fechas de factura y pago
                 fecha_factura = row['fecha_factura'].date() if isinstance(row['fecha_factura'], pd.Timestamp) else '-'
                 fecha_pago_est = row['fecha_pago_est'].date() if isinstance(row['fecha_pago_est'], pd.Timestamp) else '-'
                 fecha_pago_max = row['fecha_pago_max'].date() if isinstance(row['fecha_pago_max'], pd.Timestamp) else '-'
@@ -158,13 +164,12 @@ with tabs[1]:
                 st.write(f"📅 Fecha Máxima Pago: {fecha_pago_max}")
                 st.write(f"✅ Pagado: {'Sí' if row['pagado'] else 'No'}")
 
-                # Subir comprobante
                 comprobante = st.file_uploader(
-                    f"📎 Subir comprobante (Pedido {row['pedido']})", 
-                    type=["pdf", "jpg", "png"], 
+                    f"📎 Subir comprobante (Pedido {row['pedido']})",
+                    type=["pdf", "jpg", "png"],
                     key=f"comp_{row['pedido']}"
                 )
-                
+
                 if comprobante:
                     path = subir_comprobante(comprobante, row['pedido'])
                     if path:
@@ -174,11 +179,10 @@ with tabs[1]:
                             "fecha_pago_est": row['fecha_pago_est'].isoformat() if isinstance(row['fecha_pago_est'], pd.Timestamp) else None,
                             "fecha_pago_max": row['fecha_pago_max'].isoformat() if isinstance(row['fecha_pago_max'], pd.Timestamp) else None
                         }).eq("id", row["id"]).execute()
-                        
+
                         st.success("📎 Comprobante cargado y factura marcada como pagada")
                         st.rerun()
 
-                # Mostrar link si ya existe comprobante
                 if row.get("comprobante_url"):
                     url = link_comprobante(row["comprobante_url"])
                     if url:
@@ -202,7 +206,6 @@ with tabs[2]:
         col2.metric("💰 Total Comisiones", f"${total_comisiones:,.2f}")
         col3.metric("✅ Total Pagado", f"${total_pagado:,.2f}")
 
-        # Ranking clientes
         st.subheader("🏆 Ranking de Clientes")
         ranking = df.groupby("cliente")["valor_factura"].sum().reset_index().sort_values(by="valor_factura", ascending=False)
         for _, row in ranking.iterrows():
