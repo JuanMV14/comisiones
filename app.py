@@ -132,6 +132,7 @@ with tabs[0]:
 with tabs[1]:
     st.header("📑 Facturas registradas")
     df = cargar_datos()
+    
     if df.empty:
         st.info("No hay facturas registradas todavía.")
     else:
@@ -140,17 +141,34 @@ with tabs[1]:
                 st.subheader(f"🧾 Pedido: {row['pedido']} - Cliente: {row['cliente']}")
                 st.write(f"💵 Valor: ${row['valor_factura']:,.2f}")
                 st.write(f"💰 Comisión: ${row.get('valor_comision', 0):,.2f}")
-                st.write(f"📅 Fecha Factura: {row['fecha_factura'].date() if pd.notna(row['fecha_factura']) else '-'}")
-                st.write(f"📅 Fecha Estimada Pago: {row['fecha_pago_est'].date() if pd.notna(row.get('fecha_pago_est')) else '-'}")
-                st.write(f"📅 Fecha Máxima Pago: {row['fecha_pago_max'].date() if pd.notna(row.get('fecha_pago_max')) else '-'}")
+
+                # Fechas de factura y pago
+                fecha_factura = row['fecha_factura'].date() if isinstance(row['fecha_factura'], pd.Timestamp) else '-'
+                fecha_pago_est = row['fecha_pago_est'].date() if isinstance(row['fecha_pago_est'], pd.Timestamp) else '-'
+                fecha_pago_max = row['fecha_pago_max'].date() if isinstance(row['fecha_pago_max'], pd.Timestamp) else '-'
+
+                st.write(f"📅 Fecha Factura: {fecha_factura}")
+                st.write(f"📅 Fecha Estimada Pago: {fecha_pago_est}")
+                st.write(f"📅 Fecha Máxima Pago: {fecha_pago_max}")
                 st.write(f"✅ Pagado: {'Sí' if row['pagado'] else 'No'}")
 
                 # Subir comprobante
-                comprobante = st.file_uploader(f"📎 Subir comprobante (Pedido {row['pedido']})", type=["pdf", "jpg", "png"], key=f"comp_{row['pedido']}")
+                comprobante = st.file_uploader(
+                    f"📎 Subir comprobante (Pedido {row['pedido']})", 
+                    type=["pdf", "jpg", "png"], 
+                    key=f"comp_{row['pedido']}"
+                )
+                
                 if comprobante:
                     path = subir_comprobante(comprobante, row['pedido'])
                     if path:
-                        supabase.table("comisiones").update({"comprobante_url": path, "pagado": True}).eq("id", row["id"]).execute()
+                        supabase.table("comisiones").update({
+                            "comprobante_url": path,
+                            "pagado": True,
+                            "fecha_pago_est": row['fecha_pago_est'].isoformat() if isinstance(row['fecha_pago_est'], pd.Timestamp) else None,
+                            "fecha_pago_max": row['fecha_pago_max'].isoformat() if isinstance(row['fecha_pago_max'], pd.Timestamp) else None
+                        }).eq("id", row["id"]).execute()
+                        
                         st.success("📎 Comprobante cargado y factura marcada como pagada")
                         st.rerun()
 
