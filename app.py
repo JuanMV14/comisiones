@@ -207,23 +207,36 @@ with tabs[2]:
 with tabs[3]:
     st.header("📈 Dashboard de Comisiones")
     df = cargar_datos()
+
     if df.empty:
         st.info("No hay datos para mostrar.")
     else:
+        # Filtrar por mes seleccionado
+        if st.session_state["mes_global"] != "Todos":
+            df = df[df["mes_factura"] == st.session_state["mes_global"]]
+
+        # Totales
         total_facturado = df["valor"].sum()
         total_comisiones = df.get("comision", pd.Series([0])).sum()
         total_pagado = df[df["pagado"]]["valor"].sum()
 
+        # Mostrar métricas
         col1, col2, col3 = st.columns(3)
         col1.metric("💵 Total Facturado", f"${total_facturado:,.2f}")
         col2.metric("💰 Total Comisiones", f"${total_comisiones:,.2f}")
         col3.metric("✅ Total Pagado", f"${total_pagado:,.2f}")
 
+        # Ranking de clientes del mes
         st.subheader("🏆 Ranking de Clientes")
-        ranking = df.groupby("cliente")["valor"].sum().reset_index().sort_values(by="valor", ascending=False)
-        for _, row in ranking.iterrows():
-            st.write(f"**{row['cliente']}** - 💵 ${row['valor']:,.2f}")
-            st.progress(min(1.0, row["valor"] / total_facturado))
+        if not df.empty:
+            ranking = df.groupby("cliente")["valor"].sum().reset_index().sort_values(by="valor", ascending=False)
+            for _, row in ranking.iterrows():
+                st.write(f"**{row['cliente']}** - 💵 ${row['valor']:,.2f}")
+                # barra de progreso proporcional al total facturado del mes
+                st.progress(min(1.0, row["valor"] / total_facturado) if total_facturado else 0)
+        else:
+            st.info("No hay ventas registradas en este mes.")
+
 
 # ========================
 # TAB 5 - Alertas
