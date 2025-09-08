@@ -130,7 +130,7 @@ with tabs[0]:
     with st.form("form_venta"):
         pedido = st.text_input("Número de Pedido")
         cliente = st.text_input("Cliente")
-        referencia = st.text_input("Referencia")
+        factura = st.text_input("Factura")
         valor = st.number_input("Valor Factura", min_value=0.0, step=1000.0)
         comision = st.number_input("Porcentaje Comisión (%)", min_value=0.0, max_value=100.0, step=0.5)
         fecha_factura = st.date_input("Fecha de Factura", value=date.today())
@@ -149,7 +149,7 @@ with tabs[0]:
             data = {
                 "pedido": pedido,
                 "cliente": cliente,
-                "referencia": referencia,
+                "factura": factura,
                 "valor": valor,
                 "comision": comision,
                 "fecha": datetime.now().isoformat(),
