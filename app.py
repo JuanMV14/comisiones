@@ -52,8 +52,8 @@ def cargar_datos():
         # Normalizar nombres viejos -> usados en la app
         if "valor" in df.columns and "valor_factura" not in df.columns:
             df.rename(columns={"valor": "valor_factura"}, inplace=True)
-        if "comision" in df.columns and "valor_comision" not in df.columns:
-            df.rename(columns={"comision": "valor_comision"}, inplace=True)
+        if "comision" in df.columns and "comision" not in df.columns:
+            df.rename(columns={"comision": "comision"}, inplace=True)
 
         # Forzar que siempre exista la columna referencia
         if "referencia" not in df.columns:
@@ -139,7 +139,7 @@ with tabs[0]:
 
     if submit:
         try:
-            valor_comision = valor_factura * (comision / 100)
+            comision = valor_factura * (comision / 100)
             dias_pago = 60 if condicion_especial == "Sí" else 35
             dias_max = 60 if condicion_especial == "Sí" else 45
 
@@ -151,7 +151,7 @@ with tabs[0]:
                 "cliente": cliente,
                 "referencia": referencia,
                 "valor_factura": valor_factura,
-                "valor_comision": valor_comision,
+                "comision": comision,
                 "fecha": datetime.now().isoformat(),
                 "fecha_factura": fecha_factura.isoformat(),
                 "fecha_pago_est": fecha_pago_est.isoformat(),
@@ -229,7 +229,7 @@ with tabs[3]:
         st.info("No hay datos para mostrar.")
     else:
         total_facturado = df["valor_factura"].sum()
-        total_comisiones = df.get("valor_comision", pd.Series([0])).sum()
+        total_comisiones = df.get("comision", pd.Series([0])).sum()
         total_pagado = df[df["pagado"]]["valor_factura"].sum()
 
         col1, col2, col3 = st.columns(3)
@@ -303,7 +303,7 @@ with tabs[5]:
             valor_factura = st.number_input("Valor Factura", value=float(factura.get("valor_factura", 0.0)))
             porcentaje = st.number_input(
                 "Porcentaje Comisión (%)",
-                value=float(factura.get("valor_comision", 0) / valor_factura * 100 if valor_factura else 0),
+                value=float(factura.get("comision", 0) / valor_factura * 100 if valor_factura else 0),
                 min_value=0.0, max_value=100.0, step=0.1
             )
             pagado = st.selectbox("Pagado?", ["No", "Sí"], index=0 if not factura.get("pagado", False) else 1)
@@ -320,7 +320,7 @@ with tabs[5]:
                 if "id" not in factura or pd.isna(factura["id"]):
                     st.error("⚠️ No se encontró un ID válido para esta factura; no se puede actualizar en Supabase.")
                 else:
-                    valor_comision = valor_factura * (porcentaje / 100)
+                    comision = valor_factura * (porcentaje / 100)
 
                     # Preparar campo comprobante_url actual (mantener si no suben archivo)
                     comprobante_url = factura.get("comprobante_url", "")
@@ -371,7 +371,7 @@ with tabs[5]:
                     try:
                         supabase.table("comisiones").update({
                             "valor_factura": valor_factura,
-                            "valor_comision": valor_comision,
+                            "comision": comision,
                             "pagado": (pagado == "Sí"),
                             "fecha_pago_real": fecha_pago_real.isoformat() if pagado == "Sí" else None,
                             "comprobante_url": comprobante_url if comprobante_url else None,
