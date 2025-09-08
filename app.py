@@ -283,7 +283,9 @@ with tabs[5]:
             st.info("No hay facturas en este mes para editar.")
         else:
             # Usar combo que identifique unívocamente: mostramos "pedido - cliente" pero guardamos índice real
-            opciones = df_filtrado.apply(lambda r: f\"{r['pedido']} - {r.get('cliente','')} (id:{r['id']})\", axis=1).tolist()
+               opciones = df_filtrado.apply(
+                    lambda r: f"{r['pedido']} - {r.get('cliente','')} (id:{r['id']})", axis=1
+                ).tolist()
             seleccion = st.selectbox("Selecciona la factura a editar", opciones)
             # extraer id de la opción seleccionada
             selected_id = opciones[opciones.index(seleccion)].split("(id:")[-1].rstrip(")")
