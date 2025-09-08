@@ -50,8 +50,8 @@ def cargar_datos():
             df["id"] = None
 
         # Normalizar nombres viejos -> usados en la app
-        if "valor" in df.columns and "valor_factura" not in df.columns:
-            df.rename(columns={"valor": "valor_factura"}, inplace=True)
+        if "valor" in df.columns and "valor" not in df.columns:
+            df.rename(columns={"valor": "valor"}, inplace=True)
         if "comision" in df.columns and "comision" not in df.columns:
             df.rename(columns={"comision": "comision"}, inplace=True)
 
@@ -131,7 +131,7 @@ with tabs[0]:
         pedido = st.text_input("Número de Pedido")
         cliente = st.text_input("Cliente")
         referencia = st.text_input("Referencia")
-        valor_factura = st.number_input("Valor Factura", min_value=0.0, step=1000.0)
+        valor = st.number_input("Valor Factura", min_value=0.0, step=1000.0)
         comision = st.number_input("Porcentaje Comisión (%)", min_value=0.0, max_value=100.0, step=0.5)
         fecha_factura = st.date_input("Fecha de Factura", value=date.today())
         condicion_especial = st.selectbox("Condición Especial?", ["No", "Sí"])
@@ -139,7 +139,7 @@ with tabs[0]:
 
     if submit:
         try:
-            comision = valor_factura * (comision / 100)
+            comision = valor * (comision / 100)
             dias_pago = 60 if condicion_especial == "Sí" else 35
             dias_max = 60 if condicion_especial == "Sí" else 45
 
@@ -150,7 +150,7 @@ with tabs[0]:
                 "pedido": pedido,
                 "cliente": cliente,
                 "referencia": referencia,
-                "valor_factura": valor_factura,
+                "valor": valor,
                 "comision": comision,
                 "fecha": datetime.now().isoformat(),
                 "fecha_factura": fecha_factura.isoformat(),
@@ -185,7 +185,7 @@ with tabs[1]:
                 st.write(f"**Pedido:** {row.get('pedido', '')}")
                 st.write(f"**Cliente:** {row.get('cliente', '')}")
                 st.write(f"**Referencia:** {row.get('referencia', 'N/A') if row.get('referencia') else 'N/A'}")
-                st.write(f"**Valor Factura:** ${row.get('valor_factura', 0):,.2f}")
+                st.write(f"**Valor Factura:** ${row.get('valor', 0):,.2f}")
                 st.write(f"**Fecha Factura:** {row['fecha_factura'].date() if pd.notna(row.get('fecha_factura')) else 'N/A'}")
                 st.write(f"**Fecha Máxima Pago:** {row['fecha_pago_max'].date() if pd.notna(row.get('fecha_pago_max')) else 'N/A'}")
                 st.divider()
@@ -210,7 +210,7 @@ with tabs[2]:
                 st.write(f"**Pedido:** {row.get('pedido', '')}")
                 st.write(f"**Cliente:** {row.get('cliente', '')}")
                 st.write(f"**Referencia:** {row.get('referencia', 'N/A') if row.get('referencia') else 'N/A'}")
-                st.write(f"**Valor Factura:** ${row.get('valor_factura', 0):,.2f}")
+                st.write(f"**Valor Factura:** ${row.get('valor', 0):,.2f}")
                 st.write(f"**Fecha Factura:** {row['fecha_factura'].date() if pd.notna(row.get('fecha_factura')) else 'N/A'}")
                 st.write(f"**Fecha Pago Real:** {row['fecha_pago_real'].date() if pd.notna(row.get('fecha_pago_real')) else 'N/A'}")
                 # Mostrar comprobante clickeable si existe
@@ -228,9 +228,9 @@ with tabs[3]:
     if df.empty:
         st.info("No hay datos para mostrar.")
     else:
-        total_facturado = df["valor_factura"].sum()
+        total_facturado = df["valor"].sum()
         total_comisiones = df.get("comision", pd.Series([0])).sum()
-        total_pagado = df[df["pagado"]]["valor_factura"].sum()
+        total_pagado = df[df["pagado"]]["valor"].sum()
 
         col1, col2, col3 = st.columns(3)
         col1.metric("💵 Total Facturado", f"${total_facturado:,.2f}")
@@ -238,10 +238,10 @@ with tabs[3]:
         col3.metric("✅ Total Pagado", f"${total_pagado:,.2f}")
 
         st.subheader("🏆 Ranking de Clientes")
-        ranking = df.groupby("cliente")["valor_factura"].sum().reset_index().sort_values(by="valor_factura", ascending=False)
+        ranking = df.groupby("cliente")["valor"].sum().reset_index().sort_values(by="valor", ascending=False)
         for _, row in ranking.iterrows():
-            st.write(f"**{row['cliente']}** - 💵 ${row['valor_factura']:,.2f}")
-            st.progress(min(1.0, row["valor_factura"] / total_facturado))
+            st.write(f"**{row['cliente']}** - 💵 ${row['valor']:,.2f}")
+            st.progress(min(1.0, row["valor"] / total_facturado))
 
 # ========================
 # TAB 5 - Alertas
@@ -300,10 +300,10 @@ with tabs[5]:
                 factura = df_filtrado[df_filtrado["pedido"].astype(str) == pedido_sel].iloc[0]
 
             st.write(f"Cliente: {factura.get('cliente','')}")
-            valor_factura = st.number_input("Valor Factura", value=float(factura.get("valor_factura", 0.0)))
+            valor = st.number_input("Valor Factura", value=float(factura.get("valor", 0.0)))
             porcentaje = st.number_input(
                 "Porcentaje Comisión (%)",
-                value=float(factura.get("comision", 0) / valor_factura * 100 if valor_factura else 0),
+                value=float(factura.get("comision", 0) / valor * 100 if valor else 0),
                 min_value=0.0, max_value=100.0, step=0.1
             )
             pagado = st.selectbox("Pagado?", ["No", "Sí"], index=0 if not factura.get("pagado", False) else 1)
@@ -320,7 +320,7 @@ with tabs[5]:
                 if "id" not in factura or pd.isna(factura["id"]):
                     st.error("⚠️ No se encontró un ID válido para esta factura; no se puede actualizar en Supabase.")
                 else:
-                    comision = valor_factura * (porcentaje / 100)
+                    comision = valor * (porcentaje / 100)
 
                     # Preparar campo comprobante_url actual (mantener si no suben archivo)
                     comprobante_url = factura.get("comprobante_url", "")
@@ -370,7 +370,7 @@ with tabs[5]:
                     # Actualizar en Supabase
                     try:
                         supabase.table("comisiones").update({
-                            "valor_factura": valor_factura,
+                            "valor": valor,
                             "comision": comision,
                             "pagado": (pagado == "Sí"),
                             "fecha_pago_real": fecha_pago_real.isoformat() if pagado == "Sí" else None,
