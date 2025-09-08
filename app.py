@@ -125,6 +125,7 @@ with tabs[0]:
             fecha_pago_est = fecha_factura + timedelta(days=dias_pago)
             fecha_pago_max = fecha_factura + timedelta(days=dias_max)
 
+            # ✅ No incluimos 'id', dejar que la base de datos genere el valor automáticamente
             data = {
                 "pedido": pedido,
                 "cliente": cliente,
@@ -138,11 +139,15 @@ with tabs[0]:
                 "condicion_especial": (condicion_especial == "Sí"),
                 "pagado": False,
             }
+
+            # Insertar en Supabase
             supabase.table("comisiones").insert(data).execute()
             st.success("✅ Venta registrada correctamente")
             st.rerun()
+
         except Exception as e:
             st.error(f"❌ Error al registrar la venta: {e}")
+
 
 # ========================
 # TAB 2 - Facturas Pendientes
