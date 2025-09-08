@@ -272,7 +272,7 @@ with tabs[5]:
     if df.empty:
         st.info("No hay facturas registradas todavía.")
     else:
-        # Filtrar solo pendientes o pagadas (aunque esto incluye todo booleano)
+        # Filtrar solo pendientes o pagadas (booleano)
         df_filtrado = df[df["pagado"].isin([True, False])]
 
         # Filtrar por mes global si aplica
@@ -290,12 +290,11 @@ with tabs[5]:
             seleccion = st.selectbox("Selecciona la factura a editar", opciones)
             # extraer id de la opción seleccionada
             selected_id = opciones[opciones.index(seleccion)].split("(id:")[-1].rstrip(")")
-            # obtener la fila por id (aseguramos conversión a int cuando sea posible)
+            # obtener la fila por id
             try:
                 id_val = int(selected_id)
                 factura = df_filtrado[df_filtrado["id"] == id_val].iloc[0]
             except Exception:
-                # fallback por pedido (si id no convertible)
                 pedido_sel = seleccion.split(" - ")[0]
                 factura = df_filtrado[df_filtrado["pedido"].astype(str) == pedido_sel].iloc[0]
 
@@ -316,27 +315,21 @@ with tabs[5]:
             comprobante_file = st.file_uploader("Subir comprobante de pago (PDF/JPG/PNG)", type=["pdf", "jpg", "png"])
 
             if st.button("💾 Guardar cambios"):
-                # Validar id antes de actualizar
                 if "id" not in factura or pd.isna(factura["id"]):
                     st.error("⚠️ No se encontró un ID válido para esta factura; no se puede actualizar en Supabase.")
                 else:
                     comision = valor * (porcentaje / 100)
 
-                    # Preparar campo comprobante_url actual (mantener si no suben archivo)
                     comprobante_url = factura.get("comprobante_url", "")
                     comprobante_file_name = factura.get("comprobante_file", "")
 
-                    # Si subieron archivo, subir a Storage y obtener la URL pública
                     if comprobante_file is not None:
-                        # Leer bytes
                         try:
                             file_bytes = comprobante_file.read()
                         except Exception:
-                            # Fallback
                             file_bytes = comprobante_file.getbuffer()
 
-                        # Usar el campo 'factura' para renombrar; si no existe, usar 'pedido' o id
-                        factura_num = None
+                        # Renombrar con número de factura o pedido o id
                         if "factura" in factura and pd.notna(factura.get("factura")) and str(factura.get("factura")).strip() != "":
                             factura_num = str(factura.get("factura")).strip()
                         elif pd.notna(factura.get("pedido")) and str(factura.get("pedido")).strip() != "":
@@ -348,24 +341,21 @@ with tabs[5]:
                         file_name = f"{factura_num}.{extension}"
                         file_path = f"{BUCKET}/{file_name}"
 
-                        # Intentar subir (varias firmas posibles)
                         try:
-                            supabase.storage.from_(BUCKET).upload(file_path, file_bytes, {"content-type": comprobante_file.type}, upsert=True)
-                        except TypeError:
-                            # Si la firma no acepta upsert en kwargs
-                            try:
-                                supabase.storage.from_(BUCKET).upload(file_path, file_bytes, {"upsert": True})
-                            except Exception as e:
-                                st.error(f"❌ Error subiendo archivo: {e}")
-                                file_path = None
-
-                        if file_path:
+                            # upload con overwrite activado
+                            supabase.storage.from_(BUCKET).upload(
+                                file_path,
+                                file_bytes,
+                                {"content-type": comprobante_file.type, "x-upsert": "true"}
+                            )
                             public_url = safe_get_public_url(BUCKET, file_path)
                             if public_url:
                                 comprobante_url = public_url
                                 comprobante_file_name = file_name
                             else:
                                 st.warning("⚠️ No se pudo obtener URL pública del archivo (verifica permisos del bucket).")
+                        except Exception as e:
+                            st.error(f"❌ Error subiendo archivo: {e}")
 
                     # Actualizar en Supabase
                     try:
