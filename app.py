@@ -152,7 +152,6 @@ with tabs[0]:
                 "factura": factura,
                 "valor": valor,
                 "comision": comision,
-                "fecha": datetime.now().isoformat(),
                 "fecha_factura": fecha_factura.isoformat(),
                 "fecha_pago_est": fecha_pago_est.isoformat(),
                 "fecha_pago_max": fecha_pago_max.isoformat(),
