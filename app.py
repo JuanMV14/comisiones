@@ -209,7 +209,7 @@ with tabs[2]:
             for _, row in df_pagadas.iterrows():
                 st.write(f"**Pedido:** {row.get('pedido', '')}")
                 st.write(f"**Cliente:** {row.get('cliente', '')}")
-                st.write(f"**Referencia:** {row.get('referencia', 'N/A') if row.get('referencia') else 'N/A'}")
+                st.write(f"**Factura:** {row.get('factura', 'N/A') if row.get('factura') else 'N/A'}")
                 st.write(f"**Valor Factura:** ${row.get('valor', 0):,.2f}")
                 st.write(f"**Fecha Factura:** {row['fecha_factura'].date() if pd.notna(row.get('fecha_factura')) else 'N/A'}")
                 st.write(f"**Fecha Pago Real:** {row['fecha_pago_real'].date() if pd.notna(row.get('fecha_pago_real')) else 'N/A'}")
