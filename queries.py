@@ -1,57 +1,28 @@
-import os
-from supabase import create_client, Client
-from dotenv import load_dotenv
-from datetime import datetime
-
-# ========================
-# Conexión a Supabase
-# ========================
-load_dotenv()
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-TABLE = "comisiones"
+import pandas as pd
+from utils import supabase
 
 
-# ========================
-# Consultas
-# ========================
 def get_all_comisiones():
     try:
-        response = supabase.table(TABLE).select("*").execute()
-        return response.data if response.data else []
+        response = supabase.table("comisiones").select("*").execute()
+        data = response.data
+        if data:
+            return pd.DataFrame(data)
+        return pd.DataFrame()
     except Exception as e:
-        print(f"❌ Error al obtener comisiones: {e}")
-        return []
+        print("Error obteniendo comisiones:", e)
+        return pd.DataFrame()
 
 
-def insert_comision(pedido, cliente, factura, valor, porcentaje,
-                    comision, fecha_factura, tiene_descuento_factura):
+def insert_comision(data: dict):
     try:
-        response = supabase.table(TABLE).insert({
-            "pedido": pedido,
-            "cliente": cliente,
-            "factura": factura,
-            "valor": valor,
-            "porcentaje": porcentaje,
-            "comision": comision,
-            "fecha_factura": fecha_factura.isoformat(),
-            "pagado": False,
-            "tiene_descuento_factura": tiene_descuento_factura,
-            "created_at": datetime.now().isoformat()
-        }).execute()
-        return response.data
+        supabase.table("comisiones").insert(data).execute()
     except Exception as e:
-        print(f"❌ Error al insertar comisión: {e}")
-        return None
+        print("Error insertando comision:", e)
 
 
-def update_comision(comision_id, updates: dict):
+def update_comision(factura_id: int, data: dict):
     try:
-        response = supabase.table(TABLE).update(updates).eq("id", comision_id).execute()
-        return response.data
+        supabase.table("comisiones").update(data).eq("id", factura_id).execute()
     except Exception as e:
-        print(f"❌ Error al actualizar comisión {comision_id}: {e}")
-        return None
+        print("Error actualizando comision:", e)
