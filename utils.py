@@ -82,3 +82,19 @@ def render_table(df: pd.DataFrame, supabase, editable=False):
             st.success("✅ Cambios guardados correctamente")
     else:
         st.dataframe(df, use_container_width=True)
+
+
+# ========================
+# Dashboard
+# ========================
+def mostrar_dashboard(facturas_pend, facturas_pag):
+    total_pendientes = facturas_pend["valor"].sum() if not facturas_pend.empty else 0
+    total_pagadas = facturas_pag["valor"].sum() if not facturas_pag.empty else 0
+    comisiones_pend = facturas_pend["comision"].sum() if not facturas_pend.empty else 0
+    comisiones_pag = facturas_pag["comision"].sum() if not facturas_pag.empty else 0
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("💵 Pendiente por Cobrar", f"${total_pendientes:,.0f}")
+    col2.metric("✅ Cobrado", f"${total_pagadas:,.0f}")
+    col3.metric("🕒 Comisión Pendiente", f"${comisiones_pend:,.0f}")
+    col4.metric("🏦 Comisión Pagada", f"${comisiones_pag:,.0f}")
