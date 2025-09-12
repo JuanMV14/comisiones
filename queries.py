@@ -1,29 +1,21 @@
-import pandas as pd
+from supabase import create_client, Client
+import os
+from dotenv import load_dotenv
 
-# ========================
-# Obtener facturas
-# ========================
-def get_facturas_pendientes(supabase):
-    response = supabase.table("comisiones").select("*").eq("pagado", False).execute()
-    data = response.data or []
-    return pd.DataFrame(data)
+load_dotenv()
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-
-def get_facturas_pagadas(supabase):
-    response = supabase.table("comisiones").select("*").eq("pagado", True).execute()
-    data = response.data or []
-    return pd.DataFrame(data)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
-# ========================
-# Insertar nueva factura
-# ========================
-def insert_factura(supabase, data):
-    supabase.table("comisiones").insert(data).execute()
+def get_all_comisiones():
+    return supabase.table("comisiones").select("*").execute()
 
 
-# ========================
-# Actualizar factura
-# ========================
-def update_factura(supabase, factura_id, data):
-    supabase.table("comisiones").update(data).eq("id", factura_id).execute()
+def insert_comision(data: dict):
+    return supabase.table("comisiones").insert(data).execute()
+
+
+def update_comision(id_val: int, data: dict):
+    return supabase.table("comisiones").update(data).eq("id", id_val).execute()
