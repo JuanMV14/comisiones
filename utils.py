@@ -1,26 +1,84 @@
+import streamlit as st
+import pandas as pd
 from datetime import datetime
 
-def safe_get_public_url(supabase, bucket: str, path: str):
-    """Obtiene la URL pública de un archivo en Supabase Storage."""
-    try:
-        res = supabase.storage.from_(bucket).get_public_url(path)
-        if isinstance(res, dict):
-            for key in ("publicUrl", "public_url", "publicURL", "publicurl", "url"):
-                if key in res:
-                    return res[key]
-            return str(res)
-        return res
-    except Exception:
-        return None
+from queries import update_factura
 
-def calcular_comision(valor, porcentaje):
-    """Calcula la comisión según valor y porcentaje."""
-    return valor * (porcentaje / 100)
+# ========================
+# Cálculo de comisión
+# ========================
+def calcular_comision(
+    valor_base,
+    porcentaje,
+    fecha_factura,
+    fecha_pago,
+    tiene_descuento,
+    porcentaje_descuento=15,
+    rango_ini=35,
+    rango_fin=45,
+):
+    comision_inicial = valor_base * (porcentaje / 100)
 
-def format_currency(value):
-    """Formatea un número a pesos colombianos con separador de miles."""
-    return f"${value:,.2f}"
+    if tiene_descuento:
+        # Cliente con descuento a pie de factura → comisión directa
+        return round(comision_inicial, 2)
 
-def now_iso():
-    """Devuelve la fecha y hora actual en formato ISO."""
-    return datetime.now().isoformat()
+    dias = (fecha_pago - fecha_factura).days
+    if rango_ini <= dias <= rango_fin:
+        valor_ajustado = valor_base * (1 - porcentaje_descuento / 100)
+    elif dias > rango_fin:
+        valor_ajustado = valor_base
+    else:
+        valor_ajustado = 0
+
+    return round(comision_inicial * (valor_ajustado / valor_base), 2)
+
+
+# ========================
+# Renderizar tablas
+# ========================
+def render_table(df: pd.DataFrame, supabase, editable=False):
+    if editable:
+        edited_df = st.data_editor(
+            df,
+            num_rows="dynamic",
+            use_container_width=True,
+            key=f"editor_{df.shape[0]}",
+        )
+
+        if st.button("💾 Guardar cambios", key=f"save_{df.shape[0]}"):
+            for i, row in edited_df.iterrows():
+                try:
+                    fecha_factura = (
+                        datetime.strptime(row["fecha_factura"], "%Y-%m-%d").date()
+                        if isinstance(row["fecha_factura"], str)
+                        else row["fecha_factura"]
+                    )
+                    fecha_pago_real = (
+                        datetime.strptime(row["fecha_pago_real"], "%Y-%m-%d").date()
+                        if isinstance(row["fecha_pago_real"], str)
+                        else row["fecha_pago_real"]
+                    )
+
+                    comision = calcular_comision(
+                        row["valor_base"],
+                        row["porcentaje"],
+                        fecha_factura,
+                        fecha_pago_real or fecha_factura,
+                        row["tiene_descuento_factura"],
+                        row.get("porcentaje_descuento", 15),
+                        row.get("rango_descuento_ini", 35),
+                        row.get("rango_descuento_fin", 45),
+                    )
+
+                    row_dict = row.to_dict()
+                    row_dict["comision"] = comision
+
+                    update_factura(supabase, row["id"], row_dict)
+
+                except Exception as e:
+                    st.error(f"Error al guardar factura {row['id']}: {e}")
+
+            st.success("✅ Cambios guardados correctamente")
+    else:
+        st.dataframe(df, use_container_width=True)
