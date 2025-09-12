@@ -1,100 +1,57 @@
-import streamlit as st
 import pandas as pd
-from datetime import datetime
-
-from queries import update_factura
+from datetime import datetime, timedelta
 
 # ========================
-# Cálculo de comisión
+# Funciones auxiliares
 # ========================
-def calcular_comision(
-    valor_base,
-    porcentaje,
-    fecha_factura,
-    fecha_pago,
-    tiene_descuento,
-    porcentaje_descuento=15,
-    rango_ini=35,
-    rango_fin=45,
-):
-    comision_inicial = valor_base * (porcentaje / 100)
+
+def process_dataframe(data):
+    if not data or not data.data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(data.data)
+
+    if "id" not in df.columns:
+        df["id"] = None
+
+    for col in ["fecha_factura", "fecha_pago_est", "fecha_pago_max", "fecha_pago_real"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+
+    if "fecha_factura" in df.columns:
+        df["mes_factura"] = df["fecha_factura"].dt.to_period("M").astype(str)
+    else:
+        df["mes_factura"] = None
+
+    return df
+
+
+def calcular_fechas_pago(fecha_factura, condicion_especial):
+    dias_pago = 60 if condicion_especial else 35
+    dias_max = 60 if condicion_especial else 45
+
+    fecha_pago_est = fecha_factura + timedelta(days=dias_pago)
+    fecha_pago_max = fecha_factura + timedelta(days=dias_max)
+
+    return fecha_pago_est, fecha_pago_max
+
+
+def calcular_comision(valor, porcentaje, tiene_descuento, fecha_pago_real=None, fecha_factura=None, devoluciones=0):
+    """
+    Regla de negocio:
+    - Si tiene descuento a pie de factura → comisión normal sobre valor - devoluciones
+    - Si NO tiene descuento:
+        - Pago entre 35 y 45 días → aplica 15% descuento adicional
+        - Pago desde día 46 en adelante → sin descuento
+    """
+    base = max(valor - devoluciones, 0)
 
     if tiene_descuento:
-        # Cliente con descuento a pie de factura → comisión directa
-        return round(comision_inicial, 2)
+        return base * (porcentaje / 100)
 
-    dias = (fecha_pago - fecha_factura).days
-    if rango_ini <= dias <= rango_fin:
-        valor_ajustado = valor_base * (1 - porcentaje_descuento / 100)
-    elif dias > rango_fin:
-        valor_ajustado = valor_base
-    else:
-        valor_ajustado = 0
-
-    return round(comision_inicial * (valor_ajustado / valor_base), 2)
-
-
-# ========================
-# Renderizar tablas
-# ========================
-def render_table(df: pd.DataFrame, supabase, editable=False):
-    if editable:
-        edited_df = st.data_editor(
-            df,
-            num_rows="dynamic",
-            use_container_width=True,
-            key=f"editor_{df.shape[0]}",
-        )
-
-        if st.button("💾 Guardar cambios", key=f"save_{df.shape[0]}"):
-            for i, row in edited_df.iterrows():
-                try:
-                    fecha_factura = (
-                        datetime.strptime(row["fecha_factura"], "%Y-%m-%d").date()
-                        if isinstance(row["fecha_factura"], str)
-                        else row["fecha_factura"]
-                    )
-                    fecha_pago_real = (
-                        datetime.strptime(row["fecha_pago_real"], "%Y-%m-%d").date()
-                        if isinstance(row["fecha_pago_real"], str)
-                        else row["fecha_pago_real"]
-                    )
-
-                    comision = calcular_comision(
-                        row["valor_base"],
-                        row["porcentaje"],
-                        fecha_factura,
-                        fecha_pago_real or fecha_factura,
-                        row["tiene_descuento_factura"],
-                        row.get("porcentaje_descuento", 15),
-                        row.get("rango_descuento_ini", 35),
-                        row.get("rango_descuento_fin", 45),
-                    )
-
-                    row_dict = row.to_dict()
-                    row_dict["comision"] = comision
-
-                    update_factura(supabase, row["id"], row_dict)
-
-                except Exception as e:
-                    st.error(f"Error al guardar factura {row['id']}: {e}")
-
-            st.success("✅ Cambios guardados correctamente")
-    else:
-        st.dataframe(df, use_container_width=True)
-
-
-# ========================
-# Dashboard
-# ========================
-def mostrar_dashboard(facturas_pend, facturas_pag):
-    total_pendientes = facturas_pend["valor"].sum() if not facturas_pend.empty else 0
-    total_pagadas = facturas_pag["valor"].sum() if not facturas_pag.empty else 0
-    comisiones_pend = facturas_pend["comision"].sum() if not facturas_pend.empty else 0
-    comisiones_pag = facturas_pag["comision"].sum() if not facturas_pag.empty else 0
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("💵 Pendiente por Cobrar", f"${total_pendientes:,.0f}")
-    col2.metric("✅ Cobrado", f"${total_pagadas:,.0f}")
-    col3.metric("🕒 Comisión Pendiente", f"${comisiones_pend:,.0f}")
-    col4.metric("🏦 Comisión Pagada", f"${comisiones_pag:,.0f}")
+    # Cliente SIN descuento
+    if fecha_pago_real and fecha_factura:
+        dias = (fecha_pago_real - fecha_factura).days
+        if 35 <= dias <= 45:
+            base = base * 0.85  # descuento 15%
+    return base * (porcentaje / 100)
