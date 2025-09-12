@@ -1,31 +1,26 @@
-import os
-from supabase import create_client, Client
-from dotenv import load_dotenv
+from datetime import datetime
 
-load_dotenv()
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-BUCKET = "comprobantes"
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# ==============================================
-# Subir comprobante
-# ==============================================
-def upload_comprobante(file, factura_numero: str) -> str:
+def safe_get_public_url(supabase, bucket: str, path: str):
+    """Obtiene la URL pública de un archivo en Supabase Storage."""
     try:
-        file_path = f"{factura_numero}/{file.name}"
-        supabase.storage.from_(BUCKET).upload(file_path, file.getvalue(), {"upsert": True})
-        return safe_get_public_url(file_path)
-    except Exception as e:
-        raise RuntimeError(f"Error subiendo comprobante: {e}")
-
-# ==============================================
-# Obtener URL pública
-# ==============================================
-def safe_get_public_url(path: str) -> str:
-    try:
-        return supabase.storage.from_(BUCKET).get_public_url(path)
+        res = supabase.storage.from_(bucket).get_public_url(path)
+        if isinstance(res, dict):
+            for key in ("publicUrl", "public_url", "publicURL", "publicurl", "url"):
+                if key in res:
+                    return res[key]
+            return str(res)
+        return res
     except Exception:
-        return ""
+        return None
+
+def calcular_comision(valor, porcentaje):
+    """Calcula la comisión según valor y porcentaje."""
+    return valor * (porcentaje / 100)
+
+def format_currency(value):
+    """Formatea un número a pesos colombianos con separador de miles."""
+    return f"${value:,.2f}"
+
+def now_iso():
+    """Devuelve la fecha y hora actual en formato ISO."""
+    return datetime.now().isoformat()
