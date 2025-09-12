@@ -1,38 +1,26 @@
-from datetime import date
+import os
+from supabase import create_client
+from dotenv import load_dotenv
 
-# ========================
-# Cálculo de días de pago
-# ========================
-def calcular_dias_pago(fecha_factura, fecha_pago):
-    if not fecha_factura or not fecha_pago:
-        return None
-    if isinstance(fecha_factura, str):
-        fecha_factura = date.fromisoformat(fecha_factura)
-    if isinstance(fecha_pago, str):
-        fecha_pago = date.fromisoformat(fecha_pago)
-    return (fecha_pago - fecha_factura).days
+load_dotenv()
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+BUCKET = "comprobantes"
 
-# ========================
-# Cálculo de comisión
-# ========================
-def calcular_comision(valor, porcentaje, tiene_descuento_factura, dias_pago=None):
-    """
-    Regla:
-    - Si tiene descuento a pie de factura → comisión normal sobre valor.
-    - Si NO tiene descuento:
-        - Pago entre 35 y 45 días → aplica 15% de descuento sobre valor.
-        - Pago desde 46 días → comisión sobre el valor pleno.
-    """
-    if dias_pago is None:  # registrar venta (sin fecha de pago aún)
-        base = valor
-    else:
-        if tiene_descuento_factura:
-            base = valor
-        else:
-            if 35 <= dias_pago <= 45:
-                base = valor * 0.85  # descuento 15%
-            else:
-                base = valor
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    return round(base * (porcentaje / 100), 2)
+def upload_file(file, filename: str) -> str:
+    """Sube un archivo al bucket y devuelve la ruta."""
+    try:
+        supabase.storage.from_(BUCKET).upload(filename, file, {"upsert": True})
+        return filename
+    except Exception as e:
+        raise Exception(f"Error subiendo archivo: {e}")
+
+def safe_get_public_url(filename: str) -> str:
+    """Devuelve la URL pública de un archivo en Supabase Storage."""
+    try:
+        return supabase.storage.from_(BUCKET).get_public_url(filename)
+    except Exception as e:
+        return f"Error obteniendo URL pública: {e}"
