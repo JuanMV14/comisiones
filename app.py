@@ -3,7 +3,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import date
-from utils import upload_comprobante, safe_get_public_url, supabase
+from utils import upload_comprobante, safe_get_public_url
+from queries import supabase
 from queries import obtener_facturas, insertar_factura, actualizar_factura, marcar_pagada_con_comprobante
 
 st.set_page_config(page_title="Gestión de Comisiones", layout="wide")
