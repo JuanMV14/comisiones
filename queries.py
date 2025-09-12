@@ -1,72 +1,65 @@
-# queries.py
+import os
 import pandas as pd
-from typing import Dict, Any, Optional
-from datetime import datetime, date
+from supabase import create_client, Client
+from dotenv import load_dotenv
 
-from utils import supabase  # importa el cliente compartido
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 TABLE = "comisiones"
 
+# ==============================================
+# Insertar Factura
+# ==============================================
+def insertar_factura(numero, cliente, valor_neto, fecha_factura, tiene_descuento):
+    data = {
+        "numero": numero,
+        "cliente": cliente,
+        "valor_neto": valor_neto,
+        "fecha_factura": str(fecha_factura),
+        "tiene_descuento": tiene_descuento,
+        "estado": "pendiente",
+        "comision": calcular_comision(valor_neto, tiene_descuento, fecha_factura),
+    }
+    supabase.table(TABLE).insert(data).execute()
 
-def obtener_facturas() -> pd.DataFrame:
-    """
-    Retorna un DataFrame con las filas de la tabla comisiones.
-    En caso de error o sin datos, retorna DataFrame() (vacío).
-    """
-    try:
-        response = supabase.table(TABLE).select("*").execute()
-        data = response.data
-        if not data:
-            return pd.DataFrame()
-        df = pd.DataFrame(data)
+# ==============================================
+# Calcular Comisión
+# ==============================================
+def calcular_comision(valor_neto, tiene_descuento, fecha_factura):
+    # Ejemplo: si tiene descuento no cambia nada,
+    # si no, entonces la lógica de 35-45 días o >46 días
+    # Por simplicidad dejamos 10% de comisión base
+    return valor_neto * 0.10
 
-        # Normalizar columnas de fecha a datetime donde existan
-        for col in ["fecha_factura", "fecha_pago_real", "fecha_pago", "fecha_pago_est", "fecha_pago_max"]:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
-        return df
-    except Exception as e:
-        print("Error obtener_facturas:", e)
-        return pd.DataFrame()
+# ==============================================
+# Obtener todas las facturas
+# ==============================================
+def get_all_facturas():
+    res = supabase.table(TABLE).select("*").execute()
+    if res.data:
+        return pd.DataFrame(res.data)
+    return pd.DataFrame()
 
+# ==============================================
+# Actualizar factura
+# ==============================================
+def update_factura(id_factura, cliente, valor_neto, fecha_factura, tiene_descuento, comprobante_url=None):
+    data = {
+        "cliente": cliente,
+        "valor_neto": valor_neto,
+        "fecha_factura": str(fecha_factura),
+        "tiene_descuento": tiene_descuento,
+    }
+    if comprobante_url:
+        data["comprobante_url"] = comprobante_url
+    supabase.table(TABLE).update(data).eq("id", id_factura).execute()
 
-def insertar_factura(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    Inserta una nueva fila. record es un dict con las claves necesarias.
-    Devuelve la respuesta.data (registro insertado) o None si falla.
-    """
-    try:
-        resp = supabase.table(TABLE).insert(record).execute()
-        return resp.data
-    except Exception as e:
-        print("Error insertar_factura:", e)
-        return None
-
-
-def actualizar_factura(factura_id: int, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    Actualiza la fila por id (actualizaciones parciales).
-    """
-    try:
-        resp = supabase.table(TABLE).update(updates).eq("id", factura_id).execute()
-        return resp.data
-    except Exception as e:
-        print("Error actualizar_factura:", e)
-        return None
-
-
-def marcar_pagada_con_comprobante(factura_id: int, public_url: str) -> Optional[Dict[str, Any]]:
-    """
-    Marca la factura como pagada, pone fecha_pago_real y guarda comprobante_url.
-    """
-    try:
-        updates = {
-            "pagado": True,
-            "fecha_pago_real": datetime.now().isoformat(),
-            "comprobante_url": public_url
-        }
-        resp = supabase.table(TABLE).update(updates).eq("id", factura_id).execute()
-        return resp.data
-    except Exception as e:
-        print("Error marcar_pagada_con_comprobante:", e)
-        return None
+# ==============================================
+# Marcar factura como pagada
+# ==============================================
+def marcar_factura_pagada(id_factura):
+    supabase.table(TABLE).update({"estado": "pagada"}).eq("id", id_factura).execute()
