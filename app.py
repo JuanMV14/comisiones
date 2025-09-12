@@ -154,46 +154,127 @@ def mostrar_dashboard(df):
     )
     st.plotly_chart(fig_line, use_container_width=True)
 
-# ==============================================
-# Alertas
-# ==============================================
-def mostrar_alertas(df):
-    st.header("⚠️ Alertas")
-    hoy = datetime.now().date()
-    df["fecha_factura"] = pd.to_datetime(df["fecha_factura"]).dt.date
-    vencidas = df[(df["estado"] == "pendiente") & (df["fecha_factura"] < hoy)]
+# ========================
+# Funciones auxiliares
+# ========================
+def mostrar_dashboard(df):
+    st.subheader("📊 Dashboard de Comisiones")
 
-    if vencidas.empty:
-        st.success("✅ No hay facturas vencidas.")
+    # Asegurar que fecha_factura sea datetime
+    df["fecha_factura"] = pd.to_datetime(df["fecha_factura"], errors="coerce")
+
+    # Selector de mes y año
+    meses = {
+        1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+        7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+    }
+    df["mes"] = df["fecha_factura"].dt.month
+    df["año"] = df["fecha_factura"].dt.year
+
+    años_disponibles = sorted(df["año"].dropna().unique(), reverse=True)
+    año_sel = st.selectbox("Selecciona el año", años_disponibles)
+    meses_disponibles = sorted(df[df["año"] == año_sel]["mes"].dropna().unique())
+    mes_sel = st.selectbox("Selecciona el mes", [meses[m] for m in meses_disponibles])
+
+    mes_num = [k for k, v in meses.items() if v == mes_sel][0]
+    df_filtrado = df[(df["año"] == año_sel) & (df["mes"] == mes_num)]
+
+    if df_filtrado.empty:
+        st.info("No hay datos para este mes.")
         return
 
-    for _, row in vencidas.iterrows():
-        st.error(f"Factura #{row['numero']} del cliente {row['cliente']} vencida desde {row['fecha_factura']}")
+    resumen = df_filtrado.groupby("cliente")["valor_venta"].sum().reset_index()
 
-# ==============================================
-# Main
-# ==============================================
+    # Barra horizontal progresiva
+    fig = px.bar(
+        resumen,
+        x="valor_venta",
+        y="cliente",
+        orientation="h",
+        text="valor_venta",
+        title=f"Ventas netas - {mes_sel} {año_sel}",
+    )
+    fig.update_traces(texttemplate="%{text:.2s}", textposition="outside")
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def mostrar_facturas(df):
+    st.subheader("📑 Facturas Pendientes")
+    pendientes = df[df["comprobante_url"].isna()]
+
+    if pendientes.empty:
+        st.success("✅ No hay facturas pendientes")
+    else:
+        for _, row in pendientes.iterrows():
+            with st.expander(f"Factura #{row['factura']} - Cliente: {row['cliente']}"):
+                st.write(f"**Fecha:** {row['fecha_factura']}")
+                st.write(f"**Valor Venta:** {row['valor_venta']}")
+                st.write(f"**Comisión:** {row['comision']}")
+
+                with st.form(f"form_pendiente_{row['id']}"):
+                    nuevo_valor = st.number_input("Editar valor de venta", value=row['valor_venta'])
+                    nuevo_cliente = st.text_input("Editar cliente", value=row['cliente'])
+                    archivo = st.file_uploader("Subir comprobante", type=["jpg", "png", "pdf"], key=f"file_{row['id']}")
+                    guardar = st.form_submit_button("Guardar cambios")
+
+                    if guardar:
+                        url = row["comprobante_url"]
+                        if archivo:
+                            url = upload_comprobante(archivo, row["factura"])
+                        update_comision(row["id"], nuevo_valor, nuevo_cliente, url)
+                        st.success("Factura actualizada correctamente")
+                        st.rerun()
+
+    st.subheader("💰 Facturas Pagadas")
+    pagadas = df[df["comprobante_url"].notna()]
+
+    if pagadas.empty:
+        st.info("No hay facturas pagadas")
+    else:
+        for _, row in pagadas.iterrows():
+            with st.expander(f"Factura #{row['factura']} - Cliente: {row['cliente']} ✅"):
+                st.write(f"**Fecha:** {row['fecha_factura']}")
+                st.write(f"**Valor Venta:** {row['valor_venta']}")
+                st.write(f"**Comisión:** {row['comision']}")
+                if row["comprobante_url"]:
+                    st.markdown(f"[📎 Ver comprobante]({row['comprobante_url']})")
+
+
+def mostrar_alertas(df):
+    st.subheader("⚠️ Alertas")
+
+    hoy = date.today()
+    df["fecha_factura"] = pd.to_datetime(df["fecha_factura"], errors="coerce")
+
+    # Facturas vencidas = pendientes sin comprobante y con fecha pasada
+    vencidas = df[df["comprobante_url"].isna() & (df["fecha_factura"].dt.date < hoy)]
+
+    if vencidas.empty:
+        st.success("✅ No hay facturas vencidas")
+    else:
+        st.error("⚠️ Facturas vencidas:")
+        for _, row in vencidas.iterrows():
+            st.write(f"- Factura #{row['factura']} de {row['cliente']} (Fecha: {row['fecha_factura'].date()})")
+
+
 def main():
-    st.set_page_config(page_title="Gestión de Comisiones", layout="wide")
-    st.sidebar.title("Menú")
-    menu = st.sidebar.radio("Ir a:", ["Registrar Factura", "Facturas Pendientes", "Facturas Pagadas", "Dashboard", "Alertas"])
+    st.title("📌 Gestión de Comisiones y Facturas")
 
-    df = get_all_facturas()
+    menu = ["Dashboard", "Facturas", "Alertas"]
+    choice = st.sidebar.radio("Menú", menu)
+
+    df = get_all_comisiones()
+
     if not df.empty:
-        if "fecha_factura" not in df.columns:
-            st.error("⚠️ No se encontró la columna 'fecha_factura' en la tabla de Supabase.")
-            return
+        if choice == "Dashboard":
+            mostrar_dashboard(df)
+        elif choice == "Facturas":
+            mostrar_facturas(df)
+        elif choice == "Alertas":
+            mostrar_alertas(df)
+    else:
+        st.warning("No hay datos cargados aún.")
 
-    if menu == "Registrar Factura":
-        registrar_factura()
-    elif menu == "Facturas Pendientes":
-        mostrar_facturas(df, "pendiente")
-    elif menu == "Facturas Pagadas":
-        mostrar_facturas(df, "pagada")
-    elif menu == "Dashboard":
-        mostrar_dashboard(df)
-    elif menu == "Alertas":
-        mostrar_alertas(df)
 
 if __name__ == "__main__":
     main()
