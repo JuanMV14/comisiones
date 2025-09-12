@@ -93,7 +93,7 @@ with tabs[0]:
 
         if insertar_venta(supabase, data):
             st.success("✅ Venta registrada correctamente")
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("❌ Error al registrar la venta")
 
@@ -294,6 +294,6 @@ with tabs[5]:
 
                     if actualizar_factura(supabase, int(factura["id"]), updates):
                         st.success("✅ Cambios guardados correctamente")
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error("❌ Error actualizando la factura")
