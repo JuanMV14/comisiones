@@ -16,6 +16,13 @@ def get_facturas_pagadas(supabase):
 
 
 # ========================
+# Insertar nueva factura
+# ========================
+def insert_factura(supabase, data):
+    supabase.table("comisiones").insert(data).execute()
+
+
+# ========================
 # Actualizar factura
 # ========================
 def update_factura(supabase, factura_id, data):
