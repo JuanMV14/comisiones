@@ -1,4 +1,4 @@
-Este es mi codigo import os
+import os
 from datetime import datetime, timedelta, date
 import streamlit as st
 import pandas as pd
