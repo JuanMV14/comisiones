@@ -1,280 +1,299 @@
+import os
+from datetime import date, timedelta, datetime
 import streamlit as st
+from supabase import create_client, Client
+from dotenv import load_dotenv
 import pandas as pd
-import plotly.express as px
-from datetime import datetime
-from queries import (
-    get_all_facturas,
-    insertar_factura,
-    update_factura,
-    marcar_factura_pagada,
+
+from queries import cargar_datos, insertar_venta, actualizar_factura
+from utils import safe_get_public_url, calcular_comision, format_currency, now_iso
+
+# ========================
+# Configuración
+# ========================
+load_dotenv()
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+BUCKET = os.getenv("SUPABASE_BUCKET_COMPROBANTES", "comprobantes")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    st.error("❌ Faltan las variables de entorno SUPABASE_URL o SUPABASE_KEY.")
+    st.stop()
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ========================
+# Layout principal
+# ========================
+st.set_page_config(page_title="Gestión de Comisiones", layout="wide")
+st.title("📊 Gestión de Comisiones")
+
+df_tmp = cargar_datos(supabase)
+meses_disponibles = ["Todos"] + (sorted(df_tmp["mes_factura"].dropna().unique().tolist()) if not df_tmp.empty else [])
+
+if "mes_global" not in st.session_state:
+    st.session_state["mes_global"] = "Todos"
+
+if st.session_state["mes_global"] not in meses_disponibles:
+    st.session_state["mes_global"] = "Todos"
+
+st.session_state["mes_global"] = st.selectbox(
+    "📅 Filtrar por mes (Fecha Factura)",
+    meses_disponibles,
+    index=meses_disponibles.index(st.session_state["mes_global"]) if st.session_state["mes_global"] in meses_disponibles else 0
 )
-from utils import upload_comprobante, safe_get_public_url
 
-# ==============================================
-# Helpers
-# ==============================================
-def formatear_mes(dt: pd.Timestamp) -> str:
-    return dt.strftime("%B %Y").capitalize()
+# ========================
+# Tabs
+# ========================
+tabs = st.tabs([
+    "➕ Registrar Venta",
+    "📂 Facturas Pendientes",
+    "✅ Facturas Pagadas",
+    "📈 Dashboard",
+    "⚠️ Alertas",
+    "✏️ Editar Facturas"
+])
 
-def parse_mes(mes_str: str) -> datetime:
-    return datetime.strptime(mes_str, "%B %Y")
-
-# ==============================================
-# Registrar Factura
-# ==============================================
-def registrar_factura():
-    st.header("📝 Registrar Factura")
-    with st.form("form_registrar"):
-        numero = st.text_input("Número de factura")
+# ========================
+# TAB 1 - Registrar Venta
+# ========================
+with tabs[0]:
+    st.header("➕ Registrar nueva venta")
+    with st.form("form_venta"):
+        pedido = st.text_input("Número de Pedido")
         cliente = st.text_input("Cliente")
-        valor_neto = st.number_input("Valor neto (sin IVA, menos descuentos)", min_value=0.0)
-        fecha_factura = st.date_input("Fecha de factura")
-        tiene_descuento = st.selectbox("¿Tiene descuento a pie de factura?", ["Sí", "No"])
-        submitted = st.form_submit_button("Registrar")
+        factura = st.text_input("Factura")
+        valor = st.number_input("Valor Factura", min_value=0.0, step=1000.0)
+        porcentaje_input = st.number_input("Porcentaje Comisión (%)", min_value=0.0, max_value=100.0, step=0.5)
+        fecha_factura = st.date_input("Fecha de Factura", value=date.today())
+        condicion_especial = st.selectbox("Condición Especial?", ["No", "Sí"])
+        submit = st.form_submit_button("💾 Registrar")
 
-        if submitted:
-            insertar_factura(
-                numero,
-                cliente,
-                valor_neto,
-                fecha_factura,
-                tiene_descuento == "Sí"
-            )
-            st.success("✅ Factura registrada correctamente")
+    if submit:
+        dias_pago = 60 if condicion_especial == "Sí" else 35
+        dias_max = 60 if condicion_especial == "Sí" else 45
+        fecha_pago_est = fecha_factura + timedelta(days=dias_pago)
+        fecha_pago_max = fecha_factura + timedelta(days=dias_max)
+        comision = calcular_comision(valor, porcentaje_input)
 
-# ==============================================
-# Mostrar Facturas (pendientes / pagadas)
-# ==============================================
-def mostrar_facturas(df, estado):
-    st.header(f"📂 Facturas {estado.capitalize()}")
-    df_estado = df[df["estado"] == estado]
+        data = {
+            "pedido": pedido,
+            "cliente": cliente,
+            "factura": factura,
+            "valor": valor,
+            "comision": comision,
+            "porcentaje": porcentaje_input,
+            "fecha_factura": fecha_factura.isoformat(),
+            "fecha_pago_est": fecha_pago_est.isoformat(),
+            "fecha_pago_max": fecha_pago_max.isoformat(),
+            "condicion_especial": (condicion_especial == "Sí"),
+            "pagado": False,
+        }
 
-    if df_estado.empty:
-        st.info("No hay facturas en este estado.")
-        return
+        if insertar_venta(supabase, data):
+            st.success("✅ Venta registrada correctamente")
+            st.experimental_rerun()
+        else:
+            st.error("❌ Error al registrar la venta")
 
-    for _, row in df_estado.iterrows():
-        with st.expander(f"Factura #{row['numero']} - Cliente: {row['cliente']}"):
-            st.write(f"**Fecha:** {row['fecha_factura']}")
-            st.write(f"**Valor Neto:** {row['valor_neto']:,}")
-            st.write(f"**Estado:** {row['estado']}")
-            if row.get("comprobante_url"):
-                st.markdown(f"[📎 Ver comprobante]({row['comprobante_url']})")
-
-            if st.button(f"✏️ Editar {row['numero']}", key=f"edit_{row['id']}"):
-                with st.form(f"form_edit_{row['id']}"):
-                    cliente = st.text_input("Cliente", value=row["cliente"])
-                    valor_neto = st.number_input("Valor neto", value=row["valor_neto"])
-                    fecha_factura = st.date_input("Fecha de factura", value=pd.to_datetime(row["fecha_factura"]))
-                    tiene_descuento = st.selectbox(
-                        "¿Tiene descuento a pie de factura?",
-                        ["Sí", "No"],
-                        index=0 if row.get("tiene_descuento", False) else 1
-                    )
-                    file = st.file_uploader("Subir comprobante", type=["jpg", "png", "pdf"])
-
-                    submitted = st.form_submit_button("Guardar cambios")
-                    if submitted:
-                        comprobante_url = row.get("comprobante_url")
-                        if file:
-                            comprobante_url = upload_comprobante(file, row["numero"])
-
-                        update_factura(
-                            row["id"],
-                            cliente,
-                            valor_neto,
-                            fecha_factura,
-                            tiene_descuento == "Sí",
-                            comprobante_url
-                        )
-                        st.success("✅ Factura actualizada")
-
-                    if estado == "pendiente":
-                        if st.form_submit_button("Marcar como pagada"):
-                            marcar_factura_pagada(row["id"])
-                            st.success("✅ Factura marcada como pagada")
-
-# ==============================================
-# Dashboard
-# ==============================================
-def mostrar_dashboard(df):
-    st.header("📊 Dashboard de Ventas y Comisiones")
-
+# ========================
+# TAB 2 - Facturas Pendientes
+# ========================
+with tabs[1]:
+    st.header("📂 Facturas Pendientes")
+    df = cargar_datos(supabase)
     if df.empty:
-        st.info("No hay facturas registradas aún.")
-        return
+        st.info("No hay facturas registradas.")
+    else:
+        df_pendientes = df[df["pagado"] == False]
+        if st.session_state["mes_global"] != "Todos":
+            df_pendientes = df_pendientes[df_pendientes["mes_factura"] == st.session_state["mes_global"]]
 
-    df["fecha_factura"] = pd.to_datetime(df["fecha_factura"])
-    df["mes"] = df["fecha_factura"].dt.to_period("M").dt.to_timestamp()
-
-    # Selector de mes
-    meses_disponibles = sorted(df["mes"].unique())
-    meses_labels = [formatear_mes(m) for m in meses_disponibles]
-    mes_sel = st.selectbox("Seleccionar mes", meses_labels)
-    mes_dt = parse_mes(mes_sel)
-
-    # Filtrar acumulado hasta el mes
-    df_filtrado = df[df["mes"] <= mes_dt]
-
-    # ===== Métricas
-    total_ventas = df_filtrado["valor_neto"].sum()
-    total_comisiones = df_filtrado["comision"].sum()
-    pendientes = (df_filtrado["estado"] == "pendiente").sum()
-    pagadas = (df_filtrado["estado"] == "pagada").sum()
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("💰 Total Ventas Netas", f"${total_ventas:,.0f}")
-    col2.metric("📈 Total Comisiones", f"${total_comisiones:,.0f}")
-    col3.metric("🟡 Pendientes", pendientes)
-    col4.metric("🟢 Pagadas", pagadas)
-
-    # ===== Ranking clientes (barras horizontales)
-    ranking = df_filtrado.groupby("cliente")["valor_neto"].sum().reset_index()
-    ranking = ranking.sort_values("valor_neto", ascending=True)
-
-    fig_rank = px.bar(
-        ranking,
-        x="valor_neto",
-        y="cliente",
-        orientation="h",
-        labels={"valor_neto": "Ventas Netas", "cliente": "Cliente"},
-        title=f"🏆 Ranking de Clientes acumulado hasta {mes_sel}",
-    )
-    st.plotly_chart(fig_rank, use_container_width=True)
-
-    # ===== Evolución de comisiones
-    evolucion = df_filtrado.groupby("mes")["comision"].sum().reset_index()
-    fig_line = px.line(
-        evolucion,
-        x="mes",
-        y="comision",
-        markers=True,
-        labels={"mes": "Mes", "comision": "Comisión"},
-        title="📈 Evolución de Comisiones"
-    )
-    st.plotly_chart(fig_line, use_container_width=True)
+        if df_pendientes.empty:
+            st.success("✅ No hay facturas pendientes")
+        else:
+            for _, row in df_pendientes.iterrows():
+                st.write(f"**Pedido:** {row.get('pedido', '')}")
+                st.write(f"**Cliente:** {row.get('cliente', '')}")
+                st.write(f"**Factura:** {row.get('factura', 'N/A') if row.get('factura') else 'N/A'}")
+                st.write(f"**Valor Factura:** {format_currency(row.get('valor', 0))}")
+                st.write(f"**Fecha Factura:** {row['fecha_factura'].date() if pd.notna(row.get('fecha_factura')) else 'N/A'}")
+                st.write(f"**Fecha Máxima Pago:** {row['fecha_pago_max'].date() if pd.notna(row.get('fecha_pago_max')) else 'N/A'}")
+                st.divider()
 
 # ========================
-# Funciones auxiliares
+# TAB 3 - Facturas Pagadas
 # ========================
-def mostrar_dashboard(df):
-    st.subheader("📊 Dashboard de Comisiones")
-
-    # Asegurar que fecha_factura sea datetime
-    df["fecha_factura"] = pd.to_datetime(df["fecha_factura"], errors="coerce")
-
-    # Selector de mes y año
-    meses = {
-        1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-        7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-    }
-    df["mes"] = df["fecha_factura"].dt.month
-    df["año"] = df["fecha_factura"].dt.year
-
-    años_disponibles = sorted(df["año"].dropna().unique(), reverse=True)
-    año_sel = st.selectbox("Selecciona el año", años_disponibles)
-    meses_disponibles = sorted(df[df["año"] == año_sel]["mes"].dropna().unique())
-    mes_sel = st.selectbox("Selecciona el mes", [meses[m] for m in meses_disponibles])
-
-    mes_num = [k for k, v in meses.items() if v == mes_sel][0]
-    df_filtrado = df[(df["año"] == año_sel) & (df["mes"] == mes_num)]
-
-    if df_filtrado.empty:
-        st.info("No hay datos para este mes.")
-        return
-
-    resumen = df_filtrado.groupby("cliente")["valor_venta"].sum().reset_index()
-
-    # Barra horizontal progresiva
-    fig = px.bar(
-        resumen,
-        x="valor_venta",
-        y="cliente",
-        orientation="h",
-        text="valor_venta",
-        title=f"Ventas netas - {mes_sel} {año_sel}",
-    )
-    fig.update_traces(texttemplate="%{text:.2s}", textposition="outside")
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def mostrar_facturas(df):
-    st.subheader("📑 Facturas Pendientes")
-    pendientes = df[df["comprobante_url"].isna()]
-
-    if pendientes.empty:
-        st.success("✅ No hay facturas pendientes")
+with tabs[2]:
+    st.header("✅ Facturas Pagadas")
+    df = cargar_datos(supabase)
+    if df.empty:
+        st.info("No hay facturas registradas.")
     else:
-        for _, row in pendientes.iterrows():
-            with st.expander(f"Factura #{row['factura']} - Cliente: {row['cliente']}"):
-                st.write(f"**Fecha:** {row['fecha_factura']}")
-                st.write(f"**Valor Venta:** {row['valor_venta']}")
-                st.write(f"**Comisión:** {row['comision']}")
+        df_pagadas = df[df["pagado"] == True]
+        if st.session_state["mes_global"] != "Todos":
+            df_pagadas = df_pagadas[df_pagadas["mes_factura"] == st.session_state["mes_global"]]
 
-                with st.form(f"form_pendiente_{row['id']}"):
-                    nuevo_valor = st.number_input("Editar valor de venta", value=row['valor_venta'])
-                    nuevo_cliente = st.text_input("Editar cliente", value=row['cliente'])
-                    archivo = st.file_uploader("Subir comprobante", type=["jpg", "png", "pdf"], key=f"file_{row['id']}")
-                    guardar = st.form_submit_button("Guardar cambios")
+        if df_pagadas.empty:
+            st.info("No hay facturas pagadas todavía.")
+        else:
+            for _, row in df_pagadas.iterrows():
+                st.write(f"**Pedido:** {row.get('pedido', '')}")
+                st.write(f"**Cliente:** {row.get('cliente','')}")
+                st.write(f"**Factura:** {row.get('factura','N/A')}")
+                st.write(f"**Valor Factura:** {format_currency(row.get('valor',0))}")
+                st.write(f"**Fecha Factura:** {row['fecha_factura'].date() if pd.notna(row.get('fecha_factura')) else 'N/A'}")
+                st.write(f"**Fecha Pago Real:** {row['fecha_pago_real'].date() if pd.notna(row.get('fecha_pago_real')) else 'N/A'}")
+                if row.get("comprobante_url"):
+                    st.markdown(f"[🔗 Ver comprobante]({row.get('comprobante_url')})", unsafe_allow_html=True)
+                st.divider()
 
-                    if guardar:
-                        url = row["comprobante_url"]
-                        if archivo:
-                            url = upload_comprobante(archivo, row["factura"])
-                        update_comision(row["id"], nuevo_valor, nuevo_cliente, url)
-                        st.success("Factura actualizada correctamente")
-                        st.rerun()
-
-    st.subheader("💰 Facturas Pagadas")
-    pagadas = df[df["comprobante_url"].notna()]
-
-    if pagadas.empty:
-        st.info("No hay facturas pagadas")
+# ========================
+# TAB 4 - Dashboard
+# ========================
+with tabs[3]:
+    st.header("📈 Dashboard de Comisiones")
+    df = cargar_datos(supabase)
+    if df.empty:
+        st.info("No hay datos para mostrar.")
     else:
-        for _, row in pagadas.iterrows():
-            with st.expander(f"Factura #{row['factura']} - Cliente: {row['cliente']} ✅"):
-                st.write(f"**Fecha:** {row['fecha_factura']}")
-                st.write(f"**Valor Venta:** {row['valor_venta']}")
-                st.write(f"**Comisión:** {row['comision']}")
-                if row["comprobante_url"]:
-                    st.markdown(f"[📎 Ver comprobante]({row['comprobante_url']})")
+        if st.session_state["mes_global"] != "Todos":
+            df = df[df["mes_factura"] == st.session_state["mes_global"]]
 
+        total_facturado = df["valor"].sum()
+        total_comisiones = df.get("comision", pd.Series([0])).sum()
+        total_pagado = df[df["pagado"]]["valor"].sum()
 
-def mostrar_alertas(df):
-    st.subheader("⚠️ Alertas")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("💵 Total Facturado", format_currency(total_facturado))
+        col2.metric("💰 Total Comisiones", format_currency(total_comisiones))
+        col3.metric("✅ Total Pagado", format_currency(total_pagado))
 
-    hoy = date.today()
-    df["fecha_factura"] = pd.to_datetime(df["fecha_factura"], errors="coerce")
+        st.subheader("🏆 Ranking de Clientes")
+        if not df.empty:
+            ranking = df.groupby("cliente")["valor"].sum().reset_index().sort_values(by="valor", ascending=False)
+            for _, row in ranking.iterrows():
+                st.write(f"**{row['cliente']}** - 💵 {format_currency(row['valor'])}")
+                st.progress(min(1.0, row["valor"] / total_facturado) if total_facturado else 0)
+        else:
+            st.info("No hay ventas registradas en este mes.")
 
-    # Facturas vencidas = pendientes sin comprobante y con fecha pasada
-    vencidas = df[df["comprobante_url"].isna() & (df["fecha_factura"].dt.date < hoy)]
+# ========================
+# TAB 5 - Alertas
+# ========================
+with tabs[4]:
+    st.header("⚠️ Alertas de vencimiento")
+    df = cargar_datos(supabase)
+    if not df.empty and "fecha_pago_max" in df.columns:
+        hoy = datetime.now()
+        fechas_pago = pd.to_datetime(df["fecha_pago_max"], errors="coerce")
+        limite = hoy + timedelta(days=5)
+        alertas = df[(df["pagado"] == False) & (fechas_pago <= limite)]
 
-    if vencidas.empty:
-        st.success("✅ No hay facturas vencidas")
+        if alertas.empty:
+            st.success("✅ No hay facturas próximas a vencerse")
+        else:
+            for _, row in alertas.iterrows():
+                st.error(f"⚠️ Pedido {row.get('pedido','')} ({row.get('cliente','')}) vence el {row['fecha_pago_max'].date()}")
     else:
-        st.error("⚠️ Facturas vencidas:")
-        for _, row in vencidas.iterrows():
-            st.write(f"- Factura #{row['factura']} de {row['cliente']} (Fecha: {row['fecha_factura'].date()})")
+        st.info("No hay datos de fechas de pago.")
 
-
-def main():
-    st.title("📌 Gestión de Comisiones y Facturas")
-
-    menu = ["Dashboard", "Facturas", "Alertas"]
-    choice = st.sidebar.radio("Menú", menu)
-
-    df = get_all_comisiones()
-
-    if not df.empty:
-        if choice == "Dashboard":
-            mostrar_dashboard(df)
-        elif choice == "Facturas":
-            mostrar_facturas(df)
-        elif choice == "Alertas":
-            mostrar_alertas(df)
+# ========================
+# TAB 6 - Editar Facturas
+# ========================
+with tabs[5]:
+    st.header("✏️ Editar Facturas")
+    df = cargar_datos(supabase)
+    if df.empty:
+        st.info("No hay facturas registradas todavía.")
     else:
-        st.warning("No hay datos cargados aún.")
+        df_filtrado = df[df["pagado"].isin([True, False])]
+        if st.session_state["mes_global"] != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["mes_factura"] == st.session_state["mes_global"]]
 
+        if df_filtrado.empty:
+            st.info("No hay facturas en este mes para editar.")
+        else:
+            opciones = df_filtrado.apply(
+                lambda r: f"{r['pedido']} - {r.get('cliente','')} (id:{r['id']})", axis=1
+            ).tolist()
+            seleccion = st.selectbox("Selecciona la factura a editar", opciones)
+            selected_id = opciones[opciones.index(seleccion)].split("(id:")[-1].rstrip(")")
+            try:
+                id_val = int(selected_id)
+                factura = df_filtrado[df_filtrado["id"] == id_val].iloc[0]
+            except Exception:
+                pedido_sel = seleccion.split(" - ")[0]
+                factura = df_filtrado[df_filtrado["pedido"].astype(str) == pedido_sel].iloc[0]
 
-if __name__ == "__main__":
-    main()
+            st.write(f"Cliente: {factura.get('cliente','')}")
+            valor = st.number_input("Valor Factura", value=float(factura.get("valor", 0.0)))
+            porcentaje = st.number_input(
+                "Porcentaje Comisión (%)",
+                value=float(factura.get("comision",0)/valor*100 if valor else 0),
+                min_value=0.0, max_value=100.0, step=0.1
+            )
+            pagado = st.selectbox("Pagado?", ["No","Sí"], index=0 if not factura.get("pagado", False) else 1)
+            fecha_pago_real = st.date_input(
+                "Fecha de Pago Real",
+                value=(factura["fecha_pago_real"].date() if pd.notna(factura.get("fecha_pago_real")) else date.today())
+            )
+            comprobante_file = st.file_uploader("Subir comprobante de pago (PDF/JPG/PNG)", type=["pdf","jpg","png"])
+
+            if st.button("💾 Guardar cambios"):
+                if "id" not in factura or pd.isna(factura["id"]):
+                    st.error("⚠️ No se encontró un ID válido para esta factura; no se puede actualizar en Supabase.")
+                else:
+                    comision = calcular_comision(valor, porcentaje)
+                    comprobante_url = factura.get("comprobante_url", "")
+                    comprobante_file_name = factura.get("comprobante_file","")
+
+                    if comprobante_file is not None:
+                        try:
+                            file_bytes = comprobante_file.read()
+                        except Exception:
+                            file_bytes = comprobante_file.getbuffer()
+
+                        if "factura" in factura and pd.notna(factura.get("factura")) and str(factura.get("factura")).strip() != "":
+                            factura_num = str(factura.get("factura")).strip()
+                        elif pd.notna(factura.get("pedido")) and str(factura.get("pedido")).strip() != "":
+                            factura_num = str(factura.get("pedido")).strip()
+                        else:
+                            factura_num = str(int(factura["id"]))
+
+                        extension = str(comprobante_file.name).split(".")[-1]
+                        file_name = f"{factura_num}.{extension}"
+                        file_path = f"{BUCKET}/{file_name}"
+
+                        try:
+                            supabase.storage.from_(BUCKET).upload(
+                                file_path,
+                                file_bytes,
+                                {"content-type": comprobante_file.type, "x-upsert": "true"}
+                            )
+                            public_url = safe_get_public_url(supabase, BUCKET, file_path)
+                            if public_url:
+                                comprobante_url = public_url
+                                comprobante_file_name = file_name
+                            else:
+                                st.warning("⚠️ No se pudo obtener URL pública del archivo.")
+                        except Exception as e:
+                            st.error(f"❌ Error subiendo archivo: {e}")
+
+                    updates = {
+                        "valor": valor,
+                        "comision": comision,
+                        "porcentaje": porcentaje,
+                        "pagado": (pagado == "Sí"),
+                        "fecha_pago_real": fecha_pago_real.isoformat() if pagado=="Sí" else None,
+                        "comprobante_url": comprobante_url if comprobante_url else None,
+                        "comprobante_file": comprobante_file_name if comprobante_file_name else None,
+                        "updated_at": now_iso()
+                    }
+
+                    if actualizar_factura(supabase, int(factura["id"]), updates):
+                        st.success("✅ Cambios guardados correctamente")
+                        st.experimental_rerun()
+                    else:
+                        st.error("❌ Error actualizando la factura")
