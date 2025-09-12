@@ -1,57 +1,38 @@
-import pandas as pd
-from datetime import datetime, timedelta
+from datetime import date
 
 # ========================
-# Funciones auxiliares
+# Cálculo de días de pago
 # ========================
-
-def process_dataframe(data):
-    if not data or not data.data:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(data.data)
-
-    if "id" not in df.columns:
-        df["id"] = None
-
-    for col in ["fecha_factura", "fecha_pago_est", "fecha_pago_max", "fecha_pago_real"]:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
-
-    if "fecha_factura" in df.columns:
-        df["mes_factura"] = df["fecha_factura"].dt.to_period("M").astype(str)
-    else:
-        df["mes_factura"] = None
-
-    return df
+def calcular_dias_pago(fecha_factura, fecha_pago):
+    if not fecha_factura or not fecha_pago:
+        return None
+    if isinstance(fecha_factura, str):
+        fecha_factura = date.fromisoformat(fecha_factura)
+    if isinstance(fecha_pago, str):
+        fecha_pago = date.fromisoformat(fecha_pago)
+    return (fecha_pago - fecha_factura).days
 
 
-def calcular_fechas_pago(fecha_factura, condicion_especial):
-    dias_pago = 60 if condicion_especial else 35
-    dias_max = 60 if condicion_especial else 45
-
-    fecha_pago_est = fecha_factura + timedelta(days=dias_pago)
-    fecha_pago_max = fecha_factura + timedelta(days=dias_max)
-
-    return fecha_pago_est, fecha_pago_max
-
-
-def calcular_comision(valor, porcentaje, tiene_descuento, fecha_pago_real=None, fecha_factura=None, devoluciones=0):
+# ========================
+# Cálculo de comisión
+# ========================
+def calcular_comision(valor, porcentaje, tiene_descuento_factura, dias_pago=None):
     """
-    Regla de negocio:
-    - Si tiene descuento a pie de factura → comisión normal sobre valor - devoluciones
+    Regla:
+    - Si tiene descuento a pie de factura → comisión normal sobre valor.
     - Si NO tiene descuento:
-        - Pago entre 35 y 45 días → aplica 15% descuento adicional
-        - Pago desde día 46 en adelante → sin descuento
+        - Pago entre 35 y 45 días → aplica 15% de descuento sobre valor.
+        - Pago desde 46 días → comisión sobre el valor pleno.
     """
-    base = max(valor - devoluciones, 0)
+    if dias_pago is None:  # registrar venta (sin fecha de pago aún)
+        base = valor
+    else:
+        if tiene_descuento_factura:
+            base = valor
+        else:
+            if 35 <= dias_pago <= 45:
+                base = valor * 0.85  # descuento 15%
+            else:
+                base = valor
 
-    if tiene_descuento:
-        return base * (porcentaje / 100)
-
-    # Cliente SIN descuento
-    if fecha_pago_real and fecha_factura:
-        dias = (fecha_pago_real - fecha_factura).days
-        if 35 <= dias <= 45:
-            base = base * 0.85  # descuento 15%
-    return base * (porcentaje / 100)
+    return round(base * (porcentaje / 100), 2)
