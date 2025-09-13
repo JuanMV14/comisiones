@@ -3,7 +3,7 @@ import pandas as pd
 from supabase import Client
 from datetime import datetime
 
-def cargar_datos_completos(supabase: Client):
+def cargar_datos(supabase: Client):
     """Carga todas las comisiones con campos nuevos y cálculos automáticos"""
     try:
         data = supabase.table("comisiones").select("*").execute()
@@ -109,7 +109,7 @@ def calcular_comision_automatica(row):
         'perdida': False
     }
 
-def insertar_venta_completa(supabase: Client, data: dict):
+def insertar_venta(supabase: Client, data: dict):
     """Inserta una nueva venta con todos los campos mejorados"""
     try:
         # Agregar timestamp
@@ -133,7 +133,7 @@ def insertar_venta_completa(supabase: Client, data: dict):
         print(f"Error insertando venta completa: {e}")
         return False
 
-def actualizar_factura_completa(supabase: Client, factura_id: int, updates: dict):
+def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
     """Actualiza una factura con recálculo automático de comisiones"""
     try:
         # Obtener datos actuales
