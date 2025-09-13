@@ -9,8 +9,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Importar módulos (manteniendo tu estructura)
-from queries_mejoradas import *
-from utils_mejoradas import *
+from queries import *
+from utils import *
 
 # ========================
 # Configuración (igual que antes)
