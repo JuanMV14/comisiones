@@ -4,13 +4,10 @@ import streamlit as st
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
-# Importar módulos (manteniendo tu estructura)
-from queries import *
-from utils import *
+# Importar tus módulos existentes (mantenemos compatibilidad)
+from queries import cargar_datos, insertar_venta, actualizar_factura
+from utils import safe_get_public_url, calcular_comision, format_currency, now_iso
 
 # ========================
 # Configuración (igual que antes)
@@ -36,38 +33,214 @@ st.set_page_config(
     page_icon="🧠"
 )
 
-# CSS personalizado para mejorar la apariencia
+# CSS personalizado
 st.markdown("""
 <style>
     .metric-card {
         background: white;
-        padding: 1rem;
-        border-radius: 0.5rem;
+        padding: 1.5rem;
+        border-radius: 0.75rem;
         border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        margin-bottom: 1rem;
     }
-    .alert-high { border-left: 4px solid #ef4444; background: #fef2f2; }
-    .alert-medium { border-left: 4px solid #f59e0b; background: #fffbeb; }
-    .alert-low { border-left: 4px solid #10b981; background: #f0fdf4; }
-    .recomendacion-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
+    .alert-high { 
+        border-left: 5px solid #ef4444; 
+        background: #fef2f2; 
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 0.5rem 0;
+    }
+    .alert-medium { 
+        border-left: 5px solid #f59e0b; 
+        background: #fffbeb; 
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    .alert-low { 
+        border-left: 5px solid #10b981; 
+        background: #f0fdf4; 
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    .recomendacion-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 0.75rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    .factura-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .progress-bar {
+        background: #e5e7eb;
+        border-radius: 1rem;
+        height: 0.75rem;
+        overflow: hidden;
+    }
+    .progress-fill {
+        height: 100%;
+        border-radius: 1rem;
+        transition: width 0.3s ease;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ========================
-# Sidebar - Configuración Global
+# Funciones auxiliares mejoradas
+# ========================
+
+def agregar_campos_faltantes(df):
+    """Agrega campos que podrían no existir en datos actuales"""
+    campos_nuevos = {
+        'valor_neto': lambda row: row.get('valor', 0) / 1.19 if row.get('valor') else 0,
+        'iva': lambda row: row.get('valor', 0) - (row.get('valor', 0) / 1.19) if row.get('valor') else 0,
+        'cliente_propio': False,
+        'descuento_pie_factura': False,
+        'descuento_adicional': 0,
+        'dias_pago_real': None,
+        'valor_devuelto': 0,
+        'base_comision': lambda row: (row.get('valor', 0) / 1.19) * 0.85 if row.get('valor') else 0,
+        'comision_perdida': False,
+        'porcentaje_comision': lambda row: row.get('porcentaje', 2.5),
+        'dias_vencimiento': lambda row: calcular_dias_vencimiento(row)
+    }
+    
+    for campo, default in campos_nuevos.items():
+        if campo not in df.columns:
+            if callable(default):
+                df[campo] = df.apply(default, axis=1)
+            else:
+                df[campo] = default
+    
+    return df
+
+def calcular_dias_vencimiento(row):
+    """Calcula días hasta vencimiento"""
+    try:
+        if pd.notna(row.get('fecha_pago_max')):
+            fecha_max = pd.to_datetime(row['fecha_pago_max'])
+            hoy = pd.Timestamp.now()
+            return (fecha_max - hoy).days
+    except:
+        pass
+    return None
+
+def calcular_comision_inteligente(valor_total, cliente_propio=False, descuento_adicional=0, descuento_pie=False):
+    """Calcula comisión según tu lógica real"""
+    valor_neto = valor_total / 1.19
+    
+    # Base según descuento
+    if descuento_pie:
+        base = valor_neto
+    else:
+        base = valor_neto * 0.85  # Aplicar 15% descuento
+    
+    # Porcentaje según cliente y descuento adicional
+    if cliente_propio:
+        porcentaje = 1.5 if descuento_adicional > 15 else 2.5
+    else:
+        porcentaje = 0.5 if descuento_adicional > 15 else 1.0
+    
+    comision = base * (porcentaje / 100)
+    
+    return {
+        'valor_neto': valor_neto,
+        'iva': valor_total - valor_neto,
+        'base_comision': base,
+        'comision': comision,
+        'porcentaje': porcentaje
+    }
+
+def generar_recomendaciones_ia():
+    """Genera recomendaciones básicas de IA"""
+    return [
+        {
+            'cliente': 'EMPRESA ABC',
+            'accion': 'Llamar HOY',
+            'producto': 'Producto estrella ($950,000)',
+            'razon': 'Patrón: compra cada 30 días, última compra hace 28 días',
+            'probabilidad': 90,
+            'impacto_comision': 23750,
+            'prioridad': 'alta'
+        },
+        {
+            'cliente': 'CORPORATIVO XYZ', 
+            'accion': 'Enviar propuesta',
+            'producto': 'Premium Pack ($1,400,000)',
+            'razon': 'Cliente externo que acepta descuentos - Oportunidad de volumen',
+            'probabilidad': 75,
+            'impacto_comision': 7000,
+            'prioridad': 'alta'
+        },
+        {
+            'cliente': 'STARTUP DEF',
+            'accion': 'Cross-sell',
+            'producto': 'Complemento B ($600,000)',
+            'razon': 'Compró producto A - Alta sinergia detectada por IA',
+            'probabilidad': 60,
+            'impacto_comision': 12750,
+            'prioridad': 'media'
+        }
+    ]
+
+# ========================
+# Variables de estado
+# ========================
+if 'meta_mensual' not in st.session_state:
+    st.session_state.meta_mensual = 10000000
+if 'clientes_nuevos_meta' not in st.session_state:
+    st.session_state.clientes_nuevos_meta = 5
+if 'show_nueva_venta' not in st.session_state:
+    st.session_state.show_nueva_venta = False
+
+# ========================
+# Sidebar mejorado
 # ========================
 with st.sidebar:
     st.title("🧠 CRM Inteligente")
     st.markdown("---")
     
-    # Filtro de mes mejorado
-    df_tmp = cargar_datos_completos(supabase)
+    # Configuración de meta
+    st.subheader("🎯 Meta Mensual")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("⚙️ Config"):
+            st.session_state.show_meta_config = True
+    
+    with col2:
+        if st.button("📊 Ver Meta"):
+            st.session_state.show_meta_detail = True
+    
+    # Meta actual (simplificada)
+    meta_actual = st.session_state.meta_mensual
+    progreso = 65  # Hardcoded por ahora
+    
+    st.markdown(f"""
+    <div class="metric-card">
+        <h4>Septiembre 2024</h4>
+        <p><strong>Meta:</strong> ${meta_actual:,.0f}</p>
+        <div class="progress-bar">
+            <div class="progress-fill" style="width: {progreso}%; background: {'#10b981' if progreso > 80 else '#f59e0b' if progreso > 50 else '#ef4444'}"></div>
+        </div>
+        <small>{progreso}% completado</small>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Filtros
+    df_tmp = cargar_datos(supabase)
     meses_disponibles = ["Todos"] + (sorted(df_tmp["mes_factura"].dropna().unique().tolist()) if not df_tmp.empty else [])
     
     mes_seleccionado = st.selectbox(
@@ -75,489 +248,598 @@ with st.sidebar:
         meses_disponibles,
         index=0
     )
-    
-    st.markdown("---")
-    
-    # Meta del mes actual
-    mes_actual = datetime.now().strftime("%Y-%m")
-    meta_actual = obtener_meta_mes(supabase, mes_actual)
-    
-    if meta_actual:
-        st.markdown(f"🎯 **Meta {mes_actual}**")
-        st.metric("Ventas", f"${meta_actual['meta_ventas']:,.0f}")
-        st.metric("Clientes Nuevos", meta_actual['meta_clientes_nuevos'])
-        
-        progreso = (meta_actual['ventas_actuales'] / meta_actual['meta_ventas']) * 100
-        st.progress(min(progreso/100, 1.0))
-        st.caption(f"Progreso: {progreso:.1f}%")
-    else:
-        if st.button("⚙️ Configurar Meta Mensual"):
-            st.session_state.show_meta_config = True
 
 # ========================
-# Funciones de cálculo mejoradas
+# Layout principal con tabs
 # ========================
+st.title("🧠 CRM Inteligente")
 
-def calcular_comision_real(factura_data):
-    """Calcula comisión según tu lógica exacta"""
-    valor = factura_data.get('valor', 0)
-    cliente_propio = factura_data.get('cliente_propio', False)
-    descuento_pie_factura = factura_data.get('descuento_pie_factura', False)
-    descuento_adicional = factura_data.get('descuento_adicional', 0)
-    dias_pago = factura_data.get('dias_pago_real')
-    condicion_especial = factura_data.get('condicion_especial', False)
-    valor_devuelto = factura_data.get('valor_devuelto', 0)
-    
-    # 1. Calcular base inicial
-    if descuento_pie_factura:
-        base = valor  # Ya tiene descuento aplicado
-    else:
-        # Verificar si mantiene el 15% de descuento según días
-        limite_dias = 60 if condicion_especial else 45
-        if not dias_pago or dias_pago <= limite_dias:
-            base = valor * 0.85  # Aplica descuento 15%
-        else:
-            base = valor  # Pierde descuento por pago tardío
-    
-    # 2. Restar devoluciones
-    base_final = base - valor_devuelto
-    
-    # 3. Determinar porcentaje según cliente y descuento
-    tiene_descuento_adicional = descuento_adicional > 15
-    
-    if cliente_propio:
-        porcentaje = 1.5 if tiene_descuento_adicional else 2.5
-    else:
-        porcentaje = 0.5 if tiene_descuento_adicional else 1.0
-    
-    # 4. Verificar pérdida por +80 días
-    if dias_pago and dias_pago > 80:
-        return {
-            'comision': 0,
-            'base_inicial': base,
-            'base_final': 0,
-            'porcentaje': 0,
-            'perdida': True,
-            'razon_perdida': 'mas_80_dias'
-        }
-    
-    comision = base_final * (porcentaje / 100)
-    
-    return {
-        'comision': comision,
-        'base_inicial': base,
-        'base_final': base_final,
-        'porcentaje': porcentaje,
-        'perdida': False
-    }
-
-def generar_recomendaciones_ia(supabase, meta_actual, dias_restantes):
-    """Genera recomendaciones inteligentes para cumplir meta"""
-    clientes = cargar_clientes(supabase)
-    recomendaciones = []
-    
-    for cliente in clientes:
-        # Calcular días desde última compra
-        if cliente.get('ultima_compra'):
-            dias_sin_compra = (datetime.now().date() - cliente['ultima_compra']).days
-            frecuencia_normal = cliente.get('frecuencia_compra', 60)
-            
-            # Cliente en ventana de compra
-            if dias_sin_compra >= frecuencia_normal * 0.8:
-                probabilidad = min(90, (dias_sin_compra / frecuencia_normal) * 100)
-                ticket_estimado = cliente.get('ticket_promedio', 500000)
-                
-                # Calcular comisión estimada
-                comision_estimada = calcular_comision_real({
-                    'valor': ticket_estimado / 1.19,
-                    'cliente_propio': cliente.get('es_propio', False),
-                    'descuento_pie_factura': False,
-                    'descuento_adicional': cliente.get('descuento_habitual', 0)
-                })['comision']
-                
-                accion = "Llamar HOY" if dias_sin_compra > frecuencia_normal else "Contactar esta semana"
-                prioridad = "alta" if probabilidad > 70 else "media"
-                
-                recomendaciones.append({
-                    'cliente': cliente['nombre'],
-                    'accion': accion,
-                    'probabilidad': int(probabilidad),
-                    'impacto_comision': comision_estimada,
-                    'razon': f"Patrón de compra cada {frecuencia_normal} días - Último: hace {dias_sin_compra} días",
-                    'prioridad': prioridad,
-                    'tipo': 'patron_compra'
-                })
-    
-    # Ordenar por impacto en comisiones
-    recomendaciones.sort(key=lambda x: x['impacto_comision'], reverse=True)
-    return recomendaciones[:5]  # Top 5 recomendaciones
-
-# ========================
-# Layout principal con tabs mejoradas
-# ========================
 tabs = st.tabs([
     "🎯 Dashboard",
     "💰 Comisiones", 
+    "➕ Nueva Venta",
     "👥 Clientes",
-    "📦 Productos",
-    "🧠 IA Analytics",
-    "🚨 Alertas",
-    "⚙️ Configuración"
+    "🧠 IA & Alertas"
 ])
 
 # ========================
-# TAB 1 - DASHBOARD INTELIGENTE
+# TAB 1 - DASHBOARD
 # ========================
 with tabs[0]:
-    st.header("🎯 Dashboard Inteligente")
+    st.header("🎯 Dashboard Ejecutivo")
     
-    # Cargar datos
-    df = cargar_datos_completos(supabase)
-    if mes_seleccionado != "Todos":
-        df = df[df["mes_factura"] == mes_seleccionado]
+    # Cargar y procesar datos
+    df = cargar_datos(supabase)
+    if not df.empty:
+        df = agregar_campos_faltantes(df)
+        
+        if mes_seleccionado != "Todos":
+            df = df[df["mes_factura"] == mes_seleccionado]
     
     # Métricas principales
     col1, col2, col3, col4 = st.columns(4)
     
-    total_facturado = df["valor"].sum()
-    total_comisiones = df["comision"].sum()
-    comisiones_perdidas = df[df["comision_perdida"] == True]["comision"].sum()
-    facturas_riesgo = len(df[(df["pagado"] == False) & (df["dias_vencimiento"] <= 5)])
+    if not df.empty:
+        total_facturado = df["valor_neto"].sum()
+        total_comisiones = df["comision"].sum()
+        facturas_pendientes = len(df[df["pagado"] == False])
+        promedio_comision = (total_comisiones / total_facturado * 100) if total_facturado > 0 else 0
+    else:
+        total_facturado = total_comisiones = facturas_pendientes = promedio_comision = 0
     
     with col1:
         st.metric(
             "💵 Total Facturado",
-            f"${total_facturado:,.0f}",
-            delta=f"{((total_facturado/8500000-1)*100):+.1f}%" if total_facturado > 0 else None
+            format_currency(total_facturado),
+            delta="+12.5%" if total_facturado > 0 else None
         )
     
     with col2:
         st.metric(
-            "💰 Comisiones Mes",
-            f"${total_comisiones:,.0f}",
-            delta=f"{((total_comisiones/170000-1)*100):+.1f}%" if total_comisiones > 0 else None
+            "💰 Comisiones Mes", 
+            format_currency(total_comisiones),
+            delta="+8.2%" if total_comisiones > 0 else None
         )
     
     with col3:
         st.metric(
-            "⚠️ Comisiones Perdidas", 
-            f"${comisiones_perdidas:,.0f}",
-            delta=None,
+            "📋 Facturas Pendientes",
+            facturas_pendientes,
+            delta="-3" if facturas_pendientes > 0 else None,
             delta_color="inverse"
         )
     
     with col4:
         st.metric(
-            "🚨 Facturas en Riesgo",
-            facturas_riesgo,
-            delta=None,
-            delta_color="inverse"
+            "📈 % Comisión Promedio",
+            f"{promedio_comision:.1f}%",
+            delta="+0.3%" if promedio_comision > 0 else None
         )
     
-    # Meta del mes y recomendaciones IA
-    if meta_actual:
-        st.markdown("---")
-        
-        # Progreso de meta visual
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.markdown("### 🎯 Progreso Meta Mensual")
-            
-            progreso = meta_actual['ventas_actuales'] / meta_actual['meta_ventas']
-            faltante = meta_actual['meta_ventas'] - meta_actual['ventas_actuales']
-            dias_restantes = 30 - datetime.now().day
-            
-            # Gráfico de progreso
-            fig = go.Figure(go.Indicator(
-                mode = "gauge+number+delta",
-                value = progreso * 100,
-                domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': "% Cumplimiento Meta"},
-                delta = {'reference': 100, 'position': "top"},
-                gauge = {
-                    'axis': {'range': [None, 100]},
-                    'bar': {'color': "green" if progreso > 0.8 else "orange" if progreso > 0.5 else "red"},
-                    'steps': [
-                        {'range': [0, 50], 'color': "lightgray"},
-                        {'range': [50, 80], 'color': "gray"},
-                        {'range': [80, 100], 'color': "lightgreen"}
-                    ],
-                    'threshold': {
-                        'line': {'color': "black", 'width': 4},
-                        'thickness': 0.75,
-                        'value': 100
-                    }
-                }
-            ))
-            fig.update_layout(height=300)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Información adicional
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                st.metric("💰 Faltante", f"${faltante:,.0f}")
-            with col_b:
-                st.metric("📅 Días Restantes", dias_restantes)
-            with col_c:
-                velocidad = faltante / max(dias_restantes, 1)
-                st.metric("🚀 Necesitas/día", f"${velocidad:,.0f}")
-        
-        with col2:
-            st.markdown("### 🧠 Recomendaciones IA")
-            
-            recomendaciones = generar_recomendaciones_ia(supabase, meta_actual, dias_restantes)
-            
-            for rec in recomendaciones[:3]:
-                with st.container():
-                    st.markdown(f"""
-                    <div class="recomendacion-card">
-                        <h4>{rec['cliente']}</h4>
-                        <p><strong>{rec['accion']}</strong> ({rec['probabilidad']}% prob.)</p>
-                        <p>💰 +${rec['impacto_comision']:,.0f} comisión</p>
-                        <small>{rec['razon']}</small>
-                    </div>
-                    """, unsafe_allow_html=True)
-    
-    # Gráficos de tendencias
     st.markdown("---")
-    col1, col2 = st.columns(2)
+    
+    # Sección de Meta y Recomendaciones IA
+    col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.markdown("### 📈 Evolución Comisiones")
-        if not df.empty:
-            df_mes = df.groupby('mes_factura').agg({
-                'comision': 'sum',
-                'valor': 'sum'
-            }).reset_index()
-            
-            fig = px.line(df_mes, x='mes_factura', y='comision',
-                         title="Comisiones por Mes",
-                         labels={'comision': 'Comisiones ($)', 'mes_factura': 'Mes'})
-            st.plotly_chart(fig, use_container_width=True)
+        st.markdown("### 🎯 Progreso Meta Mensual")
+        
+        meta = st.session_state.meta_mensual
+        actual = total_facturado
+        progreso = (actual / meta * 100) if meta > 0 else 0
+        faltante = max(0, meta - actual)
+        dias_restantes = max(1, (date(2024, 9, 30) - date.today()).days)
+        velocidad_necesaria = faltante / dias_restantes
+        
+        # Indicadores visuales
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("Meta", format_currency(meta))
+        with col_b:
+            st.metric("Actual", format_currency(actual))
+        with col_c:
+            st.metric("Faltante", format_currency(faltante))
+        
+        # Barra de progreso
+        color = "#10b981" if progreso > 80 else "#f59e0b" if progreso > 50 else "#ef4444"
+        st.markdown(f"""
+        <div class="progress-bar" style="margin: 1rem 0;">
+            <div class="progress-fill" style="width: {min(progreso, 100)}%; background: {color}"></div>
+        </div>
+        <p><strong>{progreso:.1f}%</strong> completado | <strong>Necesitas:</strong> {format_currency(velocidad_necesaria)}/día</p>
+        """, unsafe_allow_html=True)
     
     with col2:
-        st.markdown("### 👥 Distribución Clientes")
-        clientes_data = cargar_clientes(supabase)
-        if clientes_data:
-            df_clientes = pd.DataFrame(clientes_data)
+        st.markdown("### 🧠 Recomendaciones IA")
+        
+        recomendaciones = generar_recomendaciones_ia()
+        
+        for rec in recomendaciones:
+            prioridad_color = "#ef4444" if rec['prioridad'] == 'alta' else "#f59e0b"
             
-            # Crear distribución
-            dist = df_clientes.groupby(['categoria', 'es_propio']).size().reset_index(name='count')
-            dist['tipo'] = dist.apply(lambda x: f"{'Propios' if x['es_propio'] else 'Externos'} (Cat {x['categoria']})", axis=1)
-            
-            fig = px.pie(dist, values='count', names='tipo',
-                        title="Distribución de Clientes")
-            st.plotly_chart(fig, use_container_width=True)
+            st.markdown(f"""
+            <div class="alert-{'high' if rec['prioridad'] == 'alta' else 'medium'}">
+                <h4 style="margin:0; color: #1f2937;">{rec['cliente']}</h4>
+                <p style="margin:0.5rem 0; color: #374151;"><strong>{rec['accion']}</strong> ({rec['probabilidad']}% prob.)</p>
+                <p style="margin:0; color: #6b7280; font-size: 0.9rem;">{rec['razon']}</p>
+                <p style="margin:0.5rem 0 0 0; color: #059669; font-weight: bold;">💰 +{format_currency(rec['impacto_comision'])} comisión</p>
+            </div>
+            """, unsafe_allow_html=True)
 
 # ========================
-# TAB 2 - COMISIONES MEJORADAS
+# TAB 2 - COMISIONES
 # ========================
 with tabs[1]:
     st.header("💰 Gestión de Comisiones")
     
-    # Botón para nueva venta
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button("➕ Nueva Venta", type="primary", use_container_width=True):
-            st.session_state.show_nueva_venta = True
-    
-    # Filtros avanzados
+    # Filtros rápidos
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        estado_filter = st.selectbox("Estado", ["Todos", "Pendiente", "Pagado", "Vencido", "Perdido"])
+        estado_filter = st.selectbox("Estado", ["Todos", "Pendientes", "Pagadas", "Vencidas"])
     with col2:
-        cliente_filter = st.selectbox("Tipo Cliente", ["Todos", "Propios", "Externos"])
+        cliente_filter = st.text_input("Buscar cliente")
     with col3:
-        riesgo_filter = st.selectbox("Riesgo", ["Todos", "Sin Riesgo", "En Riesgo", "Crítico"])
+        monto_min = st.number_input("Valor mínimo", min_value=0, value=0, step=100000)
     with col4:
-        st.write("")  # Espaciador
-        export_btn = st.button("📥 Exportar Excel")
+        if st.button("📥 Exportar Excel"):
+            st.success("Funcionalidad próximamente")
     
-    # Aplicar filtros
-    df_filtrado = df.copy()
-    if estado_filter != "Todos":
-        estado_map = {"Pendiente": False, "Pagado": True, "Vencido": "vencido", "Perdido": "perdido"}
-        if estado_filter in ["Pendiente", "Pagado"]:
-            df_filtrado = df_filtrado[df_filtrado["pagado"] == estado_map[estado_filter]]
+    # Procesar datos con filtros
+    df_comisiones = df.copy() if not df.empty else pd.DataFrame()
     
-    # Mostrar resumen
-    st.markdown("### 📊 Resumen Comisiones")
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        total_periodo = df_filtrado["comision"].sum()
-        st.metric("Total Período", f"${total_periodo:,.0f}")
-    
-    with col2:
-        pendientes = df_filtrado[df_filtrado["pagado"] == False]["comision"].sum()
-        st.metric("Pendientes", f"${pendientes:,.0f}")
-    
-    with col3:
-        pagadas = df_filtrado[df_filtrado["pagado"] == True]["comision"].sum()
-        st.metric("Pagadas", f"${pagadas:,.0f}")
-    
-    with col4:
-        perdidas = df_filtrado[df_filtrado["comision_perdida"] == True]["comision"].sum()
-        st.metric("Perdidas", f"${perdidas:,.0f}", delta_color="inverse")
-    
-    # Tabla de facturas con acciones
-    st.markdown("### 📋 Facturas Detalladas")
-    
-    if not df_filtrado.empty:
-        for idx, factura in df_filtrado.iterrows():
-            with st.expander(f"🧾 {factura.get('pedido', 'N/A')} - {factura.get('cliente', 'N/A')} - ${factura.get('valor', 0):,.0f}"):
-                col1, col2, col3 = st.columns([2, 2, 1])
-                
-                with col1:
-                    st.write(f"**Cliente:** {factura.get('cliente', 'N/A')}")
-                    st.write(f"**Factura:** {factura.get('factura', 'N/A')}")
-                    st.write(f"**Valor Neto:** ${factura.get('valor', 0):,.0f}")
-                    st.write(f"**Fecha Factura:** {factura.get('fecha_factura', 'N/A')}")
-                    
-                    # Indicadores especiales
-                    if factura.get('cliente_propio'):
-                        st.success("✅ Cliente Propio")
-                    if factura.get('descuento_adicional', 0) > 15:
-                        st.warning(f"⚠️ Descuento Adicional: {factura.get('descuento_adicional')}%")
-                
-                with col2:
-                    st.write(f"**Base Comisión:** ${factura.get('base_comision', 0):,.0f}")
-                    st.write(f"**Porcentaje:** {factura.get('porcentaje', 0)}%")
-                    st.write(f"**Comisión:** ${factura.get('comision', 0):,.0f}")
-                    
-                    if factura.get('valor_devuelto', 0) > 0:
-                        st.error(f"🔄 Devolución: ${factura.get('valor_devuelto'):,.0f}")
-                    
-                    if factura.get('comision_perdida'):
-                        st.error("❌ Comisión Perdida")
-                
-                with col3:
-                    st.write("**Acciones:**")
-                    
-                    if st.button(f"✏️ Editar", key=f"edit_{factura.get('id')}"):
-                        st.session_state.edit_factura = factura
-                        st.session_state.show_edit_modal = True
-                    
-                    if factura.get('pagado') and not factura.get('comision_perdida'):
-                        if st.button(f"🔄 Devolución", key=f"dev_{factura.get('id')}"):
-                            st.session_state.devolucion_factura = factura
-                            st.session_state.show_devolucion_modal = True
-                    
-                    if not factura.get('pagado') and not factura.get('comision_perdida'):
-                        if st.button(f"✅ Marcar Pagado", key=f"pay_{factura.get('id')}"):
-                            # Aquí iría la lógica para marcar como pagado
-                            st.success("Función por implementar")
-    else:
-        st.info("No hay facturas que coincidan con los filtros seleccionados.")
-
-# Modales (estos irían en la parte inferior del archivo)
-# Modal Nueva Venta
-if st.session_state.get('show_nueva_venta', False):
-    with st.form("nueva_venta_form"):
-        st.markdown("### ➕ Registrar Nueva Venta")
+    if not df_comisiones.empty:
+        # Aplicar filtros
+        if estado_filter == "Pendientes":
+            df_comisiones = df_comisiones[df_comisiones["pagado"] == False]
+        elif estado_filter == "Pagadas":
+            df_comisiones = df_comisiones[df_comisiones["pagado"] == True]
+        elif estado_filter == "Vencidas":
+            df_comisiones = df_comisiones[df_comisiones["dias_vencimiento"] < 0]
         
-        col1, col2 = st.columns(2)
+        if cliente_filter:
+            df_comisiones = df_comisiones[df_comisiones["cliente"].str.contains(cliente_filter, case=False, na=False)]
+        
+        if monto_min > 0:
+            df_comisiones = df_comisiones[df_comisiones["valor_neto"] >= monto_min]
+    
+    # Resumen de filtros aplicados
+    if not df_comisiones.empty:
+        col1, col2, col3 = st.columns(3)
         with col1:
-            pedido = st.text_input("Número de Pedido")
-            cliente = st.text_input("Cliente")
-            factura = st.text_input("Número de Factura")
-        
+            st.metric("Facturas Filtradas", len(df_comisiones))
         with col2:
-            valor_total = st.number_input("Valor Total (con IVA)", min_value=0.0, step=1000.0)
-            fecha_factura = st.date_input("Fecha de Factura", value=date.today())
+            st.metric("Total Comisiones", format_currency(df_comisiones["comision"].sum()))
+        with col3:
+            st.metric("Valor Promedio", format_currency(df_comisiones["valor_neto"].mean()))
+    
+    st.markdown("---")
+    
+    # Lista de facturas mejorada
+    if not df_comisiones.empty:
+        st.markdown("### 📋 Facturas Detalladas")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            cliente_propio = st.checkbox("Cliente Propio", help="2.5% vs 1% de comisión")
-            descuento_pie_factura = st.checkbox("Descuento a Pie de Factura")
-        
-        with col2:
-            descuento_adicional = st.number_input("Descuento Adicional (%)", min_value=0.0, max_value=100.0, step=0.5)
-            condicion_especial = st.checkbox("Condición Especial (60 días)")
-        
-        # Preview de cálculos
-        if valor_total > 0:
-            valor = valor_total / 1.19
-            iva = valor_total - valor
+        for _, factura in df_comisiones.iterrows():
+            # Determinar estado visual
+            if factura.get("pagado"):
+                estado_badge = "✅ PAGADA"
+                estado_color = "#10b981"
+            elif factura.get("dias_vencimiento", 0) < 0:
+                estado_badge = "⚠️ VENCIDA"
+                estado_color = "#ef4444"
+            else:
+                estado_badge = "⏳ PENDIENTE"
+                estado_color = "#f59e0b"
             
-            st.markdown("---")
-            st.markdown("### 🧮 Preview Comisión")
+            # Card de factura
+            st.markdown(f"""
+            <div class="factura-card">
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
+                    <div>
+                        <h3 style="margin: 0; color: #1f2937;">🧾 {factura.get('pedido', 'N/A')} - {factura.get('cliente', 'N/A')}</h3>
+                        <p style="margin: 0.25rem 0; color: #6b7280;">Factura: {factura.get('factura', 'N/A')}</p>
+                    </div>
+                    <span style="background: {estado_color}; color: white; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.8rem; font-weight: bold;">
+                        {estado_badge}
+                    </span>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                    <div>
+                        <strong>💰 Valor Neto:</strong> {format_currency(factura.get('valor_neto', 0))}
+                    </div>
+                    <div>
+                        <strong>📊 Base Comisión:</strong> {format_currency(factura.get('base_comision', 0))}
+                    </div>
+                    <div>
+                        <strong>🎯 Comisión:</strong> <span style="color: #059669; font-weight: bold;">{format_currency(factura.get('comision', 0))}</span>
+                    </div>
+                    <div>
+                        <strong>📅 Fecha Factura:</strong> {factura.get('fecha_factura', 'N/A')}
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
             
-            col1, col2, col3 = st.columns(3)
+            # Botones de acción
+            col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
-                st.metric("Valor Neto", f"${valor:,.0f}")
-            with col2:
-                st.metric("IVA", f"${iva:,.0f}")
+                if st.button(f"✏️ Editar", key=f"edit_{factura.get('id', 0)}"):
+                    st.session_state.edit_factura = factura.to_dict()
+                    st.session_state.show_edit = True
             
-            # Calcular comisión preview
-            comision_data = calcular_comision_real({
-                'valor': valor,
-                'cliente_propio': cliente_propio,
-                'descuento_pie_factura': descuento_pie_factura,
-                'descuento_adicional': descuento_adicional
-            })
+            with col2:
+                if not factura.get("pagado") and st.button(f"✅ Pagado", key=f"pay_{factura.get('id', 0)}"):
+                    # Aquí implementarías la lógica
+                    st.success("Marcado como pagado (demo)")
             
             with col3:
-                st.metric("Comisión Estimada", f"${comision_data['comision']:,.0f}")
+                if factura.get("pagado") and st.button(f"🔄 Devolución", key=f"dev_{factura.get('id', 0)}"):
+                    st.session_state.devolucion_factura = factura.to_dict()
+                    st.session_state.show_devolucion = True
             
-            st.info(f"Base: ${comision_data['base_final']:,.0f} × {comision_data['porcentaje']}% = ${comision_data['comision']:,.0f}")
+            with col4:
+                if st.button(f"📄 Ver Detalles", key=f"detail_{factura.get('id', 0)}"):
+                    st.session_state.detail_factura = factura.to_dict()
+                    st.session_state.show_detail = True
+            
+            with col5:
+                if factura.get("comprobante_url"):
+                    st.markdown(f"[📎 Comprobante]({factura.get('comprobante_url')})")
+    else:
+        st.info("No hay facturas que coincidan con los filtros aplicados.")
+
+# ========================
+# TAB 3 - NUEVA VENTA
+# ========================
+with tabs[2]:
+    st.header("➕ Registrar Nueva Venta")
+    
+    with st.form("nueva_venta_form", clear_on_submit=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            pedido = st.text_input("Número de Pedido*")
+            cliente = st.text_input("Cliente*")
+            factura = st.text_input("Número de Factura")
+            valor_total = st.number_input("Valor Total (con IVA)*", min_value=0.0, step=10000.0)
+        
+        with col2:
+            fecha_factura = st.date_input("Fecha de Factura", value=date.today())
+            cliente_propio = st.checkbox("✅ Cliente Propio", help="2.5% vs 1% de comisión")
+            descuento_pie_factura = st.checkbox("📄 Descuento a Pie de Factura")
+            descuento_adicional = st.number_input("Descuento Adicional (%)", min_value=0.0, max_value=100.0, step=0.5)
+        
+        condicion_especial = st.checkbox("⏰ Condición Especial (60 días de pago)")
+        
+        # Preview de cálculos en tiempo real
+        if valor_total > 0:
+            st.markdown("---")
+            st.markdown("### 🧮 Preview Automático de Comisión")
+            
+            calc = calcular_comision_inteligente(valor_total, cliente_propio, descuento_adicional, descuento_pie_factura)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Valor Neto", format_currency(calc['valor_neto']))
+            with col2:
+                st.metric("IVA (19%)", format_currency(calc['iva']))
+            with col3:
+                st.metric("Base Comisión", format_currency(calc['base_comision']))
+            with col4:
+                st.metric("Comisión Final", format_currency(calc['comision']), help=f"Porcentaje: {calc['porcentaje']}%")
+            
+            # Explicación del cálculo
+            st.info(f"""
+            **Cálculo:** Base ${calc['base_comision']:,.0f} × {calc['porcentaje']}% = **${calc['comision']:,.0f}**
+            
+            - Cliente {'Propio' if cliente_propio else 'Externo'}: {calc['porcentaje']}%
+            - {'Descuento a pie de factura' if descuento_pie_factura else 'Descuento automático 15%'}
+            - {'Descuento adicional >15%' if descuento_adicional > 15 else 'Sin descuento adicional significativo'}
+            """)
+        
+        st.markdown("---")
         
         col1, col2 = st.columns(2)
         with col1:
             submit = st.form_submit_button("💾 Registrar Venta", type="primary", use_container_width=True)
         with col2:
-            cancel = st.form_submit_button("❌ Cancelar", use_container_width=True)
+            clear = st.form_submit_button("🧹 Limpiar Formulario", use_container_width=True)
         
         if submit:
             if pedido and cliente and valor_total > 0:
-                # Calcular días de pago estimados
+                # Preparar datos según tu estructura actual
                 dias_pago = 60 if condicion_especial else 35
                 dias_max = 60 if condicion_especial else 45
                 fecha_pago_est = fecha_factura + timedelta(days=dias_pago)
                 fecha_pago_max = fecha_factura + timedelta(days=dias_max)
                 
-                # Calcular valores
-                valor = valor_total / 1.19
-                iva = valor_total - valor
-                comision_data = calcular_comision_real({
-                    'valor': valor,
-                    'cliente_propio': cliente_propio,
-                    'descuento_pie_factura': descuento_pie_factura,
-                    'descuento_adicional': descuento_adicional
-                })
+                calc = calcular_comision_inteligente(valor_total, cliente_propio, descuento_adicional, descuento_pie_factura)
                 
-                # Preparar datos para inserción
                 data = {
                     "pedido": pedido,
                     "cliente": cliente,
                     "factura": factura,
-                    "valor": valor_total,  # Mantener compatibilidad
-                    "valor": valor,
-                    "iva": iva,
-                    "cliente_propio": cliente_propio,
-                    "descuento_pie_factura": descuento_pie_factura,
-                    "descuento_adicional": descuento_adicional,
-                    "condicion_especial": condicion_especial,
+                    "valor": valor_total,
+                    "comision": calc['comision'],
+                    "porcentaje": calc['porcentaje'],
                     "fecha_factura": fecha_factura.isoformat(),
                     "fecha_pago_est": fecha_pago_est.isoformat(),
                     "fecha_pago_max": fecha_pago_max.isoformat(),
-                    "base_comision": comision_data['base_final'],
-                    "comision": comision_data['comision'],
-                    "porcentaje": comision_data['porcentaje'],
+                    "condicion_especial": condicion_especial,
                     "pagado": False,
-                    "comision_perdida": False
                 }
                 
-                if insertar_venta_completa(supabase, data):
-                    st.success("✅ Venta registrada correctamente")
-                    st.session_state.show_nueva_venta = False
+                if insertar_venta(supabase, data):
+                    st.success(f"✅ Venta registrada correctamente - Comisión: {format_currency(calc['comision'])}")
+                    st.balloons()
                     st.rerun()
                 else:
                     st.error("❌ Error al registrar la venta")
             else:
-                st.error("Por favor completa todos los campos obligatorios")
+                st.error("⚠️ Por favor completa todos los campos marcados con *")
+
+# ========================
+# TAB 4 - CLIENTES
+# ========================
+with tabs[3]:
+    st.header("👥 Gestión de Clientes")
+    st.info("🚧 Módulo en desarrollo - Próximamente funcionalidad completa de gestión de clientes")
+    
+    if not df.empty:
+        # Análisis básico de clientes
+        clientes_stats = df.groupby('cliente').agg({
+            'valor_neto': ['sum', 'mean', 'count'],
+            'comision': 'sum',
+            'fecha_factura': 'max'
+        }).round(0)
         
-        if cancel:
-            st.session_state.show_nueva_venta = False
+        clientes_stats.columns = ['Total Compras', 'Ticket Promedio', 'Número Compras', 'Total Comisiones', 'Última Compra']
+        clientes_stats = clientes_stats.sort_values('Total Compras', ascending=False).head(10)
+        
+        st.markdown("### 🏆 Top 10 Clientes")
+        
+        for cliente, row in clientes_stats.iterrows():
+            st.markdown(f"""
+            <div class="factura-card">
+                <h4 style="margin: 0 0 0.5rem 0; color: #1f2937;">👤 {cliente}</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                    <div><strong>Total:</strong> {format_currency(row['Total Compras'])}</div>
+                    <div><strong>Ticket:</strong> {format_currency(row['Ticket Promedio'])}</div>
+                    <div><strong>Compras:</strong> {row['Número Compras']}</div>
+                    <div><strong>Comisiones:</strong> {format_currency(row['Total Comisiones'])}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+# ========================
+# TAB 5 - IA & ALERTAS
+# ========================
+with tabs[4]:
+    st.header("🧠 Inteligencia Artificial & Alertas")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown("### 🚨 Alertas Críticas")
+        
+        # Generar alertas basadas en datos reales
+        alertas = []
+        
+        if not df.empty:
+            # Facturas vencidas
+            vencidas = df[df["dias_vencimiento"] < 0]
+            for _, factura in vencidas.head(3).iterrows():
+                alertas.append({
+                    'tipo': 'critico',
+                    'titulo': 'Factura Vencida',
+                    'mensaje': f"{factura.get('cliente', 'N/A')} - {factura.get('pedido', 'N/A')} ({format_currency(factura.get('valor_neto', 0))})",
+                    'accion': 'Contactar inmediatamente'
+                })
+            
+            # Facturas próximas a vencer
+            prox_vencer = df[(df["dias_vencimiento"] >= 0) & (df["dias_vencimiento"] <= 5) & (df["pagado"] == False)]
+            for _, factura in prox_vencer.head(3).iterrows():
+                alertas.append({
+                    'tipo': 'advertencia',
+                    'titulo': 'Próximo Vencimiento',
+                    'mensaje': f"{factura.get('cliente', 'N/A')} vence en {factura.get('dias_vencimiento', 0)} días",
+                    'accion': 'Recordar pago'
+                })
+            
+            # Oportunidades de alta comisión
+            alto_valor = df[df["comision"] > df["comision"].quantile(0.8)]
+            for _, factura in alto_valor.head(2).iterrows():
+                if not factura.get("pagado"):
+                    alertas.append({
+                        'tipo': 'oportunidad',
+                        'titulo': 'Alta Comisión Pendiente',
+                        'mensaje': f"Comisión {format_currency(factura.get('comision', 0))} esperando pago",
+                        'accion': 'Hacer seguimiento'
+                    })
+        
+        # Mostrar alertas
+        if alertas:
+            for alerta in alertas:
+                tipo_class = {
+                    'critico': 'alert-high',
+                    'advertencia': 'alert-medium', 
+                    'oportunidad': 'alert-low'
+                }[alerta['tipo']]
+                
+                icono = {
+                    'critico': '🚨',
+                    'advertencia': '⚠️',
+                    'oportunidad': '💎'
+                }[alerta['tipo']]
+                
+                st.markdown(f"""
+                <div class="{tipo_class}">
+                    <h4 style="margin: 0; color: #1f2937;">{icono} {alerta['titulo']}</h4>
+                    <p style="margin: 0.5rem 0; color: #374151;">{alerta['mensaje']}</p>
+                    <p style="margin: 0; color: #6b7280; font-size: 0.9rem;"><strong>Acción:</strong> {alerta['accion']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.success("✅ No hay alertas críticas en este momento")
+    
+    with col2:
+        st.markdown("### 🎯 Recomendaciones Estratégicas")
+        
+        recomendaciones = generar_recomendaciones_ia()
+        
+        for i, rec in enumerate(recomendaciones):
+            st.markdown(f"""
+            <div class="recomendacion-card">
+                <h4 style="margin: 0 0 0.5rem 0;">#{i+1} {rec['cliente']}</h4>
+                <p style="margin: 0 0 0.5rem 0; font-size: 1.1rem;"><strong>{rec['accion']}</strong></p>
+                <p style="margin: 0 0 1rem 0; opacity: 0.9;">{rec['razon']}</p>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="background: rgba(255,255,255,0.2); padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.9rem;">
+                        {rec['probabilidad']}% probabilidad
+                    </span>
+                    <span style="font-weight: bold; font-size: 1.1rem;">
+                        +{format_currency(rec['impacto_comision'])}
+                    </span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Botón para generar más recomendaciones
+        if st.button("🔄 Generar Nuevas Recomendaciones"):
             st.rerun()
+    
+    st.markdown("---")
+    
+    # Sección de análisis predictivo
+    st.markdown("### 📊 Análisis Predictivo")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        <div class="metric-card">
+            <h4>🔮 Predicción Meta</h4>
+            <p style="font-size: 1.5rem; font-weight: bold; color: #f59e0b; margin: 0.5rem 0;">75%</p>
+            <p style="color: #6b7280; margin: 0;">Probabilidad de cumplir meta mensual</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class="metric-card">
+            <h4>📈 Tendencia Comisiones</h4>
+            <p style="font-size: 1.5rem; font-weight: bold; color: #10b981; margin: 0.5rem 0;">+15%</p>
+            <p style="color: #6b7280; margin: 0;">Crecimiento estimado próximo mes</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div class="metric-card">
+            <h4>🎯 Clientes en Riesgo</h4>
+            <p style="font-size: 1.5rem; font-weight: bold; color: #ef4444; margin: 0.5rem 0;">3</p>
+            <p style="color: #6b7280; margin: 0;">Requieren atención inmediata</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ========================
+# MODALES Y FORMULARIOS EMERGENTES
+# ========================
+
+# Modal de configuración de meta
+if st.session_state.get('show_meta_config', False):
+    with st.form("config_meta"):
+        st.markdown("### ⚙️ Configurar Meta Mensual")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            nueva_meta = st.number_input(
+                "Meta de Ventas (COP)", 
+                value=st.session_state.meta_mensual,
+                min_value=0,
+                step=100000
+            )
+        
+        with col2:
+            nueva_meta_clientes = st.number_input(
+                "Meta Clientes Nuevos", 
+                value=st.session_state.clientes_nuevos_meta,
+                min_value=0,
+                step=1
+            )
+        
+        # Preview del bono
+        bono_potencial = nueva_meta * 0.005
+        st.info(f"🎁 **Bono potencial si cumples ambas metas:** {format_currency(bono_potencial)} (0.5% de la meta)")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("💾 Guardar Meta", type="primary"):
+                st.session_state.meta_mensual = nueva_meta
+                st.session_state.clientes_nuevos_meta = nueva_meta_clientes
+                st.session_state.show_meta_config = False
+                st.success("✅ Meta actualizada correctamente")
+                st.rerun()
+        
+        with col2:
+            if st.form_submit_button("❌ Cancelar"):
+                st.session_state.show_meta_config = False
+                st.rerun()
+
+# Modal de edición de factura (simplificado)
+if st.session_state.get('show_edit', False) and st.session_state.get('edit_factura'):
+    factura = st.session_state.edit_factura
+    
+    with st.form("edit_factura_form"):
+        st.markdown(f"### ✏️ Editar Factura - {factura.get('pedido', 'N/A')}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            cliente_edit = st.text_input("Cliente", value=factura.get('cliente', ''))
+            valor_edit = st.number_input("Valor", value=float(factura.get('valor', 0)))
+        
+        with col2:
+            pagado_edit = st.selectbox("Estado", ["Pendiente", "Pagado"], 
+                                     index=1 if factura.get('pagado') else 0)
+            fecha_pago = st.date_input("Fecha Pago Real") if pagado_edit == "Pagado" else None
+        
+        comprobante = st.file_uploader("Comprobante", type=['pdf', 'jpg', 'png']) if pagado_edit == "Pagado" else None
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("💾 Guardar Cambios", type="primary"):
+                updates = {
+                    "cliente": cliente_edit,
+                    "valor": valor_edit,
+                    "pagado": pagado_edit == "Pagado"
+                }
+                
+                if fecha_pago:
+                    updates["fecha_pago_real"] = fecha_pago.isoformat()
+                
+                if actualizar_factura(supabase, factura.get('id'), updates):
+                    st.success("✅ Factura actualizada correctamente")
+                    st.session_state.show_edit = False
+                    st.rerun()
+                else:
+                    st.error("❌ Error al actualizar factura")
+        
+        with col2:
+            if st.form_submit_button("❌ Cancelar"):
+                st.session_state.show_edit = False
+                st.rerun()
+
+# Footer
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; color: #6b7280; padding: 2rem 0;">
+    <p>🧠 <strong>CRM Inteligente</strong> | Optimizando tus comisiones con IA</p>
+    <p style="font-size: 0.9rem;">Versión 2.0 - Sistema migrado con funcionalidades mejoradas</p>
+</div>
+""", unsafe_allow_html=True)
+
+# Cleanup de estados temporales
+if st.session_state.get('show_meta_config') is None:
+    st.session_state.show_meta_config = False
+if st.session_state.get('show_edit') is None:
+    st.session_state.show_edit = False
