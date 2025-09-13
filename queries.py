@@ -276,3 +276,10 @@ def actualizar_progreso_meta(supabase: Client, mes: str):
     except Exception as e:
         print(f"Error actualizando progreso meta: {e}")
         return False
+
+
+# Aliases para compatibilidad
+cargar_datos_completos = cargar_datos
+insertar_venta_completa = insertar_venta
+actualizar_factura_completa = actualizar_factura
+
