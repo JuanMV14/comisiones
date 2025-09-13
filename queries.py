@@ -4,7 +4,7 @@ from supabase import Client
 from datetime import datetime
 
 def cargar_datos(supabase: Client):
-    """Carga todas las comisiones con campos nuevos y cálculos automáticos"""
+    """Carga todas las ventas con cálculos automáticos"""
     try:
         data = supabase.table("comisiones").select("*").execute()
         
@@ -12,8 +12,15 @@ def cargar_datos(supabase: Client):
             return pd.DataFrame()
 
         df = pd.DataFrame(data.data)
-        
-        # Asegurar que existan todas las columnas necesarias
+
+        # Normalizar nombres de columnas si tu tabla usa otros
+        if "monto" in df.columns and "valor" not in df.columns:
+            df.rename(columns={"monto": "valor"}, inplace=True)
+
+        if "fecha" in df.columns and "fecha_factura" not in df.columns:
+            df.rename(columns={"fecha": "fecha_factura"}, inplace=True)
+
+        # Agregar columnas faltantes
         columnas_requeridas = {
             "id": None, "pedido": "", "cliente": "", "factura": "", 
             "valor": 0, "valor_neto": 0, "iva": 0,
@@ -39,27 +46,17 @@ def cargar_datos(supabase: Client):
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors="coerce")
 
-        # Calcular campos derivados
+        # Calcular campo mes y días de vencimiento
         df["mes_factura"] = df["fecha_factura"].dt.to_period("M").astype(str)
-        
-        # Calcular días de vencimiento
         hoy = pd.Timestamp.now()
         df["dias_vencimiento"] = (df["fecha_pago_max"] - hoy).dt.days
-        
-        # Recalcular comisiones si es necesario (para datos migrados)
-        for idx, row in df.iterrows():
-            if pd.isna(row["base_comision"]) or row["base_comision"] == 0:
-                comision_calc = calcular_comision_automatica(row)
-                df.at[idx, "base_comision"] = comision_calc["base_final"]
-                df.at[idx, "comision"] = comision_calc["comision"]
-                df.at[idx, "porcentaje"] = comision_calc["porcentaje"]
-                df.at[idx, "comision_perdida"] = comision_calc["perdida"]
-        
+
         return df
 
     except Exception as e:
-        print(f"Error cargando datos completos: {e}")
+        print(f"Error cargando datos: {e}")
         return pd.DataFrame()
+
 
 def calcular_comision_automatica(row):
     """Calcula comisión automáticamente basado en los datos de la fila"""
