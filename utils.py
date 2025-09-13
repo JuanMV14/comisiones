@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 
 def safe_get_public_url(supabase, bucket: str, path: str):
-    """Obtiene la URL pública de un archivo en Supabase Storage (igual que antes)"""
+    """Obtiene la URL pública de un archivo en Supabase Storage"""
     try:
         res = supabase.storage.from_(bucket).get_public_url(path)
         if isinstance(res, dict):
@@ -18,6 +18,10 @@ def safe_get_public_url(supabase, bucket: str, path: str):
 def calcular_comision_legacy(valor, porcentaje):
     """Función de compatibilidad con código anterior"""
     return valor * (porcentaje / 100)
+
+def calcular_comision(valor, porcentaje):
+    """Función de compatibilidad - alias de calcular_comision_legacy"""
+    return calcular_comision_legacy(valor, porcentaje)
 
 def format_currency(value):
     """Formatea un número a pesos colombianos"""
@@ -139,18 +143,23 @@ def exportar_excel(df, nombre_archivo="comisiones_export"):
             'comision_perdida': 'Comisión Perdida'
         }
         
-        df_export = df_export[list(columnas_export.keys())].rename(columns=columnas_export)
+        # Filtrar solo columnas que existen en el DataFrame
+        columnas_existentes = {k: v for k, v in columnas_export.items() if k in df_export.columns}
+        df_export = df_export[list(columnas_existentes.keys())].rename(columns=columnas_existentes)
         
         # Formatear valores monetarios
         for col in ['Valor Neto', 'Base Comisión', 'Comisión']:
-            df_export[col] = df_export[col].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "$0")
+            if col in df_export.columns:
+                df_export[col] = df_export[col].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "$0")
         
         # Formatear porcentajes
-        df_export['Porcentaje (%)'] = df_export['Porcentaje (%)'].apply(lambda x: f"{x}%" if pd.notna(x) else "0%")
+        if 'Porcentaje (%)' in df_export.columns:
+            df_export['Porcentaje (%)'] = df_export['Porcentaje (%)'].apply(lambda x: f"{x}%" if pd.notna(x) else "0%")
         
         # Formatear fechas
         for col in ['Fecha Factura', 'Fecha Pago']:
-            df_export[col] = pd.to_datetime(df_export[col]).dt.strftime('%Y-%m-%d')
+            if col in df_export.columns:
+                df_export[col] = pd.to_datetime(df_export[col], errors='coerce').dt.strftime('%Y-%m-%d')
         
         # Crear nombre de archivo con timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -187,3 +196,53 @@ def validar_datos_venta(data):
             errores.append("El IVA no parece correcto (debería ser 19%)")
     
     return errores
+
+def generar_reporte_comisiones(df, periodo):
+    """Genera un reporte completo de comisiones"""
+    try:
+        reporte = {
+            'periodo': periodo,
+            'total_facturas': len(df),
+            'total_facturado': df['valor_neto'].sum(),
+            'total_comisiones': df['comision'].sum(),
+            'comisiones_pagadas': df[df['pagado'] == True]['comision'].sum(),
+            'comisiones_pendientes': df[df['pagado'] == False]['comision'].sum(),
+            'promedio_comision': df['comision'].mean(),
+            'cliente_top': df.groupby('cliente')['comision'].sum().idxmax(),
+            'fecha_generacion': datetime.now().isoformat()
+        }
+        
+        return reporte
+    except Exception as e:
+        print(f"Error generando reporte: {e}")
+        return None
+
+def calcular_proyeccion_meta(ventas_actuales, meta_objetivo, dias_transcurridos, dias_totales):
+    """Calcula proyección de cumplimiento de meta"""
+    try:
+        # Velocidad actual de ventas
+        velocidad_actual = ventas_actuales / max(dias_transcurridos, 1)
+        
+        # Proyección al final del período
+        proyeccion_final = velocidad_actual * dias_totales
+        
+        # Probabilidad de cumplimiento (simplificada)
+        ratio_actual = ventas_actuales / meta_objetivo
+        progreso_tiempo = dias_transcurridos / dias_totales
+        
+        if progreso_tiempo > 0:
+            eficiencia = ratio_actual / progreso_tiempo
+            probabilidad = min(100, eficiencia * 100)
+        else:
+            probabilidad = 0
+        
+        return {
+            'proyeccion_final': proyeccion_final,
+            'probabilidad_cumplimiento': probabilidad,
+            'velocidad_necesaria': (meta_objetivo - ventas_actuales) / max(dias_totales - dias_transcurridos, 1),
+            'velocidad_actual': velocidad_actual,
+            'deficit_superavit': proyeccion_final - meta_objetivo
+        }
+    except Exception as e:
+        print(f"Error calculando proyección: {e}")
+        return None
