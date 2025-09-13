@@ -4,23 +4,23 @@ from supabase import Client
 from datetime import datetime
 
 def cargar_datos(supabase: Client):
-    """Carga todas las ventas con cálculos automáticos"""
+    """Carga todas las ventas desde la tabla comisiones y prepara cálculos automáticos"""
     try:
-        data = supabase.table("comisiones").select("*").execute()
-        
-        if not data.data:
-            return pd.DataFrame()
+        # Traer todos los registros de la tabla 'comisiones'
+        response = supabase.table("comisiones").select("*").execute()
+        if not response.data:
+            return pd.DataFrame()  # Si no hay datos, devolver DataFrame vacío
 
-        df = pd.DataFrame(data.data)
+        df = pd.DataFrame(response.data)
 
-        # Normalizar nombres de columnas si tu tabla usa otros
-        if "monto" in df.columns and "valor" not in df.columns:
+        # Ajustar nombres de columnas según tu tabla
+        # Modifica aquí si tus columnas tienen otros nombres
+        if "monto" in df.columns:
             df.rename(columns={"monto": "valor"}, inplace=True)
-
-        if "fecha" in df.columns and "fecha_factura" not in df.columns:
+        if "fecha" in df.columns:
             df.rename(columns={"fecha": "fecha_factura"}, inplace=True)
 
-        # Agregar columnas faltantes
+        # Columnas que deben existir
         columnas_requeridas = {
             "id": None, "pedido": "", "cliente": "", "factura": "", 
             "valor": 0, "valor_neto": 0, "iva": 0,
@@ -35,10 +35,10 @@ def cargar_datos(supabase: Client):
             "comprobante_url": "", "comprobante_file": "",
             "referencia": "", "created_at": None, "updated_at": None
         }
-        
-        for col, default_val in columnas_requeridas.items():
+
+        for col, default in columnas_requeridas.items():
             if col not in df.columns:
-                df[col] = default_val
+                df[col] = default
 
         # Procesar fechas
         fecha_cols = ["fecha_factura", "fecha_pago_est", "fecha_pago_max", "fecha_pago_real", "created_at", "updated_at"]
@@ -46,15 +46,24 @@ def cargar_datos(supabase: Client):
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors="coerce")
 
-        # Calcular campo mes y días de vencimiento
+        # Calcular mes de la factura y días de vencimiento
         df["mes_factura"] = df["fecha_factura"].dt.to_period("M").astype(str)
         hoy = pd.Timestamp.now()
         df["dias_vencimiento"] = (df["fecha_pago_max"] - hoy).dt.days
 
+        # Calcular comisión automáticamente para cada fila
+        from queries_mejoradas import calcular_comision_automatica
+        comisiones = df.apply(calcular_comision_automatica, axis=1)
+        df["base_comision"] = [c["base_final"] for c in comisiones]
+        df["comision"] = [c["comision"] for c in comisiones]
+        df["porcentaje"] = [c["porcentaje"] for c in comisiones]
+        df["comision_perdida"] = [c["perdida"] for c in comisiones]
+        df["comision_ajustada"] = df["comision"]
+
         return df
 
     except Exception as e:
-        print(f"Error cargando datos: {e}")
+        print(f"Error cargando datos desde Supabase: {e}")
         return pd.DataFrame()
 
 
