@@ -100,7 +100,7 @@ with st.sidebar:
 
 def calcular_comision_real(factura_data):
     """Calcula comisión según tu lógica exacta"""
-    valor_neto = factura_data.get('valor_neto', 0)
+    valor = factura_data.get('valor', 0)
     cliente_propio = factura_data.get('cliente_propio', False)
     descuento_pie_factura = factura_data.get('descuento_pie_factura', False)
     descuento_adicional = factura_data.get('descuento_adicional', 0)
@@ -110,14 +110,14 @@ def calcular_comision_real(factura_data):
     
     # 1. Calcular base inicial
     if descuento_pie_factura:
-        base = valor_neto  # Ya tiene descuento aplicado
+        base = valor  # Ya tiene descuento aplicado
     else:
         # Verificar si mantiene el 15% de descuento según días
         limite_dias = 60 if condicion_especial else 45
         if not dias_pago or dias_pago <= limite_dias:
-            base = valor_neto * 0.85  # Aplica descuento 15%
+            base = valor * 0.85  # Aplica descuento 15%
         else:
-            base = valor_neto  # Pierde descuento por pago tardío
+            base = valor  # Pierde descuento por pago tardío
     
     # 2. Restar devoluciones
     base_final = base - valor_devuelto
@@ -169,7 +169,7 @@ def generar_recomendaciones_ia(supabase, meta_actual, dias_restantes):
                 
                 # Calcular comisión estimada
                 comision_estimada = calcular_comision_real({
-                    'valor_neto': ticket_estimado / 1.19,
+                    'valor': ticket_estimado / 1.19,
                     'cliente_propio': cliente.get('es_propio', False),
                     'descuento_pie_factura': False,
                     'descuento_adicional': cliente.get('descuento_habitual', 0)
@@ -219,7 +219,7 @@ with tabs[0]:
     # Métricas principales
     col1, col2, col3, col4 = st.columns(4)
     
-    total_facturado = df["valor_neto"].sum()
+    total_facturado = df["valor"].sum()
     total_comisiones = df["comision"].sum()
     comisiones_perdidas = df[df["comision_perdida"] == True]["comision"].sum()
     facturas_riesgo = len(df[(df["pagado"] == False) & (df["dias_vencimiento"] <= 5)])
@@ -328,7 +328,7 @@ with tabs[0]:
         if not df.empty:
             df_mes = df.groupby('mes_factura').agg({
                 'comision': 'sum',
-                'valor_neto': 'sum'
+                'valor': 'sum'
             }).reset_index()
             
             fig = px.line(df_mes, x='mes_factura', y='comision',
@@ -406,13 +406,13 @@ with tabs[1]:
     
     if not df_filtrado.empty:
         for idx, factura in df_filtrado.iterrows():
-            with st.expander(f"🧾 {factura.get('pedido', 'N/A')} - {factura.get('cliente', 'N/A')} - ${factura.get('valor_neto', 0):,.0f}"):
+            with st.expander(f"🧾 {factura.get('pedido', 'N/A')} - {factura.get('cliente', 'N/A')} - ${factura.get('valor', 0):,.0f}"):
                 col1, col2, col3 = st.columns([2, 2, 1])
                 
                 with col1:
                     st.write(f"**Cliente:** {factura.get('cliente', 'N/A')}")
                     st.write(f"**Factura:** {factura.get('factura', 'N/A')}")
-                    st.write(f"**Valor Neto:** ${factura.get('valor_neto', 0):,.0f}")
+                    st.write(f"**Valor Neto:** ${factura.get('valor', 0):,.0f}")
                     st.write(f"**Fecha Factura:** {factura.get('fecha_factura', 'N/A')}")
                     
                     # Indicadores especiales
@@ -478,21 +478,21 @@ if st.session_state.get('show_nueva_venta', False):
         
         # Preview de cálculos
         if valor_total > 0:
-            valor_neto = valor_total / 1.19
-            iva = valor_total - valor_neto
+            valor = valor_total / 1.19
+            iva = valor_total - valor
             
             st.markdown("---")
             st.markdown("### 🧮 Preview Comisión")
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Valor Neto", f"${valor_neto:,.0f}")
+                st.metric("Valor Neto", f"${valor:,.0f}")
             with col2:
                 st.metric("IVA", f"${iva:,.0f}")
             
             # Calcular comisión preview
             comision_data = calcular_comision_real({
-                'valor_neto': valor_neto,
+                'valor': valor,
                 'cliente_propio': cliente_propio,
                 'descuento_pie_factura': descuento_pie_factura,
                 'descuento_adicional': descuento_adicional
@@ -518,10 +518,10 @@ if st.session_state.get('show_nueva_venta', False):
                 fecha_pago_max = fecha_factura + timedelta(days=dias_max)
                 
                 # Calcular valores
-                valor_neto = valor_total / 1.19
-                iva = valor_total - valor_neto
+                valor = valor_total / 1.19
+                iva = valor_total - valor
                 comision_data = calcular_comision_real({
-                    'valor_neto': valor_neto,
+                    'valor': valor,
                     'cliente_propio': cliente_propio,
                     'descuento_pie_factura': descuento_pie_factura,
                     'descuento_adicional': descuento_adicional
@@ -533,7 +533,7 @@ if st.session_state.get('show_nueva_venta', False):
                     "cliente": cliente,
                     "factura": factura,
                     "valor": valor_total,  # Mantener compatibilidad
-                    "valor_neto": valor_neto,
+                    "valor": valor,
                     "iva": iva,
                     "cliente_propio": cliente_propio,
                     "descuento_pie_factura": descuento_pie_factura,
