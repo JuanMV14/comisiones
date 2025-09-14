@@ -20,138 +20,80 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ========================
-# Funciones para manejar tus datos reales
+# Funciones para manejar datos de la tabla COMISIONES
 # ========================
 
 def cargar_datos(supabase: Client):
-    """Carga datos de pedidos con joins a tablas relacionadas"""
+    """Carga datos únicamente de la tabla comisiones"""
     try:
-        # Intentar cargar pedidos con datos relacionados
-        response = supabase.table("pedidos").select("""
-            *,
-            clientes:cliente_id(nombre_cliente, email_cliente, ciudad_cliente),
-            comercializadoras:comercializadora_id(nombre_comercializadora),
-            productos:producto_id(nombre_producto, precio_producto)
-        """).execute()
+        response = supabase.table("comisiones").select("*").execute()
         
         if not response.data:
-            st.warning("No hay datos en la tabla 'pedidos'")
+            st.warning("No hay datos en la tabla 'comisiones'")
             return pd.DataFrame()
 
         df = pd.DataFrame(response.data)
         
-        # Agregar campos calculados necesarios para el análisis
+        # Procesar fechas si existen
+        fecha_cols = [col for col in df.columns if 'fecha' in col.lower()]
+        for col in fecha_cols:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+        
+        # Agregar campos calculados básicos si no existen
         if not df.empty:
-            # Calcular campos básicos
-            df['valor_neto'] = df.get('total_pedido', df.get('precio_unitario', 0) * df.get('cantidad_pedido', 1)) / 1.19
-            df['iva'] = df.get('total_pedido', df.get('precio_unitario', 0) * df.get('cantidad_pedido', 1)) - df['valor_neto']
-            df['mes_factura'] = pd.to_datetime(df['fecha_pedido'], errors='coerce').dt.to_period('M').astype(str)
+            # Crear mes_factura si hay alguna columna de fecha
+            if fecha_cols:
+                primera_fecha = fecha_cols[0]
+                df['mes_factura'] = df[primera_fecha].dt.to_period('M').astype(str)
             
-            # Campos para comisiones (ajustar según tu lógica)
-            df['cliente_propio'] = df['comercializadora_id'].notna()
-            df['base_comision'] = df['valor_neto'] * 0.85  # Base del 85%
-            df['porcentaje'] = df['cliente_propio'].apply(lambda x: 2.5 if x else 1.0)
-            df['comision'] = df['base_comision'] * (df['porcentaje'] / 100)
-            df['pagado'] = df['estado_pedido'] == 'completado'
+            # Asegurar que existen campos básicos para análisis
+            campos_numericos = [col for col in df.columns if df[col].dtype in ['int64', 'float64']]
             
-            # Días de vencimiento
-            df['fecha_pago_max'] = pd.to_datetime(df['fecha_pedido'], errors='coerce') + timedelta(days=45)
-            hoy = pd.Timestamp.now()
-            df['dias_vencimiento'] = (df['fecha_pago_max'] - hoy).dt.days
+            # Si no existe 'valor_neto', usar el primer campo numérico grande
+            if 'valor_neto' not in df.columns and campos_numericos:
+                campo_valor = max(campos_numericos, key=lambda x: df[x].sum())
+                df['valor_neto'] = df[campo_valor]
             
-            # Extraer nombres de objetos anidados si existen
-            if 'clientes' in df.columns and df['clientes'].notna().any():
-                df['cliente'] = df['clientes'].apply(lambda x: x.get('nombre_cliente', 'N/A') if isinstance(x, dict) else 'N/A')
-            else:
-                df['cliente'] = f"Cliente_{df['cliente_id']}" if 'cliente_id' in df.columns else 'N/A'
+            # Si no existe 'comision', calcular como porcentaje del valor
+            if 'comision' not in df.columns and 'valor_neto' in df.columns:
+                df['comision'] = df['valor_neto'] * 0.025  # 2.5% por defecto
             
-            if 'productos' in df.columns and df['productos'].notna().any():
-                df['producto'] = df['productos'].apply(lambda x: x.get('nombre_producto', 'N/A') if isinstance(x, dict) else 'N/A')
-            else:
-                df['producto'] = f"Producto_{df['producto_id']}" if 'producto_id' in df.columns else 'N/A'
-            
-            # Campos adicionales necesarios
-            df['pedido'] = df['pedido_id'] if 'pedido_id' in df.columns else df.index
-            df['factura'] = f"F-{df['pedido_id']}" if 'pedido_id' in df.columns else f"F-{df.index}"
-            df['valor'] = df.get('total_pedido', 0)
-            df['fecha_factura'] = df['fecha_pedido']
+            # Campo pagado por defecto
+            if 'pagado' not in df.columns:
+                df['pagado'] = False
         
         return df
 
     except Exception as e:
-        st.error(f"Error cargando datos desde Supabase: {e}")
+        st.error(f"Error cargando datos de comisiones: {e}")
         return pd.DataFrame()
 
 def insertar_venta(supabase: Client, data: dict):
-    """Inserta nueva venta/pedido"""
+    """Inserta nueva entrada en tabla comisiones"""
     try:
-        # Mapear datos al esquema de pedidos
-        pedido_data = {
-            'cliente_id': obtener_o_crear_cliente(supabase, data.get('cliente', '')),
-            'total_pedido': data.get('valor', 0),
-            'fecha_pedido': data.get('fecha_factura'),
-            'estado_pedido': 'pendiente',
-            'metodo_pago': 'por_definir',
-            'cantidad_pedido': 1,
-            'precio_unitario': data.get('valor', 0),
-            'created_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat()
-        }
+        # Agregar timestamps
+        data["created_at"] = datetime.now().isoformat()
+        data["updated_at"] = datetime.now().isoformat()
         
-        result = supabase.table("pedidos").insert(pedido_data).execute()
+        result = supabase.table("comisiones").insert(data).execute()
         return bool(result.data)
         
     except Exception as e:
-        st.error(f"Error insertando venta: {e}")
+        st.error(f"Error insertando en comisiones: {e}")
         return False
 
-def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
-    """Actualiza pedido existente"""
+def actualizar_factura(supabase: Client, registro_id: int, updates: dict):
+    """Actualiza registro en tabla comisiones"""
     try:
         updates['updated_at'] = datetime.now().isoformat()
         
-        # Mapear campos del sistema a campos de la tabla
-        mapped_updates = {}
-        if 'valor' in updates:
-            mapped_updates['total_pedido'] = updates['valor']
-            mapped_updates['precio_unitario'] = updates['valor']
-        if 'pagado' in updates:
-            mapped_updates['estado_pedido'] = 'completado' if updates['pagado'] else 'pendiente'
-        if 'cliente' in updates:
-            mapped_updates['cliente_id'] = obtener_o_crear_cliente(supabase, updates['cliente'])
-        
-        mapped_updates.update({k: v for k, v in updates.items() if k not in ['valor', 'pagado', 'cliente']})
-        
-        result = supabase.table("pedidos").update(mapped_updates).eq("pedido_id", factura_id).execute()
+        result = supabase.table("comisiones").update(updates).eq("id", registro_id).execute()
         return bool(result.data)
         
     except Exception as e:
-        st.error(f"Error actualizando factura: {e}")
+        st.error(f"Error actualizando comisión: {e}")
         return False
-
-def obtener_o_crear_cliente(supabase: Client, nombre_cliente: str):
-    """Obtiene ID de cliente existente o crea uno nuevo"""
-    try:
-        # Buscar cliente existente
-        existing = supabase.table("clientes").select("cliente_id").eq("nombre_cliente", nombre_cliente).execute()
-        
-        if existing.data:
-            return existing.data[0]['cliente_id']
-        else:
-            # Crear cliente nuevo
-            nuevo_cliente = {
-                'nombre_cliente': nombre_cliente,
-                'email_cliente': f"{nombre_cliente.lower().replace(' ', '.')}@email.com",
-                'fecha_registro': date.today().isoformat(),
-                'created_at': datetime.now().isoformat(),
-                'updated_at': datetime.now().isoformat()
-            }
-            result = supabase.table("clientes").insert(nuevo_cliente).execute()
-            return result.data[0]['cliente_id'] if result.data else 1
-            
-    except Exception as e:
-        st.warning(f"Error manejando cliente: {e}")
-        return 1  # ID por defecto
 
 def format_currency(value):
     """Formatea números como moneda colombiana"""
@@ -167,10 +109,10 @@ def now_iso():
 # Configuración de página
 # ========================
 st.set_page_config(
-    page_title="CRM Inteligente", 
+    page_title="CRM Comisiones", 
     layout="wide",
     initial_sidebar_state="expanded",
-    page_icon="🧠"
+    page_icon="💰"
 )
 
 # CSS personalizado
@@ -183,27 +125,6 @@ st.markdown("""
         border: 1px solid #e5e7eb;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         margin-bottom: 1rem;
-    }
-    .alert-high { 
-        border-left: 5px solid #ef4444; 
-        background: #fef2f2; 
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
-    }
-    .alert-medium { 
-        border-left: 5px solid #f59e0b; 
-        background: #fffbeb; 
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
-    }
-    .alert-low { 
-        border-left: 5px solid #10b981; 
-        background: #f0fdf4; 
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
     }
     .factura-card {
         background: white;
@@ -237,330 +158,451 @@ if 'meta_mensual' not in st.session_state:
 # Sidebar
 # ========================
 with st.sidebar:
-    st.title("🧠 CRM Inteligente")
+    st.title("💰 Sistema de Comisiones")
     st.markdown("---")
     
-    # Debug: Mostrar información de conexión
+    # Test de conexión a base de datos
     st.subheader("🔧 Estado del Sistema")
     
-    # Test de conexión a base de datos
     try:
-        # Intentar una consulta simple para verificar conexión
-        test_query = supabase.table("pedidos").select("pedido_id").limit(1).execute()
+        test_query = supabase.table("comisiones").select("id").limit(1).execute()
         st.success("✅ Conexión DB exitosa")
-        st.info(f"📊 Registros encontrados: {len(test_query.data) if test_query.data else 0}")
+        
+        # Contar registros totales
+        count_query = supabase.table("comisiones").select("id", count="exact").execute()
+        total_registros = count_query.count if hasattr(count_query, 'count') else len(test_query.data) if test_query.data else 0
+        st.info(f"📊 Total registros: {total_registros}")
+        
     except Exception as e:
         st.error(f"❌ Error de conexión: {str(e)}")
     
     st.markdown("---")
     
-    # Configuración de filtros
+    # Filtros basados en datos reales
     st.subheader("📊 Filtros")
     
-    # Cargar datos para filtros
     df_tmp = cargar_datos(supabase)
     
     if not df_tmp.empty:
-        meses_disponibles = ["Todos"] + sorted(df_tmp["mes_factura"].dropna().unique().tolist())
-        mes_seleccionado = st.selectbox("📅 Filtrar por mes", meses_disponibles, index=0)
+        # Filtro por mes si existe
+        if 'mes_factura' in df_tmp.columns:
+            meses_disponibles = ["Todos"] + sorted(df_tmp["mes_factura"].dropna().unique().tolist())
+            mes_seleccionado = st.selectbox("📅 Filtrar por mes", meses_disponibles, index=0)
+        else:
+            mes_seleccionado = "Todos"
         
-        clientes_disponibles = ["Todos"] + sorted(df_tmp["cliente"].dropna().unique().tolist())
-        cliente_seleccionado = st.selectbox("👤 Filtrar por cliente", clientes_disponibles, index=0)
+        # Filtro por cualquier campo de texto que pueda ser cliente
+        campos_texto = [col for col in df_tmp.columns if df_tmp[col].dtype == 'object' and col not in ['id', 'created_at', 'updated_at']]
+        if campos_texto:
+            campo_cliente = st.selectbox("Campo para filtrar", ["Ninguno"] + campos_texto)
+            if campo_cliente != "Ninguno":
+                valores_unicos = ["Todos"] + sorted(df_tmp[campo_cliente].dropna().unique().tolist())
+                valor_seleccionado = st.selectbox(f"Filtrar por {campo_cliente}", valores_unicos, index=0)
+            else:
+                valor_seleccionado = "Todos"
+        else:
+            campo_cliente = "Ninguno"
+            valor_seleccionado = "Todos"
     else:
-        st.warning("⚠️ No hay datos disponibles para filtros")
+        st.warning("⚠️ No hay datos para generar filtros")
         mes_seleccionado = "Todos"
-        cliente_seleccionado = "Todos"
+        campo_cliente = "Ninguno"
+        valor_seleccionado = "Todos"
 
 # ========================
 # Layout principal con tabs
 # ========================
-st.title("🧠 CRM Inteligente")
+st.title("💰 Sistema de Comisiones")
 
 tabs = st.tabs([
-    "🎯 Dashboard",
+    "📊 Dashboard",
     "💰 Comisiones", 
-    "➕ Nueva Venta",
-    "👥 Clientes",
-    "🔧 Debug"
+    "➕ Nueva Comisión",
+    "🔧 Estructura de Datos"
 ])
 
 # ========================
 # TAB 1 - DASHBOARD
 # ========================
 with tabs[0]:
-    st.header("🎯 Dashboard Ejecutivo")
+    st.header("📊 Dashboard de Comisiones")
     
-    # Cargar y procesar datos
     df = cargar_datos(supabase)
     
     if df.empty:
-        st.warning("⚠️ No hay datos disponibles en la base de datos")
-        st.info("💡 Asegúrate de que la tabla 'pedidos' tenga datos")
+        st.warning("⚠️ No hay datos disponibles en la tabla comisiones")
+        st.info("💡 Ve al tab 'Nueva Comisión' para agregar datos")
     else:
         # Aplicar filtros
         df_filtered = df.copy()
         
-        if mes_seleccionado != "Todos":
+        if mes_seleccionado != "Todos" and 'mes_factura' in df.columns:
             df_filtered = df_filtered[df_filtered["mes_factura"] == mes_seleccionado]
         
-        if cliente_seleccionado != "Todos":
-            df_filtered = df_filtered[df_filtered["cliente"] == cliente_seleccionado]
+        if campo_cliente != "Ninguno" and valor_seleccionado != "Todos":
+            df_filtered = df_filtered[df_filtered[campo_cliente] == valor_seleccionado]
+        
+        # Identificar campos numéricos para métricas
+        campos_numericos = [col for col in df_filtered.columns if df_filtered[col].dtype in ['int64', 'float64']]
         
         # Métricas principales
         col1, col2, col3, col4 = st.columns(4)
         
-        total_facturado = df_filtered["valor_neto"].sum()
-        total_comisiones = df_filtered["comision"].sum()
-        facturas_pendientes = len(df_filtered[df_filtered["pagado"] == False])
-        promedio_comision = (total_comisiones / total_facturado * 100) if total_facturado > 0 else 0
-        
-        with col1:
-            st.metric("💵 Total Facturado", format_currency(total_facturado))
-        
-        with col2:
-            st.metric("💰 Comisiones", format_currency(total_comisiones))
-        
-        with col3:
-            st.metric("📋 Pedidos Pendientes", facturas_pendientes)
-        
-        with col4:
-            st.metric("📈 % Comisión Promedio", f"{promedio_comision:.1f}%")
+        if campos_numericos:
+            # Usar los campos numéricos más grandes como métricas principales
+            campo_principal = max(campos_numericos, key=lambda x: df_filtered[x].sum())
+            total_principal = df_filtered[campo_principal].sum()
+            
+            with col1:
+                st.metric(f"💵 Total {campo_principal}", format_currency(total_principal))
+            
+            if len(campos_numericos) > 1:
+                campo_secundario = [col for col in campos_numericos if col != campo_principal][0]
+                total_secundario = df_filtered[campo_secundario].sum()
+                with col2:
+                    st.metric(f"💰 Total {campo_secundario}", format_currency(total_secundario))
+            
+            with col3:
+                st.metric("📋 Total Registros", len(df_filtered))
+            
+            with col4:
+                promedio = df_filtered[campo_principal].mean()
+                st.metric(f"📈 Promedio {campo_principal}", format_currency(promedio))
         
         st.markdown("---")
         
-        # Mostrar tabla de datos
-        st.subheader("📊 Resumen de Pedidos")
+        # Mostrar tabla de datos completa
+        st.subheader(f"📋 Registros de Comisiones ({len(df_filtered)} total)")
         
-        # Seleccionar columnas importantes para mostrar
-        columnas_mostrar = ['pedido', 'cliente', 'producto', 'valor_neto', 'comision', 'fecha_pedido', 'estado_pedido']
-        columnas_existentes = [col for col in columnas_mostrar if col in df_filtered.columns]
+        # Configurar columnas para mejor visualización
+        column_config = {}
+        for col in df_filtered.columns:
+            if df_filtered[col].dtype in ['int64', 'float64']:
+                column_config[col] = st.column_config.NumberColumn(
+                    col,
+                    format="$%.0f" if df_filtered[col].max() > 1000 else "%.2f"
+                )
+            elif 'fecha' in col.lower():
+                column_config[col] = st.column_config.DatetimeColumn(col)
         
-        if columnas_existentes:
-            st.dataframe(
-                df_filtered[columnas_existentes].head(20),
-                use_container_width=True,
-                column_config={
-                    'valor_neto': st.column_config.NumberColumn(
-                        'Valor Neto',
-                        format="$%.0f"
-                    ),
-                    'comision': st.column_config.NumberColumn(
-                        'Comisión',
-                        format="$%.0f"
-                    ),
-                    'fecha_pedido': st.column_config.DateColumn(
-                        'Fecha Pedido'
-                    )
-                }
-            )
-        else:
-            st.error("No se encontraron las columnas esperadas en los datos")
+        st.dataframe(
+            df_filtered,
+            use_container_width=True,
+            column_config=column_config
+        )
+        
+        # Mostrar estadísticas adicionales
+        if not df_filtered.empty:
+            st.subheader("📊 Estadísticas")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Resumen numérico:**")
+                st.dataframe(df_filtered.describe())
+            
+            with col2:
+                st.write("**Información general:**")
+                st.write(f"- Total de registros: {len(df_filtered)}")
+                st.write(f"- Columnas disponibles: {len(df_filtered.columns)}")
+                st.write(f"- Registros con datos faltantes: {df_filtered.isnull().sum().sum()}")
 
 # ========================
-# TAB 2 - COMISIONES
+# TAB 2 - COMISIONES DETALLADAS
 # ========================
 with tabs[1]:
-    st.header("💰 Gestión de Comisiones")
+    st.header("💰 Gestión Detallada de Comisiones")
     
     df = cargar_datos(supabase)
     
     if not df.empty:
-        # Filtros
+        # Filtros específicos
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            estado_filter = st.selectbox("Estado", ["Todos", "Pendientes", "Completados"])
+            # Filtro por campo numérico si existe
+            campos_numericos = [col for col in df.columns if df[col].dtype in ['int64', 'float64']]
+            if campos_numericos:
+                campo_numerico = st.selectbox("Campo numérico", campos_numericos)
+                valor_min = st.number_input(f"Valor mínimo {campo_numerico}", min_value=0.0, value=0.0)
+            else:
+                campo_numerico = None
+                valor_min = 0
+        
         with col2:
-            cliente_filter = st.text_input("Buscar cliente")
+            # Filtro de texto general
+            busqueda = st.text_input("Buscar en todos los campos")
+        
         with col3:
-            monto_min = st.number_input("Valor mínimo", min_value=0, value=0)
+            if st.button("📥 Exportar a CSV"):
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="⬇️ Descargar CSV",
+                    data=csv,
+                    file_name=f"comisiones_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
         
         # Aplicar filtros
         df_comisiones = df.copy()
         
-        if estado_filter == "Pendientes":
-            df_comisiones = df_comisiones[df_comisiones["pagado"] == False]
-        elif estado_filter == "Completados":
-            df_comisiones = df_comisiones[df_comisiones["pagado"] == True]
+        if campo_numerico and valor_min > 0:
+            df_comisiones = df_comisiones[df_comisiones[campo_numerico] >= valor_min]
         
-        if cliente_filter:
-            df_comisiones = df_comisiones[
-                df_comisiones["cliente"].str.contains(cliente_filter, case=False, na=False)
-            ]
+        if busqueda:
+            # Buscar en todas las columnas de texto
+            mask = False
+            for col in df_comisiones.columns:
+                if df_comisiones[col].dtype == 'object':
+                    mask |= df_comisiones[col].astype(str).str.contains(busqueda, case=False, na=False)
+            df_comisiones = df_comisiones[mask]
         
-        if monto_min > 0:
-            df_comisiones = df_comisiones[df_comisiones["valor_neto"] >= monto_min]
-        
-        # Mostrar resultados filtrados
+        # Mostrar resultados
         if not df_comisiones.empty:
-            st.subheader(f"📊 {len(df_comisiones)} pedidos encontrados")
+            st.subheader(f"📊 {len(df_comisiones)} registros encontrados")
             
-            for _, pedido in df_comisiones.head(10).iterrows():
-                estado_badge = "✅ COMPLETADO" if pedido.get("pagado") else "⏳ PENDIENTE"
-                estado_color = "#10b981" if pedido.get("pagado") else "#f59e0b"
-                
+            # Mostrar cada registro como una tarjeta
+            for _, registro in df_comisiones.head(20).iterrows():  # Limitar a 20 para rendimiento
                 st.markdown(f"""
                 <div class="factura-card">
-                    <div style="display: flex; justify-content: space-between; align-items: start;">
-                        <div>
-                            <h3 style="margin: 0;">🛍️ Pedido {pedido.get('pedido', 'N/A')}</h3>
-                            <p style="margin: 0.25rem 0; color: #6b7280;">Cliente: {pedido.get('cliente', 'N/A')}</p>
-                            <p style="margin: 0.25rem 0; color: #6b7280;">Producto: {pedido.get('producto', 'N/A')}</p>
-                        </div>
-                        <span style="background: {estado_color}; color: white; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.8rem;">
-                            {estado_badge}
-                        </span>
-                    </div>
-                    <div style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
-                        <div><strong>💰 Valor:</strong> {format_currency(pedido.get('valor_neto', 0))}</div>
-                        <div><strong>🎯 Comisión:</strong> <span style="color: #059669;">{format_currency(pedido.get('comision', 0))}</span></div>
-                        <div><strong>📅 Fecha:</strong> {pedido.get('fecha_pedido', 'N/A')}</div>
-                        <div><strong>📊 %:</strong> {pedido.get('porcentaje', 0):.1f}%</div>
-                    </div>
-                </div>
+                    <h3 style="margin: 0 0 1rem 0;">📄 Registro ID: {registro.get('id', 'N/A')}</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
                 """, unsafe_allow_html=True)
+                
+                # Mostrar todos los campos del registro
+                for col, valor in registro.items():
+                    if pd.notna(valor) and col not in ['id']:  # Excluir ID ya mostrado
+                        valor_formateado = format_currency(valor) if isinstance(valor, (int, float)) and valor > 1000 else str(valor)
+                        st.markdown(f"<div><strong>{col}:</strong> {valor_formateado}</div>", unsafe_allow_html=True)
+                
+                st.markdown("</div></div>", unsafe_allow_html=True)
+                
+                # Botones de acción
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button(f"✏️ Editar", key=f"edit_{registro.get('id', 0)}"):
+                        st.session_state[f'editing_{registro.get("id")}'] = True
+                
+                with col2:
+                    if st.button(f"🗑️ Eliminar", key=f"delete_{registro.get('id', 0)}"):
+                        if st.confirm(f"¿Eliminar registro {registro.get('id')}?"):
+                            supabase.table("comisiones").delete().eq("id", registro.get('id')).execute()
+                            st.rerun()
+                
+                # Formulario de edición inline
+                if st.session_state.get(f'editing_{registro.get("id")}', False):
+                    with st.form(f"edit_form_{registro.get('id')}"):
+                        st.write("**Editar registro:**")
+                        
+                        updates = {}
+                        for col, valor in registro.items():
+                            if col not in ['id', 'created_at', 'updated_at']:
+                                if isinstance(valor, (int, float)):
+                                    updates[col] = st.number_input(f"{col}", value=float(valor), key=f"edit_{col}_{registro.get('id')}")
+                                else:
+                                    updates[col] = st.text_input(f"{col}", value=str(valor), key=f"edit_{col}_{registro.get('id')}")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.form_submit_button("💾 Guardar"):
+                                if actualizar_factura(supabase, registro.get('id'), updates):
+                                    st.success("✅ Registro actualizado")
+                                    st.session_state[f'editing_{registro.get("id")}'] = False
+                                    st.rerun()
+                        with col2:
+                            if st.form_submit_button("❌ Cancelar"):
+                                st.session_state[f'editing_{registro.get("id")}'] = False
+                                st.rerun()
         else:
-            st.info("No hay pedidos que coincidan con los filtros aplicados")
+            st.info("No hay registros que coincidan con los filtros aplicados")
     else:
         st.warning("No hay datos de comisiones disponibles")
 
 # ========================
-# TAB 3 - NUEVA VENTA
+# TAB 3 - NUEVA COMISIÓN
 # ========================
 with tabs[2]:
-    st.header("➕ Registrar Nueva Venta")
+    st.header("➕ Registrar Nueva Comisión")
     
-    with st.form("nueva_venta_form"):
-        col1, col2 = st.columns(2)
+    # Primero, mostrar la estructura actual para guiar al usuario
+    df_muestra = cargar_datos(supabase)
+    if not df_muestra.empty:
+        st.subheader("📋 Campos disponibles en tu tabla:")
+        cols_info = []
+        for col in df_muestra.columns:
+            tipo = str(df_muestra[col].dtype)
+            ejemplo = df_muestra[col].dropna().iloc[0] if not df_muestra[col].dropna().empty else "N/A"
+            cols_info.append({"Campo": col, "Tipo": tipo, "Ejemplo": str(ejemplo)})
         
-        with col1:
-            cliente = st.text_input("Cliente*")
-            valor_total = st.number_input("Valor Total (con IVA)*", min_value=0.0, step=10000.0)
-            fecha_pedido = st.date_input("Fecha del Pedido", value=date.today())
+        st.dataframe(pd.DataFrame(cols_info))
+    
+    st.markdown("---")
+    
+    with st.form("nueva_comision_form"):
+        st.subheader("✍️ Datos de la nueva comisión")
         
-        with col2:
-            producto = st.text_input("Producto/Servicio")
-            cantidad = st.number_input("Cantidad", min_value=1, value=1)
-            metodo_pago = st.selectbox("Método de Pago", ["Efectivo", "Transferencia", "Tarjeta", "Crédito"])
-        
-        # Cálculo automático
-        if valor_total > 0:
-            st.markdown("---")
-            st.markdown("### 🧮 Cálculo Automático")
+        # Campos dinámicos basados en la estructura real
+        if not df_muestra.empty:
+            datos = {}
             
-            valor_neto = valor_total / 1.19
-            iva = valor_total - valor_neto
-            comision = valor_neto * 0.85 * 0.025  # 2.5% sobre base del 85%
+            # Crear campos de entrada para cada columna (excepto las automáticas)
+            cols_auto = ['id', 'created_at', 'updated_at']
             
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2 = st.columns(2)
+            
+            for i, col in enumerate([c for c in df_muestra.columns if c not in cols_auto]):
+                with col1 if i % 2 == 0 else col2:
+                    if df_muestra[col].dtype in ['int64', 'float64']:
+                        datos[col] = st.number_input(f"{col}", value=0.0, step=0.01)
+                    elif 'fecha' in col.lower():
+                        datos[col] = st.date_input(f"{col}", value=date.today())
+                    elif df_muestra[col].dtype == 'bool':
+                        datos[col] = st.checkbox(f"{col}")
+                    else:
+                        datos[col] = st.text_input(f"{col}")
+        else:
+            # Si no hay datos previos, campos básicos
+            col1, col2 = st.columns(2)
             with col1:
-                st.metric("Valor Neto", format_currency(valor_neto))
+                datos = {
+                    "cliente": st.text_input("Cliente"),
+                    "valor": st.number_input("Valor", min_value=0.0, step=1000.0),
+                    "comision": st.number_input("Comisión", min_value=0.0, step=100.0)
+                }
             with col2:
-                st.metric("IVA (19%)", format_currency(iva))
-            with col3:
-                st.metric("Base Comisión", format_currency(valor_neto * 0.85))
-            with col4:
-                st.metric("Comisión (2.5%)", format_currency(comision))
+                datos.update({
+                    "fecha": st.date_input("Fecha", value=date.today()),
+                    "porcentaje": st.number_input("Porcentaje (%)", min_value=0.0, max_value=100.0, step=0.1),
+                    "pagado": st.checkbox("Pagado")
+                })
         
-        submitted = st.form_submit_button("💾 Registrar Venta", type="primary")
+        submitted = st.form_submit_button("💾 Registrar Comisión", type="primary")
         
         if submitted:
-            if cliente and valor_total > 0:
-                data = {
-                    "cliente": cliente,
-                    "valor": valor_total,
-                    "fecha_factura": fecha_pedido.isoformat(),
-                    "comision": valor_total / 1.19 * 0.85 * 0.025,
-                    "porcentaje": 2.5
-                }
-                
-                if insertar_venta(supabase, data):
-                    st.success("✅ Venta registrada correctamente")
+            # Convertir fechas a string
+            for key, value in datos.items():
+                if isinstance(value, date):
+                    datos[key] = value.isoformat()
+            
+            if any(datos.values()):  # Si al menos un campo tiene valor
+                if insertar_venta(supabase, datos):
+                    st.success("✅ Comisión registrada correctamente")
                     st.rerun()
                 else:
-                    st.error("❌ Error al registrar la venta")
+                    st.error("❌ Error al registrar la comisión")
             else:
-                st.error("⚠️ Por favor completa todos los campos obligatorios")
+                st.error("⚠️ Por favor completa al menos un campo")
 
 # ========================
-# TAB 4 - CLIENTES
+# TAB 4 - ESTRUCTURA DE DATOS
 # ========================
 with tabs[3]:
-    st.header("👥 Gestión de Clientes")
+    st.header("🔧 Análisis de Estructura de Datos")
+    
+    # Información sobre la tabla comisiones
+    st.subheader("📋 Información de la tabla 'comisiones'")
     
     try:
-        # Cargar clientes directamente
-        clientes_response = supabase.table("clientes").select("*").execute()
+        # Obtener muestra de datos
+        sample_response = supabase.table("comisiones").select("*").limit(5).execute()
         
-        if clientes_response.data:
-            df_clientes = pd.DataFrame(clientes_response.data)
+        if sample_response.data:
+            df_sample = pd.DataFrame(sample_response.data)
             
-            st.subheader(f"📊 {len(df_clientes)} clientes registrados")
+            col1, col2 = st.columns(2)
             
-            # Mostrar tabla de clientes
-            columnas_cliente = ['nombre_cliente', 'email_cliente', 'ciudad_cliente', 'fecha_registro']
-            columnas_existentes = [col for col in columnas_cliente if col in df_clientes.columns]
+            with col1:
+                st.write("**Estructura de la tabla:**")
+                estructura = []
+                for col in df_sample.columns:
+                    tipo = str(df_sample[col].dtype)
+                    nulos = df_sample[col].isnull().sum()
+                    estructura.append({
+                        "Columna": col,
+                        "Tipo": tipo,
+                        "Valores nulos": f"{nulos}/{len(df_sample)}"
+                    })
+                
+                st.dataframe(pd.DataFrame(estructura))
             
-            if columnas_existentes:
-                st.dataframe(
-                    df_clientes[columnas_existentes],
-                    use_container_width=True
-                )
+            with col2:
+                st.write("**Muestra de datos (primeros 5 registros):**")
+                st.dataframe(df_sample)
+            
+            st.markdown("---")
+            
+            # Estadísticas generales
+            st.subheader("📊 Estadísticas de la tabla completa")
+            
+            df_completo = cargar_datos(supabase)
+            if not df_completo.empty:
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Total registros", len(df_completo))
+                
+                with col2:
+                    st.metric("Total columnas", len(df_completo.columns))
+                
+                with col3:
+                    valores_faltantes = df_completo.isnull().sum().sum()
+                    st.metric("Valores faltantes", valores_faltantes)
+                
+                # Mostrar distribución de datos
+                st.write("**Distribución por columnas:**")
+                for col in df_completo.columns:
+                    if df_completo[col].dtype in ['int64', 'float64']:
+                        st.write(f"- **{col}**: Min: {df_completo[col].min():.2f}, Max: {df_completo[col].max():.2f}, Promedio: {df_completo[col].mean():.2f}")
+                    elif df_completo[col].dtype == 'object':
+                        valores_unicos = df_completo[col].nunique()
+                        st.write(f"- **{col}**: {valores_unicos} valores únicos")
+        
+        else:
+            st.warning("No hay datos en la tabla comisiones")
+            
+            # Sugerir estructura básica
+            st.subheader("💡 Estructura sugerida para tabla de comisiones")
+            estructura_sugerida = [
+                {"Campo": "id", "Tipo": "SERIAL PRIMARY KEY", "Descripción": "ID único automático"},
+                {"Campo": "cliente", "Tipo": "TEXT", "Descripción": "Nombre del cliente"},
+                {"Campo": "valor", "Tipo": "NUMERIC", "Descripción": "Valor total de la venta"},
+                {"Campo": "comision", "Tipo": "NUMERIC", "Descripción": "Comisión calculada"},
+                {"Campo": "porcentaje", "Tipo": "NUMERIC", "Descripción": "Porcentaje de comisión"},
+                {"Campo": "fecha", "Tipo": "DATE", "Descripción": "Fecha de la venta"},
+                {"Campo": "pagado", "Tipo": "BOOLEAN", "Descripción": "Si está pagado o no"},
+                {"Campo": "created_at", "Tipo": "TIMESTAMP", "Descripción": "Fecha de creación"},
+                {"Campo": "updated_at", "Tipo": "TIMESTAMP", "Descripción": "Fecha de actualización"}
+            ]
+            
+            st.dataframe(pd.DataFrame(estructura_sugerida))
+    
+    except Exception as e:
+        st.error(f"Error analizando estructura: {e}")
+    
+    st.markdown("---")
+    
+    # Verificar otras tablas disponibles
+    st.subheader("🔍 Otras tablas detectadas")
+    tablas_detectadas = ["clientes", "productos"]  # Las que vi en tu imagen
+    
+    for tabla in tablas_detectadas:
+        try:
+            test = supabase.table(tabla).select("*").limit(1).execute()
+            if test.data:
+                st.success(f"✅ Tabla '{tabla}' encontrada - {len(test.data)} registro(s) de muestra")
+                # Mostrar estructura básica
+                if test.data:
+                    columnas = list(test.data[0].keys())
+                    st.write(f"Columnas: {', '.join(columnas)}")
             else:
-                st.dataframe(df_clientes)
-        else:
-            st.info("No hay clientes registrados")
-            
-    except Exception as e:
-        st.error(f"Error cargando clientes: {e}")
-
-# ========================
-# TAB 5 - DEBUG
-# ========================
-with tabs[4]:
-    st.header("🔧 Información de Debug")
-    
-    # Mostrar estructura de tablas
-    st.subheader("📋 Estructura de Datos")
-    
-    try:
-        # Test de cada tabla
-        tablas_test = ["pedidos", "clientes", "productos", "comercializadoras"]
-        
-        for tabla in tablas_test:
-            try:
-                response = supabase.table(tabla).select("*").limit(1).execute()
-                if response.data:
-                    st.success(f"✅ Tabla '{tabla}': {len(response.data)} registros (mostrando estructura)")
-                    
-                    # Mostrar primeros datos como ejemplo
-                    df_sample = pd.DataFrame(response.data)
-                    st.json(response.data[0])  # Mostrar estructura del primer registro
-                else:
-                    st.warning(f"⚠️ Tabla '{tabla}': Sin datos")
-            except Exception as e:
-                st.error(f"❌ Tabla '{tabla}': Error - {e}")
-        
-        st.markdown("---")
-        
-        # Mostrar datos cargados
-        st.subheader("📊 Datos Procesados")
-        df_debug = cargar_datos(supabase)
-        
-        if not df_debug.empty:
-            st.success(f"✅ Datos cargados correctamente: {len(df_debug)} registros")
-            st.write("Columnas disponibles:", list(df_debug.columns))
-            st.dataframe(df_debug.head())
-        else:
-            st.warning("⚠️ No se pudieron cargar datos")
-        
-    except Exception as e:
-        st.error(f"Error en debug: {e}")
+                st.info(f"📋 Tabla '{tabla}' existe but vacía")
+        except Exception as e:
+            st.warning(f"⚠️ Tabla '{tabla}' no accesible: {str(e)}")
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #6b7280; padding: 1rem 0;">
-    <p>🧠 <strong>CRM Inteligente</strong> - Versión corregida para tu base de datos</p>
+    <p>💰 <strong>Sistema de Comisiones</strong> - Trabajando únicamente con tu tabla 'comisiones'</p>
 </div>
 """, unsafe_allow_html=True)
