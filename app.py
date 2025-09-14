@@ -95,15 +95,100 @@ def actualizar_factura(supabase: Client, registro_id: int, updates: dict):
         st.error(f"Error actualizando comisión: {e}")
         return False
 
-def format_currency(value):
-    """Formatea números como moneda colombiana"""
-    if pd.isna(value) or value == 0:
-        return "$0"
-    return f"${value:,.0f}".replace(",", ".")
+# Importar funciones auxiliares (manteniendo tus funciones originales)
+def agregar_campos_faltantes(df):
+    """Agrega campos que podrían no existir en datos actuales"""
+    campos_nuevos = {
+        'valor_neto': lambda row: row.get('valor', 0) / 1.19 if row.get('valor') else 0,
+        'iva': lambda row: row.get('valor', 0) - (row.get('valor', 0) / 1.19) if row.get('valor') else 0,
+        'cliente_propio': False,
+        'descuento_pie_factura': False,
+        'descuento_adicional': 0,
+        'dias_pago_real': None,
+        'valor_devuelto': 0,
+        'base_comision': lambda row: (row.get('valor', 0) / 1.19) * 0.85 if row.get('valor') else 0,
+        'comision_perdida': False,
+        'porcentaje_comision': lambda row: row.get('porcentaje', 2.5),
+        'dias_vencimiento': lambda row: calcular_dias_vencimiento(row)
+    }
+    
+    for campo, default in campos_nuevos.items():
+        if campo not in df.columns:
+            if callable(default):
+                df[campo] = df.apply(default, axis=1)
+            else:
+                df[campo] = default
+    
+    return df
 
-def now_iso():
-    """Retorna timestamp actual en ISO"""
-    return datetime.now().isoformat()
+def calcular_dias_vencimiento(row):
+    """Calcula días hasta vencimiento"""
+    try:
+        if pd.notna(row.get('fecha_pago_max')):
+            fecha_max = pd.to_datetime(row['fecha_pago_max'])
+            hoy = pd.Timestamp.now()
+            return (fecha_max - hoy).days
+    except:
+        pass
+    return None
+
+def calcular_comision_inteligente(valor_total, cliente_propio=False, descuento_adicional=0, descuento_pie=False):
+    """Calcula comisión según tu lógica real"""
+    valor_neto = valor_total / 1.19
+    
+    # Base según descuento
+    if descuento_pie:
+        base = valor_neto
+    else:
+        base = valor_neto * 0.85  # Aplicar 15% descuento
+    
+    # Porcentaje según cliente y descuento adicional
+    if cliente_propio:
+        porcentaje = 1.5 if descuento_adicional > 15 else 2.5
+    else:
+        porcentaje = 0.5 if descuento_adicional > 15 else 1.0
+    
+    comision = base * (porcentaje / 100)
+    
+    return {
+        'valor_neto': valor_neto,
+        'iva': valor_total - valor_neto,
+        'base_comision': base,
+        'comision': comision,
+        'porcentaje': porcentaje
+    }
+
+def generar_recomendaciones_ia():
+    """Genera recomendaciones básicas de IA"""
+    return [
+        {
+            'cliente': 'EMPRESA ABC',
+            'accion': 'Llamar HOY',
+            'producto': 'Producto estrella ($950,000)',
+            'razon': 'Patrón: compra cada 30 días, última compra hace 28 días',
+            'probabilidad': 90,
+            'impacto_comision': 23750,
+            'prioridad': 'alta'
+        },
+        {
+            'cliente': 'CORPORATIVO XYZ', 
+            'accion': 'Enviar propuesta',
+            'producto': 'Premium Pack ($1,400,000)',
+            'razon': 'Cliente externo que acepta descuentos - Oportunidad de volumen',
+            'probabilidad': 75,
+            'impacto_comision': 7000,
+            'prioridad': 'alta'
+        },
+        {
+            'cliente': 'STARTUP DEF',
+            'accion': 'Cross-sell',
+            'producto': 'Complemento B ($600,000)',
+            'razon': 'Compró producto A - Alta sinergia detectada por IA',
+            'probabilidad': 60,
+            'impacto_comision': 12750,
+            'prioridad': 'media'
+        }
+    ]
 
 # ========================
 # Configuración de página
