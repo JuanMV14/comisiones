@@ -766,8 +766,8 @@ with tabs[0]:
 # TAB 2 - COMISIONES - MANTENIDO COMPLETO
 # ========================
 with tabs[1]:
-def render_tab_comisiones_corregida():
-    """Renderiza el tab de comisiones con UI corregida"""
+    def render_tab_comisiones_corregida():
+        """Renderiza el tab de comisiones con UI corregida"""
     
     st.header("💰 Gestión de Comisiones")
     
