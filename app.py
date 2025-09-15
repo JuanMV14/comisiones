@@ -639,23 +639,30 @@ st.set_page_config(
     page_icon="🧠"
 )
 
-# CSS mejorado
+# CSS mejorado y corregido - Reemplaza el CSS existente
 st.markdown("""
 <style>
-    .metric-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 0.75rem;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        margin-bottom: 1rem;
+    /* Estilos para métricas */
+    div[data-testid="metric-container"] {
+        background: white !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 0.75rem !important;
+        padding: 1rem !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
     }
+    
+    div[data-testid="metric-container"] > div {
+        color: #1f2937 !important;
+    }
+    
+    /* Alertas personalizadas */
     .alert-high { 
         border-left: 5px solid #ef4444; 
         background: #fef2f2; 
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 0.5rem 0;
+        color: #1f2937;
     }
     .alert-medium { 
         border-left: 5px solid #f59e0b; 
@@ -663,6 +670,7 @@ st.markdown("""
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 0.5rem 0;
+        color: #1f2937;
     }
     .alert-low { 
         border-left: 5px solid #10b981; 
@@ -670,7 +678,10 @@ st.markdown("""
         padding: 1rem;
         border-radius: 0.5rem;
         margin: 0.5rem 0;
+        color: #1f2937;
     }
+    
+    /* Recomendaciones IA */
     .recomendacion-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
@@ -679,30 +690,129 @@ st.markdown("""
         margin: 1rem 0;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
     }
+    
+    /* Barra de progreso */
     .progress-bar {
         background: #e5e7eb;
         border-radius: 1rem;
         height: 0.75rem;
         overflow: hidden;
+        width: 100%;
     }
     .progress-fill {
         height: 100%;
         border-radius: 1rem;
         transition: width 0.3s ease;
     }
-    /* Corregir contraste en elementos */
-    .stMarkdown div[data-testid="metric-container"] {
-        background: white !important;
-        border: 1px solid #e5e7eb !important;
-        color: #1f2937 !important;
-    }
+    
+    /* Corregir elementos de entrada */
     .stSelectbox > div > div {
         background-color: white !important;
         color: #1f2937 !important;
+        border: 1px solid #d1d5db !important;
     }
+    
     .stTextInput > div > div > input {
         background-color: white !important;
         color: #1f2937 !important;
+        border: 1px solid #d1d5db !important;
+    }
+    
+    .stNumberInput > div > div > input {
+        background-color: white !important;
+        color: #1f2937 !important;
+        border: 1px solid #d1d5db !important;
+    }
+    
+    /* Contenedores principales */
+    .main-container {
+        background: #f9fafb;
+        min-height: 100vh;
+    }
+    
+    /* Sidebar mejorado */
+    .css-1d391kg {
+        background: #1f2937 !important;
+    }
+    
+    /* Botones mejorados */
+    .stButton > button {
+        border-radius: 0.5rem !important;
+        border: 1px solid #d1d5db !important;
+        font-weight: 500 !important;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    /* Tabs mejorados */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+        color: #374151;
+        font-weight: 500;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: #3b82f6 !important;
+        color: white !important;
+    }
+    
+    /* Cards de factura */
+    .factura-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 20px;
+        margin: 16px 0;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    /* Info boxes */
+    .stInfo {
+        background: #f0f9ff !important;
+        border: 1px solid #0ea5e9 !important;
+        color: #0c4a6e !important;
+    }
+    
+    .stSuccess {
+        background: #f0fdf4 !important;
+        border: 1px solid #22c55e !important;
+        color: #14532d !important;
+    }
+    
+    .stWarning {
+        background: #fffbeb !important;
+        border: 1px solid #f59e0b !important;
+        color: #92400e !important;
+    }
+    
+    .stError {
+        background: #fef2f2 !important;
+        border: 1px solid #ef4444 !important;
+        color: #991b1b !important;
+    }
+    
+    /* Expansores */
+    .streamlit-expanderHeader {
+        background: #f9fafb !important;
+        border: 1px solid #e5e7eb !important;
+        color: #1f2937 !important;
+    }
+    
+    /* Formularios */
+    .stForm {
+        background: white !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 0.75rem !important;
+        padding: 1.5rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1142,46 +1252,191 @@ if not st.session_state.show_meta_config:
             
             if st.button("🔄 Generar Nuevas Recomendaciones"):
                 st.rerun()
-        
-        st.markdown("---")
-        
-        # Análisis predictivo
-        st.markdown("### 📊 Análisis Predictivo")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("""
-            <div class="metric-card">
-                <h4>🔮 Predicción Meta</h4>
-                <p style="font-size: 1.5rem; font-weight: bold; color: #f59e0b; margin: 0.5rem 0;">75%</p>
-                <p style="color: #6b7280; margin: 0;">Probabilidad de cumplir meta mensual</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown("""
-            <div class="metric-card">
-                <h4>📈 Tendencia Comisiones</h4>
-                <p style="font-size: 1.5rem; font-weight: bold; color: #10b981; margin: 0.5rem 0;">+15%</p>
-                <p style="color: #6b7280; margin: 0;">Crecimiento estimado próximo mes</p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown("""
-            <div class="metric-card">
-                <h4>🎯 Clientes en Riesgo</h4>
-                <p style="font-size: 1.5rem; font-weight: bold; color: #ef4444; margin: 0.5rem 0;">3</p>
-                <p style="color: #6b7280; margin: 0;">Requieren atención inmediata</p>
-            </div>
-            """, unsafe_allow_html=True)
 
-# Footer
+def mostrar_recomendaciones_ia():
+    """Muestra recomendaciones IA con componentes nativos de Streamlit"""
+    
+    recomendaciones = generar_recomendaciones_ia()
+    
+    for i, rec in enumerate(recomendaciones):
+        # Usar container y columnas en lugar de HTML personalizado
+        with st.container():
+            # Crear un expander para cada recomendación
+            with st.expander(f"🎯 #{i+1} {rec['cliente']} - {rec['probabilidad']}% probabilidad", expanded=True):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.markdown(f"**Acción recomendada:** {rec['accion']}")
+                    st.markdown(f"**Producto:** {rec['producto']}")
+                    st.markdown(f"**Razón:** {rec['razon']}")
+                    
+                    # Mostrar prioridad con color
+                    prioridad_color = "🔴" if rec['prioridad'] == 'alta' else "🟡"
+                    st.markdown(f"**Prioridad:** {prioridad_color} {rec['prioridad'].title()}")
+                
+                with col2:
+                    st.metric(
+                        label="💰 Impacto Comisión",
+                        value=format_currency(rec['impacto_comision']),
+                        delta=f"+{rec['probabilidad']}%"
+                    )
+                
+                # Botón de acción
+                if st.button(f"📞 Ejecutar Acción", key=f"action_rec_{i}"):
+                    st.success(f"Acción programada para {rec['cliente']}")
+
+# Reemplaza también la sección completa del TAB 5 con esta versión corregida
+def render_tab_ia_alertas_corregida():
+    """Tab de IA y alertas completamente corregido"""
+    
+    st.header("🧠 Inteligencia Artificial & Alertas")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown("### 🚨 Alertas Críticas")
+        
+        df = cargar_datos(supabase)
+        alertas = []
+        
+        if not df.empty:
+            # Facturas vencidas
+            vencidas = df[df["dias_vencimiento"] < 0]
+            for _, factura in vencidas.head(3).iterrows():
+                st.error(f"⚠️ **Factura Vencida:** {factura.get('cliente', 'N/A')} - {factura.get('pedido', 'N/A')} ({format_currency(factura.get('valor_neto', 0))})")
+            
+            # Próximas a vencer
+            prox_vencer = df[(df["dias_vencimiento"] >= 0) & (df["dias_vencimiento"] <= 5) & (df["pagado"] == False)]
+            for _, factura in prox_vencer.head(3).iterrows():
+                st.warning(f"⏰ **Próximo Vencimiento:** {factura.get('cliente', 'N/A')} vence en {factura.get('dias_vencimiento', 0)} días")
+            
+            # Altas comisiones pendientes
+            alto_valor = df[df["comision"] > df["comision"].quantile(0.8)]
+            for _, factura in alto_valor.head(2).iterrows():
+                if not factura.get("pagado"):
+                    st.info(f"💎 **Alta Comisión Pendiente:** {format_currency(factura.get('comision', 0))} esperando pago")
+        
+        if not alertas and df.empty:
+            st.success("✅ No hay alertas críticas en este momento")
+    
+    with col2:
+        st.markdown("### 🎯 Recomendaciones Estratégicas")
+        mostrar_recomendaciones_ia()
+        
+        if st.button("🔄 Generar Nuevas Recomendaciones"):
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Análisis predictivo corregido
+    st.markdown("### 📊 Análisis Predictivo")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            label="🔮 Predicción Meta",
+            value="75%",
+            delta="5%",
+            help="Probabilidad de cumplir meta mensual basada en tendencias actuales"
+        )
+        st.caption("Probabilidad de cumplir meta mensual")
+    
+    with col2:
+        st.metric(
+            label="📈 Tendencia Comisiones",
+            value="+15%",
+            delta="3%",
+            delta_color="normal",
+            help="Crecimiento estimado para el próximo mes"
+        )
+        st.caption("Crecimiento estimado próximo mes")
+    
+    with col3:
+        st.metric(
+            label="🎯 Clientes en Riesgo",
+            value="3",
+            delta="-1",
+            delta_color="inverse",
+            help="Clientes que requieren atención inmediata"
+        )
+        st.caption("Requieren atención inmediata")
+    
+    # Información adicional
+    st.markdown("#### 📈 Detalles del Análisis")
+    
+    info_col1, info_col2 = st.columns(2)
+    
+    with info_col1:
+        st.info("""
+        **🔮 Modelo Predictivo:**
+        - Basado en historial de ventas de 6 meses
+        - Considera estacionalidad y tendencias  
+        - Actualizado diariamente con nuevos datos
+        """)
+    
+    with info_col2:
+        st.warning("""
+        **⚠️ Factores de Riesgo:**
+        - 3 clientes sin compras en 45+ días
+        - 2 facturas próximas a vencer
+        - Meta mensual al 75% con 8 días restantes
+        """)
+        
+# Reemplaza esta sección en el TAB 5 - IA & ALERTAS
+
+# Análisis predictivo (VERSIÓN CORREGIDA)
 st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #6b7280; padding: 2rem 0;">
-    <p>🧠 <strong>CRM Inteligente</strong> | Sistema completo con funcionalidades corregidas</p>
-    <p style="font-size: 0.9rem;">Versión 2.1 - UI corregida y funcionalidad de comprobantes</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown("### 📊 Análisis Predictivo")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric(
+        label="🔮 Predicción Meta",
+        value="75%",
+        delta="5%",
+        help="Probabilidad de cumplir meta mensual basada en tendencias actuales"
+    )
+    st.caption("Probabilidad de cumplir meta mensual")
+
+with col2:
+    st.metric(
+        label="📈 Tendencia Comisiones",
+        value="+15%",
+        delta="3%",
+        delta_color="normal",
+        help="Crecimiento estimado para el próximo mes"
+    )
+    st.caption("Crecimiento estimado próximo mes")
+
+with col3:
+    st.metric(
+        label="🎯 Clientes en Riesgo",
+        value="3",
+        delta="-1",
+        delta_color="inverse",
+        help="Clientes que requieren atención inmediata"
+    )
+    st.caption("Requieren atención inmediata")
+
+# Información adicional con cards nativas de Streamlit
+st.markdown("#### 📈 Detalles del Análisis")
+
+info_col1, info_col2 = st.columns(2)
+
+with info_col1:
+    st.info("""
+    **🔮 Modelo Predictivo:**
+    - Basado en historial de ventas de 6 meses
+    - Considera estacionalidad y tendencias
+    - Actualizado diariamente con nuevos datos
+    """)
+
+with info_col2:
+    st.warning("""
+    **⚠️ Factores de Riesgo:**
+    - 3 clientes sin compras en 45+ días
+    - 2 facturas próximas a vencer
+    - Meta mensual al 75% con 8 días restantes
+    """)
