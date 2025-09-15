@@ -257,6 +257,7 @@ def generar_recomendaciones_ia():
 def render_factura_card(factura, index):
     """Renderiza una card de factura con estilos corregidos"""
     
+    # Determinar estado de la factura
     if factura.get("pagado"):
         estado_badge = "PAGADA"
         estado_color = "#10b981"
@@ -270,75 +271,88 @@ def render_factura_card(factura, index):
         estado_color = "#f59e0b"
         estado_icon = "⏳"
     
-    card_html = f"""
-    <div style="
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        padding: 20px;
-        margin: 16px 0;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    ">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
-            <div>
-                <h3 style="margin: 0; color: #1f2937; font-size: 18px; font-weight: 600;">
-                    🧾 {factura.get('pedido', 'N/A')} - {factura.get('cliente', 'N/A')}
-                </h3>
-                <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 14px;">
-                    Factura: {factura.get('factura', 'N/A')}
-                </p>
-            </div>
-            <span style="
-                background: {estado_color};
-                color: white;
-                padding: 6px 12px;
-                border-radius: 20px;
-                font-size: 12px;
-                font-weight: 600;
-                white-space: nowrap;
-            ">
-                {estado_icon} {estado_badge}
-            </span>
-        </div>
+    # Crear columnas para la información de la factura
+    with st.container():
+        # Header de la factura
+        col_header1, col_header2 = st.columns([3, 1])
         
-        <div style="
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 16px;
-            padding: 16px;
-            background: #f9fafb;
-            border-radius: 8px;
-        ">
-            <div style="color: #374151;">
-                <strong style="color: #1f2937;">💰 Valor Neto:</strong><br>
-                <span style="font-size: 16px; font-weight: 600; color: #059669;">
-                    {format_currency(factura.get('valor_neto', 0))}
+        with col_header1:
+            st.markdown(f"""
+            <div style="background: white; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin: 16px 0;">
+            """, unsafe_allow_html=True)
+            
+            st.markdown(f"### 🧾 {factura.get('pedido', 'N/A')} - {factura.get('cliente', 'N/A')}")
+            st.markdown(f"**Factura:** {factura.get('factura', 'N/A')}")
+        
+        with col_header2:
+            st.markdown(f"""
+            <div style="text-align: right;">
+                <span style="
+                    background: {estado_color};
+                    color: white;
+                    padding: 8px 16px;
+                    border-radius: 20px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    display: inline-block;
+                ">
+                    {estado_icon} {estado_badge}
                 </span>
             </div>
-            <div style="color: #374151;">
-                <strong style="color: #1f2937;">📊 Base Comisión:</strong><br>
-                <span style="font-size: 16px; font-weight: 600; color: #0369a1;">
-                    {format_currency(factura.get('base_comision', 0))}
-                </span>
-            </div>
-            <div style="color: #374151;">
-                <strong style="color: #1f2937;">🎯 Comisión:</strong><br>
-                <span style="font-size: 16px; font-weight: 600; color: #dc2626;">
-                    {format_currency(factura.get('comision', 0))}
-                </span>
-            </div>
-            <div style="color: #374151;">
-                <strong style="color: #1f2937;">📅 Fecha Factura:</strong><br>
-                <span style="font-size: 14px; color: #6b7280;">
-                    {factura.get('fecha_factura', 'N/A')}
-                </span>
-            </div>
-        </div>
-    </div>
-    """
-    
-    st.markdown(card_html, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+        
+        # Información financiera en columnas
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                label="💰 Valor Neto",
+                value=format_currency(factura.get('valor_neto', 0)),
+                help="Valor sin IVA"
+            )
+        
+        with col2:
+            st.metric(
+                label="📊 Base Comisión", 
+                value=format_currency(factura.get('base_comision', 0)),
+                help="Base para calcular comisión"
+            )
+        
+        with col3:
+            st.metric(
+                label="🎯 Comisión",
+                value=format_currency(factura.get('comision', 0)),
+                help=f"Porcentaje: {factura.get('porcentaje', 0)}%"
+            )
+        
+        with col4:
+            fecha_factura = factura.get('fecha_factura')
+            if fecha_factura:
+                if isinstance(fecha_factura, str):
+                    try:
+                        fecha_display = pd.to_datetime(fecha_factura).strftime('%d/%m/%Y')
+                    except:
+                        fecha_display = fecha_factura
+                else:
+                    fecha_display = fecha_factura.strftime('%d/%m/%Y') if hasattr(fecha_factura, 'strftime') else str(fecha_factura)
+            else:
+                fecha_display = "N/A"
+            
+            st.metric(
+                label="📅 Fecha Factura",
+                value=fecha_display
+            )
+        
+        # Información adicional si existe
+        if factura.get('dias_vencimiento') is not None:
+            dias_venc = factura.get('dias_vencimiento', 0)
+            if dias_venc < 0:
+                st.warning(f"⚠️ Vencida hace {abs(dias_venc)} días")
+            elif dias_venc <= 5:
+                st.info(f"⏰ Vence en {dias_venc} días")
+        
+        # Cerrar el contenedor
+        st.markdown("</div>", unsafe_allow_html=True)
 
 def mostrar_modal_pago(factura):
     """Modal para marcar factura como pagada con subida de comprobante"""
@@ -440,6 +454,7 @@ def render_tab_comisiones_corregida():
     
     st.header("💰 Gestión de Comisiones")
     
+    # Filtros
     with st.container():
         st.markdown("### 🔍 Filtros")
         col1, col2, col3, col4 = st.columns(4)
@@ -454,10 +469,12 @@ def render_tab_comisiones_corregida():
             if st.button("📥 Exportar Excel", help="Exportar datos filtrados"):
                 st.success("📊 Funcionalidad de exportación próximamente")
     
+    # Cargar datos
     df = cargar_datos(supabase)
     if not df.empty:
         df = agregar_campos_faltantes(df)
         
+        # Aplicar filtros
         df_filtrado = df.copy()
         
         if estado_filter == "Pendientes":
@@ -465,7 +482,7 @@ def render_tab_comisiones_corregida():
         elif estado_filter == "Pagadas":
             df_filtrado = df_filtrado[df_filtrado["pagado"] == True]
         elif estado_filter == "Vencidas":
-            df_filtrado = df_filtrado[df_filtrado["dias_vencimiento"] < 0]
+            df_filtrado = df_filtrado[(df_filtrado["dias_vencimiento"] < 0) & (df_filtrado["pagado"] == False)]
         
         if cliente_filter:
             df_filtrado = df_filtrado[df_filtrado["cliente"].str.contains(cliente_filter, case=False, na=False)]
@@ -475,6 +492,7 @@ def render_tab_comisiones_corregida():
     else:
         df_filtrado = pd.DataFrame()
     
+    # Resumen
     if not df_filtrado.empty:
         st.markdown("### 📊 Resumen")
         col1, col2, col3, col4 = st.columns(4)
@@ -487,58 +505,118 @@ def render_tab_comisiones_corregida():
             st.metric("📈 Valor Promedio", format_currency(df_filtrado["valor"].mean()))
         with col4:
             pendientes = len(df_filtrado[df_filtrado["pagado"] == False])
-            st.metric("⏳ Pendientes", pendientes, delta=f"-{len(df_filtrado)-pendientes}", delta_color="inverse")
+            st.metric("⏳ Pendientes", pendientes, 
+                     delta=f"-{len(df_filtrado)-pendientes}" if len(df_filtrado)-pendientes > 0 else None,
+                     delta_color="inverse")
     
     st.markdown("---")
     
+    # Lista de facturas
     if not df_filtrado.empty:
         st.markdown("### 📋 Facturas Detalladas")
         
         for index, (_, factura) in enumerate(df_filtrado.iterrows()):
+            # Usar la nueva función de renderizado
             render_factura_card(factura, index)
             
+            # Botones de acción
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             
             with col1:
-                if st.button("✏️", key=f"edit_{factura.get('id', 0)}", help="Editar factura"):
+                if st.button("✏️ Editar", key=f"edit_{factura.get('id', 0)}_{index}"):
                     st.session_state[f"show_edit_{factura.get('id')}"] = True
             
             with col2:
                 if not factura.get("pagado"):
-                    if st.button("✅", key=f"pay_{factura.get('id', 0)}", help="Marcar como pagada"):
+                    if st.button("✅ Pagar", key=f"pay_{factura.get('id', 0)}_{index}"):
                         st.session_state[f"show_pago_{factura.get('id')}"] = True
             
             with col3:
                 if factura.get("pagado"):
-                    if st.button("🔄", key=f"dev_{factura.get('id', 0)}", help="Procesar devolución"):
+                    if st.button("🔄 Devolución", key=f"dev_{factura.get('id', 0)}_{index}"):
                         st.session_state[f"show_devolucion_{factura.get('id')}"] = True
             
             with col4:
-                if st.button("📄", key=f"detail_{factura.get('id', 0)}", help="Ver detalles completos"):
+                if st.button("📄 Detalles", key=f"detail_{factura.get('id', 0)}_{index}"):
                     st.session_state[f"show_detail_{factura.get('id')}"] = True
             
             with col5:
                 if factura.get("comprobante_url"):
-                    if st.button("📎", key=f"comp_{factura.get('id', 0)}", help="Ver comprobante"):
+                    if st.button("📎 Comprobante", key=f"comp_{factura.get('id', 0)}_{index}"):
                         st.session_state[f"show_comprobante_{factura.get('id')}"] = True
             
             with col6:
                 if factura.get("dias_vencimiento", 0) < 0:
-                    st.markdown("🚨", help=f"Vencida hace {abs(factura.get('dias_vencimiento', 0))} días")
+                    st.error(f"🚨 Vencida ({abs(factura.get('dias_vencimiento', 0))} días)")
             
+            # Modales/Expandables
             if st.session_state.get(f"show_pago_{factura.get('id')}", False):
-                mostrar_modal_pago(factura)
+                with st.expander(f"✅ Marcar como Pagada - {factura.get('pedido', 'N/A')}", expanded=True):
+                    mostrar_modal_pago(factura)
             
             if st.session_state.get(f"show_comprobante_{factura.get('id')}", False):
                 with st.expander(f"📎 Comprobante - {factura.get('pedido', 'N/A')}", expanded=True):
                     mostrar_comprobante(factura.get("comprobante_url"))
-                    if st.button("❌ Cerrar", key=f"close_comp_{factura.get('id')}"):
+                    if st.button("❌ Cerrar", key=f"close_comp_{factura.get('id')}_{index}"):
                         st.session_state[f"show_comprobante_{factura.get('id')}"] = False
+                        st.rerun()
+            
+            if st.session_state.get(f"show_detail_{factura.get('id')}", False):
+                with st.expander(f"📄 Detalles Completos - {factura.get('pedido', 'N/A')}", expanded=True):
+                    mostrar_detalles_completos(factura)
+                    if st.button("❌ Cerrar Detalles", key=f"close_detail_{factura.get('id')}_{index}"):
+                        st.session_state[f"show_detail_{factura.get('id')}"] = False
                         st.rerun()
             
             st.markdown("---")
     else:
         st.info("📭 No hay facturas que coincidan con los filtros aplicados")
+
+def mostrar_detalles_completos(factura):
+    """Muestra todos los detalles de una factura"""
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 🏷️ Información General")
+        st.write(f"**Pedido:** {factura.get('pedido', 'N/A')}")
+        st.write(f"**Cliente:** {factura.get('cliente', 'N/A')}")
+        st.write(f"**Factura:** {factura.get('factura', 'N/A')}")
+        st.write(f"**Cliente Propio:** {'Sí' if factura.get('cliente_propio') else 'No'}")
+        st.write(f"**Condición Especial:** {'Sí' if factura.get('condicion_especial') else 'No'}")
+    
+    with col2:
+        st.markdown("#### 💰 Información Financiera")
+        st.write(f"**Valor Total:** {format_currency(factura.get('valor', 0))}")
+        st.write(f"**Valor Neto:** {format_currency(factura.get('valor_neto', 0))}")
+        st.write(f"**IVA:** {format_currency(factura.get('iva', 0))}")
+        st.write(f"**Base Comisión:** {format_currency(factura.get('base_comision', 0))}")
+        st.write(f"**Comisión:** {format_currency(factura.get('comision', 0))} ({factura.get('porcentaje', 0)}%)")
+        
+        if factura.get('descuento_adicional', 0) > 0:
+            st.write(f"**Descuento Adicional:** {factura.get('descuento_adicional', 0)}%")
+    
+    st.markdown("#### 📅 Fechas")
+    col3, col4, col5 = st.columns(3)
+    
+    with col3:
+        fecha_factura = factura.get('fecha_factura')
+        if fecha_factura:
+            st.write(f"**Fecha Factura:** {fecha_factura}")
+    
+    with col4:
+        fecha_pago_est = factura.get('fecha_pago_est')
+        if fecha_pago_est:
+            st.write(f"**Fecha Pago Estimada:** {fecha_pago_est}")
+    
+    with col5:
+        fecha_pago_real = factura.get('fecha_pago_real')
+        if fecha_pago_real:
+            st.write(f"**Fecha Pago Real:** {fecha_pago_real}")
+    
+    if factura.get('observaciones_pago'):
+        st.markdown("#### 📝 Observaciones")
+        st.write(factura.get('observaciones_pago'))
 
 # ========================
 # CONFIGURACIÓN
