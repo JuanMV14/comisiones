@@ -8,163 +8,221 @@ import pandas as pd
 # ========================
 # FUNCIONES DE BASE DE DATOS Y UTILIDADES
 # ========================
-
 def cargar_datos(supabase: Client):
-    """Carga todas las ventas desde la tabla comisiones - VERSIÓN CORREGIDA"""
+    """Carga datos específicamente para la estructura de tu tabla comisiones"""
     try:
-        print("Iniciando carga de datos desde Supabase...")
+        print("🔄 Cargando datos desde tu tabla comisiones...")
         response = supabase.table("comisiones").select("*").execute()
         
         if not response.data:
-            print("No hay datos en la tabla comisiones")
+            print("❌ No hay datos en la tabla")
             return pd.DataFrame()
 
         df = pd.DataFrame(response.data)
-        print(f"Datos cargados: {len(df)} registros")
-        print(f"Columnas encontradas: {df.columns.tolist()}")
+        print(f"📊 Datos cargados: {len(df)} registros")
 
-        # MAPEO INTELIGENTE DE COLUMNAS - Ajusta según tu estructura real
-        # Revisa estas líneas y ajusta los nombres según lo que veas en tu tabla
+        # ===== CONVERSIÓN DE TIPOS ESPECÍFICA PARA TU ESTRUCTURA =====
         
-        # Posibles nombres para valor total
-        if "monto" in df.columns and "valor" not in df.columns:
-            df["valor"] = df["monto"]
-            print("Mapeando 'monto' -> 'valor'")
-        elif "total" in df.columns and "valor" not in df.columns:
-            df["valor"] = df["total"]
-            print("Mapeando 'total' -> 'valor'")
-        elif "valor_total" in df.columns and "valor" not in df.columns:
-            df["valor"] = df["valor_total"]
-            print("Mapeando 'valor_total' -> 'valor'")
+        # 1. LIMPIAR VALORES NULL Y CONVERTIR NÚMEROS
+        # Columnas que están como string pero deben ser números
+        columnas_numericas_str = ['valor_base', 'valor_neto', 'iva', 'base_comision', 'comision_ajustada']
         
-        # Posibles nombres para fecha
-        if "fecha_creacion" in df.columns and "fecha_factura" not in df.columns:
-            df["fecha_factura"] = df["fecha_creacion"]
-            print("Mapeando 'fecha_creacion' -> 'fecha_factura'")
-        elif "fecha" in df.columns and "fecha_factura" not in df.columns:
-            df["fecha_factura"] = df["fecha"]
-            print("Mapeando 'fecha' -> 'fecha_factura'")
-        elif "created_at" in df.columns and "fecha_factura" not in df.columns:
-            df["fecha_factura"] = df["created_at"]
-            print("Mapeando 'created_at' -> 'fecha_factura'")
+        for col in columnas_numericas_str:
+            if col in df.columns:
+                # Convertir "NULL" strings a 0, otros valores a float
+                df[col] = df[col].apply(lambda x: 0 if x in [None, "NULL", "null", ""] else float(x) if str(x).replace('.','').replace('-','').isdigit() else 0)
+                print(f"✅ Convertido {col} de string a float")
 
-        # Asegurar que existan todas las columnas necesarias con valores por defecto
-        columnas_requeridas = {
-            "id": None,
-            "pedido": "",
-            "cliente": "",
-            "factura": "",
-            "valor": 0,
-            "valor_neto": 0,
-            "iva": 0,
-            "cliente_propio": False,
-            "descuento_pie_factura": False,
-            "descuento_adicional": 0,
-            "condicion_especial": False,
-            "dias_pago_real": None,
-            "valor_devuelto": 0,
-            "base_comision": 0,
-            "comision": 0,
-            "porcentaje": 0,
-            "comision_ajustada": 0,
-            "comision_perdida": False,
-            "razon_perdida": "",
-            "pagado": False,
-            "fecha_factura": None,
-            "fecha_pago_est": None,
-            "fecha_pago_max": None,
-            "fecha_pago_real": None,
-            "comprobante_url": "",
-            "comprobante_file": "",
-            "referencia": "",
-            "metodo_pago": "",
-            "observaciones_pago": "",
-            "created_at": None,
-            "updated_at": None
-        }
-
-        # Agregar columnas faltantes con valores por defecto
-        for col, default_value in columnas_requeridas.items():
-            if col not in df.columns:
-                df[col] = default_value
-                print(f"Agregando columna faltante: {col}")
-
-        # Convertir tipos de datos
-        numeric_columns = ["valor", "valor_neto", "iva", "base_comision", "comision", "porcentaje", "descuento_adicional"]
-        for col in numeric_columns:
+        # 2. ASEGURAR QUE LAS COLUMNAS NUMÉRICAS EXISTENTES SEAN FLOAT
+        columnas_numericas_existentes = ['valor', 'porcentaje', 'comision', 'porcentaje_descuento', 'descuento_adicional', 'valor_devuelto']
+        
+        for col in columnas_numericas_existentes:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-        # Convertir columnas booleanas
-        boolean_columns = ["cliente_propio", "descuento_pie_factura", "condicion_especial", "comision_perdida", "pagado"]
-        for col in boolean_columns:
-            if col in df.columns:
-                df[col] = df[col].astype(bool)
-
-        # Procesar fechas
-        fecha_cols = ["fecha_factura", "fecha_pago_est", "fecha_pago_max", "fecha_pago_real", "created_at", "updated_at"]
-        for col in fecha_cols:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
-
-        # CÁLCULOS DERIVADOS - ESTO ES CLAVE PARA SOLUCIONAR EL PROBLEMA
+        # 3. CALCULAR CAMPOS FALTANTES BASÁNDOSE EN TU ESTRUCTURA
         
-        # Si valor_neto está vacío pero valor existe, calcularlo
-        if df["valor_neto"].sum() == 0 and df["valor"].sum() > 0:
-            df["valor_neto"] = df["valor"] / 1.19  # Quitar IVA del 19%
-            print("Calculando valor_neto desde valor (quitando IVA)")
+        # Si valor_neto está vacío (0), calcularlo desde valor
+        if df['valor_neto'].sum() == 0 and df['valor'].sum() > 0:
+            df['valor_neto'] = df['valor'] / 1.19  # Quitar IVA 19%
+            print("📊 Calculando valor_neto desde valor")
 
         # Si iva está vacío, calcularlo
-        if df["iva"].sum() == 0 and df["valor"].sum() > 0:
-            df["iva"] = df["valor"] - df["valor_neto"]
-            print("Calculando IVA")
+        if df['iva'].sum() == 0 and df['valor'].sum() > 0:
+            df['iva'] = df['valor'] - df['valor_neto']
+            print("📊 Calculando IVA")
 
-        # Si base_comision está vacía, calcularla
-        if df["base_comision"].sum() == 0 and df["valor_neto"].sum() > 0:
-            # Base de comisión = valor_neto * 0.85 (descuento automático del 15%)
-            # excepto si tiene descuento a pie de factura
-            df["base_comision"] = df.apply(
-                lambda row: row["valor_neto"] if row["descuento_pie_factura"] else row["valor_neto"] * 0.85,
-                axis=1
-            )
-            print("Calculando base_comision")
+        # Si base_comision está vacío, usar tu lógica específica
+        if df['base_comision'].sum() == 0:
+            # Usar valor_neto como base si no hay descuento a pie de factura
+            # Usar valor_neto * 0.85 si hay descuento automático
+            df['base_comision'] = df.apply(lambda row: 
+                row['valor_neto'] if row.get('descuento_pie_factura', False) or row.get('tiene_descuento_factura', False)
+                else row['valor_neto'] * 0.85, axis=1)
+            print("📊 Calculando base_comision")
 
-        # Si comision está vacía, calcularla
-        if df["comision"].sum() == 0 and df["base_comision"].sum() > 0:
-            def calcular_porcentaje_comision(row):
-                if row["cliente_propio"]:
-                    return 1.5 if row["descuento_adicional"] > 15 else 2.5
-                else:
-                    return 0.5 if row["descuento_adicional"] > 15 else 1.0
+        # 4. CONVERTIR FECHAS (tu estructura tiene fechas como strings)
+        columnas_fecha = ['fecha_factura', 'fecha_pago_est', 'fecha_pago_max', 'fecha_pago_real', 'created_at', 'updated_at']
+        
+        for col in columnas_fecha:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+                print(f"📅 Convertido {col} a datetime")
 
-            df["porcentaje"] = df.apply(calcular_porcentaje_comision, axis=1)
-            df["comision"] = df["base_comision"] * (df["porcentaje"] / 100)
-            print("Calculando comisiones")
-
-        # Crear columna de mes de factura
-        df["mes_factura"] = df["fecha_factura"].dt.to_period("M").astype(str)
-
+        # 5. CREAR COLUMNAS DERIVADAS NECESARIAS PARA EL DASHBOARD
+        
+        # Crear mes_factura para filtros
+        df['mes_factura'] = df['fecha_factura'].dt.to_period('M').astype(str)
+        
         # Calcular días de vencimiento
         hoy = pd.Timestamp.now()
-        df["dias_vencimiento"] = (df["fecha_pago_max"] - hoy).dt.days
+        df['dias_vencimiento'] = (df['fecha_pago_max'] - hoy).dt.days
+        
+        # Asegurar que columnas boolean existan
+        columnas_boolean = ['pagado', 'condicion_especial', 'cliente_propio', 'descuento_pie_factura', 'comision_perdida']
+        for col in columnas_boolean:
+            if col in df.columns:
+                df[col] = df[col].fillna(False).astype(bool)
 
-        # DEBUG: Mostrar resumen de datos cargados
-        print(f"RESUMEN DE DATOS CARGADOS:")
-        print(f"- Total registros: {len(df)}")
-        print(f"- Suma valor: ${df['valor'].sum():,.0f}")
-        print(f"- Suma valor_neto: ${df['valor_neto'].sum():,.0f}")
-        print(f"- Suma comisiones: ${df['comision'].sum():,.0f}")
-        print(f"- Registros pagados: {df['pagado'].sum()}")
-        print(f"- Meses disponibles: {df['mes_factura'].unique().tolist()}")
+        # Asegurar que columnas string existan
+        columnas_string = ['pedido', 'cliente', 'factura', 'comprobante_url', 'razon_perdida']
+        for col in columnas_string:
+            if col in df.columns:
+                df[col] = df[col].fillna('').astype(str)
 
+        # ===== DIAGNÓSTICO FINAL =====
+        print(f"\n📈 RESUMEN FINAL DE DATOS:")
+        print(f"   Total registros: {len(df)}")
+        print(f"   Suma valor total: ${df['valor'].sum():,.0f}")
+        print(f"   Suma valor neto: ${df['valor_neto'].sum():,.0f}")
+        print(f"   Suma comisiones: ${df['comision'].sum():,.0f}")
+        print(f"   Facturas pagadas: {df['pagado'].sum()}")
+        print(f"   Facturas pendientes: {(~df['pagado']).sum()}")
+        print(f"   Meses con datos: {sorted(df['mes_factura'].dropna().unique().tolist())}")
+        
         return df
 
     except Exception as e:
-        print(f"ERROR CARGANDO DATOS: {str(e)}")
+        print(f"❌ ERROR en cargar_datos: {str(e)}")
         import traceback
         print(traceback.format_exc())
         return pd.DataFrame()
 
+
+# FUNCIÓN CORREGIDA PARA RECOMENDACIONES CON TUS DATOS REALES
+def generar_recomendaciones_reales(supabase: Client):
+    """Genera recomendaciones basadas en TUS datos reales"""
+    try:
+        df = cargar_datos(supabase)
+        
+        if df.empty:
+            return [{
+                'cliente': 'No hay datos disponibles',
+                'accion': 'Revisar base de datos',
+                'producto': 'N/A',
+                'razon': 'La tabla comisiones está vacía o hay error de conexión',
+                'probabilidad': 0,
+                'impacto_comision': 0,
+                'prioridad': 'alta'
+            }]
+        
+        recomendaciones = []
+        hoy = pd.Timestamp.now()
+        
+        # 1. FACTURAS PRÓXIMAS A VENCER (alta prioridad)
+        proximas_vencer = df[
+            (df['dias_vencimiento'] >= 0) & 
+            (df['dias_vencimiento'] <= 7) & 
+            (df['pagado'] == False)
+        ].nlargest(2, 'comision')  # Las de mayor comisión primero
+        
+        for _, factura in proximas_vencer.iterrows():
+            recomendaciones.append({
+                'cliente': factura['cliente'],
+                'accion': f"URGENTE: Cobrar en {int(factura['dias_vencimiento'])} días",
+                'producto': f"Factura {factura['factura']} - ${factura['valor']:,.0f}",
+                'razon': f"Comisión de ${factura['comision']:,.0f} en riesgo de perderse",
+                'probabilidad': 90,
+                'impacto_comision': factura['comision'],
+                'prioridad': 'alta'
+            })
+        
+        # 2. FACTURAS VENCIDAS (crítico)
+        vencidas = df[
+            (df['dias_vencimiento'] < 0) & 
+            (df['pagado'] == False)
+        ].nlargest(2, 'comision')
+        
+        for _, factura in vencidas.iterrows():
+            dias_vencida = abs(int(factura['dias_vencimiento']))
+            recomendaciones.append({
+                'cliente': factura['cliente'],
+                'accion': f"CRÍTICO: Vencida hace {dias_vencida} días",
+                'producto': f"Factura {factura['factura']} - ${factura['valor']:,.0f}",
+                'razon': f"Comisión perdida si no se cobra pronto (${factura['comision']:,.0f})",
+                'probabilidad': max(20, 100 - dias_vencida * 2),  # Menos probabilidad mientras más vencida
+                'impacto_comision': factura['comision'],
+                'prioridad': 'alta'
+            })
+        
+        # 3. CLIENTES SIN ACTIVIDAD RECIENTE (oportunidad)
+        if len(recomendaciones) < 3:
+            df['dias_desde_factura'] = (hoy - df['fecha_factura']).dt.days
+            
+            clientes_inactivos = df.groupby('cliente').agg({
+                'dias_desde_factura': 'min',  # Días desde su última factura
+                'valor': 'mean',  # Ticket promedio
+                'comision': 'mean'  # Comisión promedio
+            }).reset_index()
+            
+            # Clientes que no han comprado en 30-90 días (ventana de oportunidad)
+            oportunidades = clientes_inactivos[
+                (clientes_inactivos['dias_desde_factura'] >= 30) & 
+                (clientes_inactivos['dias_desde_factura'] <= 90)
+            ].nlargest(1, 'valor')  # El de mayor ticket promedio
+            
+            for _, cliente in oportunidades.iterrows():
+                recomendaciones.append({
+                    'cliente': cliente['cliente'],
+                    'accion': 'Reactivar cliente',
+                    'producto': f"Oferta personalizada (${cliente['valor']*0.8:,.0f})",
+                    'razon': f"Sin compras {int(cliente['dias_desde_factura'])} días - Cliente valioso",
+                    'probabilidad': max(30, 90 - int(cliente['dias_desde_factura'])),
+                    'impacto_comision': cliente['comision'],
+                    'prioridad': 'media'
+                })
+        
+        # Si no hay suficientes recomendaciones, agregar general
+        if len(recomendaciones) == 0:
+            # Buscar el cliente con más volumen total
+            top_cliente = df.groupby('cliente')['valor'].sum().nlargest(1)
+            if not top_cliente.empty:
+                cliente_nombre = top_cliente.index[0]
+                volumen_total = top_cliente.iloc[0]
+                
+                recomendaciones.append({
+                    'cliente': cliente_nombre,
+                    'accion': 'Seguimiento comercial',
+                    'producto': f"Nueva propuesta (${volumen_total*0.3:,.0f})",
+                    'razon': f"Tu cliente #1 por volumen total (${volumen_total:,.0f})",
+                    'probabilidad': 65,
+                    'impacto_comision': volumen_total * 0.015,  # 1.5% estimado
+                    'prioridad': 'media'
+                })
+        
+        return recomendaciones[:3]  # Máximo 3
+        
+    except Exception as e:
+        print(f"Error generando recomendaciones: {e}")
+        return [{
+            'cliente': 'Error técnico',
+            'accion': 'Revisar logs',
+            'producto': 'N/A',
+            'razon': f'Error: {str(e)[:100]}',
+            'probabilidad': 0,
+            'impacto_comision': 0,
+            'prioridad': 'baja'
+        }]
 
 # FUNCIÓN ADICIONAL PARA DEBUGGEAR TU BASE DE DATOS ESPECÍFICA
 def mostrar_estructura_tabla(supabase: Client):
@@ -399,6 +457,120 @@ def generar_recomendaciones_ia():
         }
     ]
 
+#Funcion IA nueva
+def generar_recomendaciones_reales(supabase: Client):
+    """Genera recomendaciones basadas en TUS datos reales"""
+    try:
+        df = cargar_datos(supabase)
+        
+        if df.empty:
+            return [{
+                'cliente': 'No hay datos disponibles',
+                'accion': 'Revisar base de datos',
+                'producto': 'N/A',
+                'razon': 'La tabla comisiones está vacía o hay error de conexión',
+                'probabilidad': 0,
+                'impacto_comision': 0,
+                'prioridad': 'alta'
+            }]
+        
+        recomendaciones = []
+        hoy = pd.Timestamp.now()
+        
+        # 1. FACTURAS PRÓXIMAS A VENCER (alta prioridad)
+        proximas_vencer = df[
+            (df['dias_vencimiento'] >= 0) & 
+            (df['dias_vencimiento'] <= 7) & 
+            (df['pagado'] == False)
+        ].nlargest(2, 'comision')  # Las de mayor comisión primero
+        
+        for _, factura in proximas_vencer.iterrows():
+            recomendaciones.append({
+                'cliente': factura['cliente'],
+                'accion': f"URGENTE: Cobrar en {int(factura['dias_vencimiento'])} días",
+                'producto': f"Factura {factura['factura']} - ${factura['valor']:,.0f}",
+                'razon': f"Comisión de ${factura['comision']:,.0f} en riesgo de perderse",
+                'probabilidad': 90,
+                'impacto_comision': factura['comision'],
+                'prioridad': 'alta'
+            })
+        
+        # 2. FACTURAS VENCIDAS (crítico)
+        vencidas = df[
+            (df['dias_vencimiento'] < 0) & 
+            (df['pagado'] == False)
+        ].nlargest(2, 'comision')
+        
+        for _, factura in vencidas.iterrows():
+            dias_vencida = abs(int(factura['dias_vencimiento']))
+            recomendaciones.append({
+                'cliente': factura['cliente'],
+                'accion': f"CRÍTICO: Vencida hace {dias_vencida} días",
+                'producto': f"Factura {factura['factura']} - ${factura['valor']:,.0f}",
+                'razon': f"Comisión perdida si no se cobra pronto (${factura['comision']:,.0f})",
+                'probabilidad': max(20, 100 - dias_vencida * 2),  # Menos probabilidad mientras más vencida
+                'impacto_comision': factura['comision'],
+                'prioridad': 'alta'
+            })
+        
+        # 3. CLIENTES SIN ACTIVIDAD RECIENTE (oportunidad)
+        if len(recomendaciones) < 3:
+            df['dias_desde_factura'] = (hoy - df['fecha_factura']).dt.days
+            
+            clientes_inactivos = df.groupby('cliente').agg({
+                'dias_desde_factura': 'min',  # Días desde su última factura
+                'valor': 'mean',  # Ticket promedio
+                'comision': 'mean'  # Comisión promedio
+            }).reset_index()
+            
+            # Clientes que no han comprado en 30-90 días (ventana de oportunidad)
+            oportunidades = clientes_inactivos[
+                (clientes_inactivos['dias_desde_factura'] >= 30) & 
+                (clientes_inactivos['dias_desde_factura'] <= 90)
+            ].nlargest(1, 'valor')  # El de mayor ticket promedio
+            
+            for _, cliente in oportunidades.iterrows():
+                recomendaciones.append({
+                    'cliente': cliente['cliente'],
+                    'accion': 'Reactivar cliente',
+                    'producto': f"Oferta personalizada (${cliente['valor']*0.8:,.0f})",
+                    'razon': f"Sin compras {int(cliente['dias_desde_factura'])} días - Cliente valioso",
+                    'probabilidad': max(30, 90 - int(cliente['dias_desde_factura'])),
+                    'impacto_comision': cliente['comision'],
+                    'prioridad': 'media'
+                })
+        
+        # Si no hay suficientes recomendaciones, agregar general
+        if len(recomendaciones) == 0:
+            # Buscar el cliente con más volumen total
+            top_cliente = df.groupby('cliente')['valor'].sum().nlargest(1)
+            if not top_cliente.empty:
+                cliente_nombre = top_cliente.index[0]
+                volumen_total = top_cliente.iloc[0]
+                
+                recomendaciones.append({
+                    'cliente': cliente_nombre,
+                    'accion': 'Seguimiento comercial',
+                    'producto': f"Nueva propuesta (${volumen_total*0.3:,.0f})",
+                    'razon': f"Tu cliente #1 por volumen total (${volumen_total:,.0f})",
+                    'probabilidad': 65,
+                    'impacto_comision': volumen_total * 0.015,  # 1.5% estimado
+                    'prioridad': 'media'
+                })
+        
+        return recomendaciones[:3]  # Máximo 3
+        
+    except Exception as e:
+        print(f"Error generando recomendaciones: {e}")
+        return [{
+            'cliente': 'Error técnico',
+            'accion': 'Revisar logs',
+            'producto': 'N/A',
+            'razon': f'Error: {str(e)[:100]}',
+            'probabilidad': 0,
+            'impacto_comision': 0,
+            'prioridad': 'baja'
+        }]
 # ========================
 # FUNCIONES DE UI CORREGIDAS
 # ========================
@@ -1168,7 +1340,7 @@ if not st.session_state.show_meta_config:
         with col2:
             st.markdown("### 🧠 Recomendaciones IA")
             
-            recomendaciones = generar_recomendaciones_ia()
+            recomendaciones = generar_recomendaciones_reales(supabase)
             
             for rec in recomendaciones:
                 st.markdown(f"""
@@ -1385,7 +1557,7 @@ if not st.session_state.show_meta_config:
         with col2:
             st.markdown("### 🎯 Recomendaciones Estratégicas")
             
-            recomendaciones = generar_recomendaciones_ia()
+            recomendaciones = generar_recomendaciones_reales(supabase)
             
             for i, rec in enumerate(recomendaciones):
                 st.markdown(f"""
@@ -1410,7 +1582,7 @@ if not st.session_state.show_meta_config:
 def mostrar_recomendaciones_ia():
     """Muestra recomendaciones IA con componentes nativos de Streamlit"""
     
-    recomendaciones = generar_recomendaciones_ia()
+    recomendaciones = generar_recomendaciones_reales(supabase)
     
     for i, rec in enumerate(recomendaciones):
         # Usar container y columnas en lugar de HTML personalizado
