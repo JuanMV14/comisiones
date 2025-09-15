@@ -574,96 +574,63 @@ def generar_recomendaciones_reales(supabase: Client):
 # ========================
 # FUNCIONES DE UI CORREGIDAS
 # ========================
-
 def render_factura_card(factura, index):
-    """Renderiza una card de factura con estilos corregidos"""
+    """Renderiza una card de factura SIN línea blanca"""
     
-    # Determinar estado de la factura
+    # Determinar estado
     if factura.get("pagado"):
         estado_badge = "PAGADA"
-        estado_color = "#10b981"
+        estado_color = "success"
         estado_icon = "✅"
     elif factura.get("dias_vencimiento", 0) < 0:
         estado_badge = "VENCIDA"
-        estado_color = "#ef4444"
+        estado_color = "error"
         estado_icon = "⚠️"
+        dias_vencida = abs(factura.get("dias_vencimiento", 0))
     else:
         estado_badge = "PENDIENTE"
-        estado_color = "#f59e0b"
+        estado_color = "warning"
         estado_icon = "⏳"
     
-    # Crear columnas para la información de la factura
+    # Usar contenedor simple sin HTML complejo
     with st.container():
-        # Header de la factura
-        col_header1, col_header2 = st.columns([3, 1])
+        # Header con información básica
+        col1, col2 = st.columns([3, 1])
         
-        with col_header1:
-            st.markdown(f"""
-            <div style="background: white; padding: 20px; border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin: 16px 0;">
-            """, unsafe_allow_html=True)
-            
-            st.markdown(f"### 🧾 {factura.get('pedido', 'N/A')} - {factura.get('cliente', 'N/A')}")
-            st.markdown(f"**Factura:** {factura.get('factura', 'N/A')}")
+        with col1:
+            st.markdown(f"## 🧾 {factura.get('pedido', 'N/A')} - {factura.get('cliente', 'N/A')}")
+            st.caption(f"Factura: {factura.get('factura', 'N/A')}")
         
-        with col_header2:
-            st.markdown(f"""
-            <div style="text-align: right;">
-                <span style="
-                    background: {estado_color};
-                    color: white;
-                    padding: 8px 16px;
-                    border-radius: 20px;
-                    font-size: 14px;
-                    font-weight: 600;
-                    display: inline-block;
-                ">
-                    {estado_icon} {estado_badge}
-                </span>
-            </div>
-            """, unsafe_allow_html=True)
+        with col2:
+            if estado_color == "error":
+                st.error(f"{estado_icon} {estado_badge}")
+                if 'dias_vencida' in locals():
+                    st.warning(f"Vencida hace {dias_vencida} días")
+            elif estado_color == "success":
+                st.success(f"{estado_icon} {estado_badge}")
+            else:
+                st.info(f"{estado_icon} {estado_badge}")
         
-        # Información financiera en columnas
+        # Métricas en columnas limpias
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric(
-                label="💰 Valor Neto",
-                value=format_currency(factura.get('valor_neto', 0)),
-                help="Valor sin IVA"
-            )
+            st.metric("💰 Valor Neto", format_currency(factura.get('valor_neto', 0)))
         
         with col2:
-            st.metric(
-                label="📊 Base Comisión", 
-                value=format_currency(factura.get('base_comision', 0)),
-                help="Base para calcular comisión"
-            )
+            st.metric("📊 Base Comisión", format_currency(factura.get('base_comision', 0)))
         
         with col3:
-            st.metric(
-                label="🎯 Comisión",
-                value=format_currency(factura.get('comision', 0)),
-                help=f"Porcentaje: {factura.get('porcentaje', 0)}%"
-            )
+            st.metric("🎯 Comisión", format_currency(factura.get('comision', 0)))
         
         with col4:
             fecha_factura = factura.get('fecha_factura')
-            if fecha_factura:
-                if isinstance(fecha_factura, str):
-                    try:
-                        fecha_display = pd.to_datetime(fecha_factura).strftime('%d/%m/%Y')
-                    except:
-                        fecha_display = fecha_factura
-                else:
-                    fecha_display = fecha_factura.strftime('%d/%m/%Y') if hasattr(fecha_factura, 'strftime') else str(fecha_factura)
+            if pd.notna(fecha_factura):
+                fecha_str = pd.to_datetime(fecha_factura).strftime('%d/%m/%Y')
             else:
-                fecha_display = "N/A"
-            
-            st.metric(
-                label="📅 Fecha Factura",
-                value=fecha_display
-            )
-        
+                fecha_str = "N/A"
+            st.metric("📅 Fecha", fecha_str)
+
         # Información adicional si existe
         if factura.get('dias_vencimiento') is not None:
             dias_venc = factura.get('dias_vencimiento', 0)
@@ -769,6 +736,96 @@ def mostrar_comprobante(comprobante_url):
                 st.markdown(f"🖼️ [Ver Comprobante]({comprobante_url})")
     else:
         st.info("📄 No hay comprobante subido")
+
+def generar_detalles_analisis_reales(supabase: Client):
+    """Genera detalles de análisis basados en datos reales de la base de datos"""
+    try:
+        df = cargar_datos(supabase)
+        
+        if df.empty:
+            return {
+                'modelo': ['Sin datos suficientes', 'Cargar más información', 'Conectar base de datos'],
+                'factores_riesgo': ['No hay datos disponibles', 'Revisar conexión', 'Agregar ventas']
+            }
+        
+        hoy = pd.Timestamp.now()
+        
+        # ANÁLISIS MODELO PREDICTIVO (datos reales)
+        meses_con_datos = len(df['mes_factura'].dropna().unique())
+        total_ventas = len(df)
+        rango_fechas = df['fecha_factura'].dropna()
+        
+        if len(rango_fechas) > 0:
+            fecha_primera = rango_fechas.min()
+            fecha_ultima = rango_fechas.max()
+            dias_historico = (fecha_ultima - fecha_primera).days
+        else:
+            dias_historico = 0
+        
+        modelo_detalles = [
+            f"Basado en {total_ventas} ventas registradas",
+            f"Historial de {meses_con_datos} meses con actividad",
+            f"Datos desde {fecha_primera.strftime('%b %Y') if len(rango_fechas) > 0 else 'N/A'}"
+        ]
+        
+        # ANÁLISIS FACTORES DE RIESGO (datos reales)
+        df['dias_desde_factura'] = (hoy - df['fecha_factura']).dt.days
+        
+        # Clientes inactivos (más de 45 días sin comprar)
+        clientes_inactivos = df.groupby('cliente')['dias_desde_factura'].min()
+        clientes_muy_inactivos = len(clientes_inactivos[clientes_inactivos > 45])
+        
+        # Facturas próximas a vencer
+        proximas_vencer = len(df[
+            (df['dias_vencimiento'] >= 0) & 
+            (df['dias_vencimiento'] <= 7) & 
+            (df['pagado'] == False)
+        ])
+        
+        # Facturas vencidas
+        vencidas = len(df[
+            (df['dias_vencimiento'] < 0) & 
+            (df['pagado'] == False)
+        ])
+        
+        # Meta mensual (obtener datos reales)
+        mes_actual = hoy.strftime("%Y-%m")
+        ventas_mes_actual = df[df['mes_factura'] == mes_actual]['valor'].sum()
+        meta_actual = obtener_meta_mes_actual(supabase)
+        porcentaje_meta = (ventas_mes_actual / meta_actual['meta_ventas'] * 100) if meta_actual['meta_ventas'] > 0 else 0
+        dias_restantes = (date(hoy.year, hoy.month + 1 if hoy.month < 12 else 1, 1) - date(hoy.year, hoy.month, hoy.day)).days
+        
+        factores_riesgo = []
+        
+        if clientes_muy_inactivos > 0:
+            factores_riesgo.append(f"{clientes_muy_inactivos} clientes sin compras en 45+ días")
+        
+        if vencidas > 0:
+            factores_riesgo.append(f"{vencidas} facturas vencidas sin cobrar")
+        
+        if proximas_vencer > 0:
+            factores_riesgo.append(f"{proximas_vencer} facturas próximas a vencer")
+        
+        factores_riesgo.append(f"Meta mensual al {porcentaje_meta:.0f}% con {dias_restantes} días restantes")
+        
+        # Si no hay factores de riesgo significativos
+        if len(factores_riesgo) == 1:  # Solo la meta
+            factores_riesgo = [
+                f"Situación estable con {total_ventas} ventas activas",
+                f"Solo {proximas_vencer} facturas requieren seguimiento",
+                f"Meta mensual al {porcentaje_meta:.0f}% - ritmo aceptable"
+            ]
+        
+        return {
+            'modelo': modelo_detalles,
+            'factores_riesgo': factores_riesgo
+        }
+        
+    except Exception as e:
+        return {
+            'modelo': [f'Error obteniendo datos: {str(e)[:50]}', 'Revisar conexión a base de datos', 'Verificar estructura de tabla'],
+            'factores_riesgo': ['No se pueden calcular riesgos', 'Error en análisis de datos', 'Revisar logs del sistema']
+        }
 
 def render_tab_comisiones_corregida():
     """Renderiza el tab de comisiones con UI corregida"""
@@ -1361,94 +1418,181 @@ if not st.session_state.show_meta_config:
     # ========================
     # TAB 3 - NUEVA VENTA
     # ========================
-    with tabs[2]:
-        st.header("➕ Registrar Nueva Venta")
+# REEMPLAZA LA SECCIÓN DEL TAB 3 - NUEVA VENTA con esto:
+
+with tabs[2]:
+    st.header("➕ Registrar Nueva Venta")
+    
+    with st.form("nueva_venta_form", clear_on_submit=False):
+        st.markdown("### 📋 Información Básica")
         
-        with st.form("nueva_venta_form", clear_on_submit=False):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                pedido = st.text_input("Número de Pedido*")
-                cliente = st.text_input("Cliente*")
-                factura = st.text_input("Número de Factura")
-                valor_total = st.number_input("Valor Total (con IVA)*", min_value=0.0, step=10000.0)
-            
-            with col2:
-                fecha_factura = st.date_input("Fecha de Factura", value=date.today())
-                cliente_propio = st.checkbox("✅ Cliente Propio", help="2.5% vs 1% de comisión")
-                descuento_pie_factura = st.checkbox("📄 Descuento a Pie de Factura")
-                descuento_adicional = st.number_input("Descuento Adicional (%)", min_value=0.0, max_value=100.0, step=0.5)
-            
-            condicion_especial = st.checkbox("⏰ Condición Especial (60 días de pago)")
-            
-            # Preview de cálculos en tiempo real
-            if valor_total > 0:
-                st.markdown("---")
-                st.markdown("### 🧮 Preview Automático de Comisión")
-                
-                calc = calcular_comision_inteligente(valor_total, cliente_propio, descuento_adicional, descuento_pie_factura)
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Valor Neto", format_currency(calc['valor_neto']))
-                with col2:
-                    st.metric("IVA (19%)", format_currency(calc['iva']))
-                with col3:
-                    st.metric("Base Comisión", format_currency(calc['base_comision']))
-                with col4:
-                    st.metric("Comisión Final", format_currency(calc['comision']), help=f"Porcentaje: {calc['porcentaje']}%")
-                
-                st.info(f"""
-                **Cálculo:** Base ${calc['base_comision']:,.0f} × {calc['porcentaje']}% = **${calc['comision']:,.0f}**
-                
-                - Cliente {'Propio' if cliente_propio else 'Externo'}: {calc['porcentaje']}%
-                - {'Descuento a pie de factura' if descuento_pie_factura else 'Descuento automático 15%'}
-                - {'Descuento adicional >15%' if descuento_adicional > 15 else 'Sin descuento adicional significativo'}
-                """)
-            
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            pedido = st.text_input(
+                "Número de Pedido *", 
+                placeholder="Ej: PED-001",
+                help="Número único del pedido"
+            )
+            cliente = st.text_input(
+                "Cliente *",
+                placeholder="Ej: DISTRIBUIDORA CENTRAL",
+                help="Nombre completo del cliente"
+            )
+            factura = st.text_input(
+                "Número de Factura",
+                placeholder="Ej: FAC-1001",
+                help="Número de la factura generada"
+            )
+        
+        with col2:
+            fecha_factura = st.date_input(
+                "Fecha de Factura *", 
+                value=date.today(),
+                help="Fecha de emisión de la factura"
+            )
+            valor_total = st.number_input(
+                "Valor Total (con IVA) *", 
+                min_value=0.0, 
+                step=10000.0,
+                format="%.0f",
+                help="Valor total de la venta incluyendo IVA"
+            )
+            condicion_especial = st.checkbox(
+                "⏰ Condición Especial (60 días de pago)",
+                help="Marcar si el cliente tiene condiciones especiales de pago"
+            )
+        
+        st.markdown("### 🎯 Configuración de Comisión")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            cliente_propio = st.checkbox(
+                "✅ Cliente Propio", 
+                help="Cliente directo (2.5% comisión vs 1% externo)"
+            )
+        
+        with col2:
+            descuento_pie_factura = st.checkbox(
+                "📄 Descuento a Pie de Factura",
+                help="Si el descuento aparece directamente en la factura"
+            )
+        
+        with col3:
+            descuento_adicional = st.number_input(
+                "Descuento Adicional (%)", 
+                min_value=0.0, 
+                max_value=100.0, 
+                step=0.5,
+                help="Porcentaje de descuento adicional aplicado"
+            )
+        
+        # Preview de cálculos en tiempo real
+        if valor_total > 0:
             st.markdown("---")
+            st.markdown("### 🧮 Preview de Comisión")
             
-            col1, col2 = st.columns(2)
+            calc = calcular_comision_inteligente(valor_total, cliente_propio, descuento_adicional, descuento_pie_factura)
+            
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
-                submit = st.form_submit_button("💾 Registrar Venta", type="primary", use_container_width=True)
+                st.metric("💰 Valor Neto", format_currency(calc['valor_neto']))
             with col2:
-                clear = st.form_submit_button("🧹 Limpiar Formulario", use_container_width=True)
+                st.metric("📊 IVA (19%)", format_currency(calc['iva']))
+            with col3:
+                st.metric("🎯 Base Comisión", format_currency(calc['base_comision']))
+            with col4:
+                st.metric("💸 Comisión Final", format_currency(calc['comision']))
             
-            if submit:
+            # Explicación del cálculo
+            st.info(f"""
+            **💡 Detalles del cálculo:**
+            - Tipo cliente: {'Propio' if cliente_propio else 'Externo'}
+            - Porcentaje comisión: {calc['porcentaje']}%
+            - {'Descuento aplicado en factura' if descuento_pie_factura else 'Descuento automático del 15%'}
+            - Descuento adicional: {descuento_adicional}%
+            """)
+        
+        st.markdown("---")
+        
+        # Botones
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col1:
+            submit = st.form_submit_button(
+                "💾 Registrar Venta", 
+                type="primary", 
+                use_container_width=True
+            )
+        
+        with col2:
+            if st.form_submit_button("🧹 Limpiar", use_container_width=True):
+                st.rerun()
+        
+        with col3:
+            if st.form_submit_button("👁️ Previsualizar", use_container_width=True):
                 if pedido and cliente and valor_total > 0:
+                    st.success("✅ Los datos se ven correctos para registrar")
+                else:
+                    st.warning("⚠️ Faltan campos obligatorios")
+        
+        # Lógica de guardado
+        if submit:
+            if pedido and cliente and valor_total > 0:
+                try:
+                    # Calcular fechas
                     dias_pago = 60 if condicion_especial else 35
                     dias_max = 60 if condicion_especial else 45
                     fecha_pago_est = fecha_factura + timedelta(days=dias_pago)
                     fecha_pago_max = fecha_factura + timedelta(days=dias_max)
                     
+                    # Calcular comisión
                     calc = calcular_comision_inteligente(valor_total, cliente_propio, descuento_adicional, descuento_pie_factura)
                     
+                    # Preparar datos para insertar
                     data = {
                         "pedido": pedido,
                         "cliente": cliente,
-                        "factura": factura,
-                        "valor": valor_total,
-                        "comision": calc['comision'],
-                        "porcentaje": calc['porcentaje'],
+                        "factura": factura if factura else f"FAC-{pedido}",
+                        "valor": float(valor_total),
+                        "valor_neto": float(calc['valor_neto']),
+                        "iva": float(calc['iva']),
+                        "base_comision": float(calc['base_comision']),
+                        "comision": float(calc['comision']),
+                        "porcentaje": float(calc['porcentaje']),
                         "fecha_factura": fecha_factura.isoformat(),
                         "fecha_pago_est": fecha_pago_est.isoformat(),
                         "fecha_pago_max": fecha_pago_max.isoformat(),
                         "cliente_propio": cliente_propio,
                         "descuento_pie_factura": descuento_pie_factura,
-                        "descuento_adicional": descuento_adicional,
+                        "descuento_adicional": float(descuento_adicional),
                         "condicion_especial": condicion_especial,
                         "pagado": False,
+                        "created_at": datetime.now().isoformat(),
+                        "updated_at": datetime.now().isoformat()
                     }
                     
+                    # Intentar insertar
                     if insertar_venta(supabase, data):
-                        st.success(f"✅ Venta registrada correctamente - Comisión: {format_currency(calc['comision'])}")
+                        st.success(f"🎉 ¡Venta registrada correctamente!")
+                        st.success(f"💰 Comisión calculada: {format_currency(calc['comision'])}")
                         st.balloons()
-                        st.rerun()
+                        
+                        # Mostrar resumen
+                        st.markdown("### 📊 Resumen de la venta:")
+                        st.write(f"**Cliente:** {cliente}")
+                        st.write(f"**Pedido:** {pedido}")
+                        st.write(f"**Valor:** {format_currency(valor_total)}")
+                        st.write(f"**Comisión:** {format_currency(calc['comision'])} ({calc['porcentaje']}%)")
+                        st.write(f"**Fecha límite pago:** {fecha_pago_max.strftime('%d/%m/%Y')}")
                     else:
-                        st.error("❌ Error al registrar la venta")
-                else:
-                    st.error("⚠️ Por favor completa todos los campos marcados con *")
-
+                        st.error("❌ Error al registrar la venta. Inténtalo nuevamente.")
+                        
+                except Exception as e:
+                    st.error(f"❌ Error procesando la venta: {str(e)}")
+            else:
+                st.error("⚠️ Por favor completa todos los campos marcados con *")
     # ========================
     # TAB 4 - CLIENTES
     # ========================
@@ -1687,82 +1831,43 @@ def render_tab_ia_alertas_corregida():
             help="Clientes que requieren atención inmediata"
         )
         st.caption("Requieren atención inmediata")
+
+def render_detalles_analisis_reales():
+    """Renderiza detalles de análisis con datos reales"""
     
-    # Información adicional
     st.markdown("#### 📈 Detalles del Análisis")
+    
+    detalles = generar_detalles_analisis_reales(supabase)
     
     info_col1, info_col2 = st.columns(2)
     
     with info_col1:
-        st.info("""
+        st.info(f"""
         **🔮 Modelo Predictivo:**
-        - Basado en historial de ventas de 6 meses
-        - Considera estacionalidad y tendencias  
-        - Actualizado diariamente con nuevos datos
+        • {detalles['modelo'][0]}
+        • {detalles['modelo'][1]}  
+        • {detalles['modelo'][2]}
         """)
     
     with info_col2:
-        st.warning("""
-        **⚠️ Factores de Riesgo:**
-        - 3 clientes sin compras en 45+ días
-        - 2 facturas próximas a vencer
-        - Meta mensual al 75% con 8 días restantes
-        """)
+        # Determinar el tipo de alerta basado en la cantidad de factores de riesgo
+        num_factores_criticos = sum(1 for factor in detalles['factores_riesgo'] 
+                                   if any(palabra in factor.lower() for palabra in ['vencida', 'crítico', 'urgente']))
         
-# Reemplaza esta sección en el TAB 5 - IA & ALERTAS
+        if num_factores_criticos > 0:
+            st.error(f"""
+            **⚠️ Factores de Riesgo CRÍTICOS:**
+            • {detalles['factores_riesgo'][0]}
+            • {detalles['factores_riesgo'][1] if len(detalles['factores_riesgo']) > 1 else 'Situación controlable'}
+            • {detalles['factores_riesgo'][2] if len(detalles['factores_riesgo']) > 2 else 'Monitorear evolución'}
+            """)
+        else:
+            st.warning(f"""
+            **⚠️ Factores de Riesgo:**
+            • {detalles['factores_riesgo'][0]}
+            • {detalles['factores_riesgo'][1] if len(detalles['factores_riesgo']) > 1 else 'Situación estable'}
+            • {detalles['factores_riesgo'][2] if len(detalles['factores_riesgo']) > 2 else 'Seguimiento rutinario'}
+            """)
 
-# Análisis predictivo (VERSIÓN CORREGIDA)
-st.markdown("---")
-st.markdown("### 📊 Análisis Predictivo")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric(
-        label="🔮 Predicción Meta",
-        value="75%",
-        delta="5%",
-        help="Probabilidad de cumplir meta mensual basada en tendencias actuales"
-    )
-    st.caption("Probabilidad de cumplir meta mensual")
-
-with col2:
-    st.metric(
-        label="📈 Tendencia Comisiones",
-        value="+15%",
-        delta="3%",
-        delta_color="normal",
-        help="Crecimiento estimado para el próximo mes"
-    )
-    st.caption("Crecimiento estimado próximo mes")
-
-with col3:
-    st.metric(
-        label="🎯 Clientes en Riesgo",
-        value="3",
-        delta="-1",
-        delta_color="inverse",
-        help="Clientes que requieren atención inmediata"
-    )
-    st.caption("Requieren atención inmediata")
-
-# Información adicional con cards nativas de Streamlit
-st.markdown("#### 📈 Detalles del Análisis")
-
-info_col1, info_col2 = st.columns(2)
-
-with info_col1:
-    st.info("""
-    **🔮 Modelo Predictivo:**
-    - Basado en historial de ventas de 6 meses
-    - Considera estacionalidad y tendencias
-    - Actualizado diariamente con nuevos datos
-    """)
-
-with info_col2:
-    st.warning("""
-    **⚠️ Factores de Riesgo:**
-    - 3 clientes sin compras en 45+ días
-    - 2 facturas próximas a vencer
-    - Meta mensual al 75% con 8 días restantes
-    """)
+    
+render_detalles_analisis_reales()
