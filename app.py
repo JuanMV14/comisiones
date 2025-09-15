@@ -584,13 +584,16 @@ def render_factura_card(factura, index):
     if factura.get("pagado"):
         estado_badge = "PAGADA"
         estado_color = "success"
+        estado_icon = "✅"  # AGREGAR ESTA LÍNEA
     elif factura.get("dias_vencimiento", 0) < 0:
         estado_badge = "VENCIDA"
         estado_color = "error"
+        estado_icon = "🚨"  # AGREGAR ESTA LÍNEA
         dias_vencida = abs(factura.get("dias_vencimiento", 0))
     else:
         estado_badge = "PENDIENTE"
         estado_color = "warning"
+        estado_icon = "⏳"  # AGREGAR ESTA LÍNEA
     
     # Usar contenedor simple sin HTML complejo
     with st.container():
@@ -638,10 +641,6 @@ def render_factura_card(factura, index):
                 st.warning(f"Vencida hace {abs(dias_venc)} días")
             elif dias_venc <= 5:
                 st.info(f"Vence en {dias_venc} días")
-        
-        # Cerrar el contenedor
-        st.markdown("</div>", unsafe_allow_html=True)
-
 def mostrar_modal_pago(factura):
     """Modal para marcar factura como pagada con subida de comprobante"""
     
