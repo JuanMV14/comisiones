@@ -1016,271 +1016,329 @@ st.set_page_config(
     page_icon="🧠"
 )
 
-# Reemplaza la sección de CSS en tu código con esta versión mejorada:
+# Reemplaza tu CSS con esta versión para fondo oscuro:
 
 st.markdown("""
 <style>
-    /* ========== CORRECCIÓN COMPLETA DE CONTRASTE ========== */
+    /* ========== CSS OPTIMIZADO PARA FONDO OSCURO ========== */
     
-    /* FONDO Y CONTENEDOR PRINCIPAL */
+    /* FONDO PRINCIPAL MANTENER OSCURO */
     .main .block-container {
-        background-color: #ffffff !important;
-        color: #000000 !important;
+        background-color: #0f1419 !important;
+        color: #ffffff !important;
     }
     
-    /* TODOS LOS TEXTOS MÁS OSCUROS */
+    /* TODOS LOS TEXTOS EN BLANCO */
     .stMarkdown, .stMarkdown p, .stMarkdown div, .stText, p, span, div {
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 600 !important;
     }
     
-    /* HEADERS CON MÁXIMO CONTRASTE */
+    /* HEADERS EN BLANCO */
     h1, h2, h3, h4, h5, h6 {
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 800 !important;
-        text-shadow: none !important;
+        text-shadow: 0 0 10px rgba(255,255,255,0.3) !important;
     }
     
-    /* MÉTRICAS CON TEXTO NEGRO */
+    /* MÉTRICAS CON FONDO SEMI-TRANSPARENTE Y TEXTO BLANCO */
     div[data-testid="metric-container"] {
-        background: #ffffff !important;
-        border: 3px solid #000000 !important;
+        background: rgba(255, 255, 255, 0.1) !important;
+        border: 2px solid #ffffff !important;
         border-radius: 0.75rem !important;
         padding: 1.5rem !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+        box-shadow: 0 4px 20px rgba(255, 255, 255, 0.1) !important;
+        backdrop-filter: blur(10px) !important;
     }
     
     div[data-testid="metric-container"] > div {
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 800 !important;
         font-size: 16px !important;
     }
     
     div[data-testid="metric-container"] [data-testid="metric-value"] {
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 900 !important;
         font-size: 24px !important;
+        text-shadow: 0 0 5px rgba(255,255,255,0.5) !important;
     }
     
     div[data-testid="metric-container"] [data-testid="metric-label"] {
-        color: #000000 !important;
+        color: #e5e7eb !important;
         font-weight: 700 !important;
         font-size: 16px !important;
     }
     
-    /* INPUTS CON TEXTO NEGRO */
+    /* INPUTS CON FONDO SEMI-OSCURO Y TEXTO BLANCO */
     .stTextInput > div > div > input {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 3px solid #000000 !important;
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        color: #ffffff !important;
+        border: 2px solid #ffffff !important;
         border-radius: 0.5rem !important;
         font-size: 16px !important;
         font-weight: 700 !important;
     }
     
     .stNumberInput > div > div > input {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 3px solid #000000 !important;
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        color: #ffffff !important;
+        border: 2px solid #ffffff !important;
         border-radius: 0.5rem !important;
         font-size: 16px !important;
         font-weight: 700 !important;
     }
     
     .stSelectbox > div > div {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: 3px solid #000000 !important;
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        color: #ffffff !important;
+        border: 2px solid #ffffff !important;
         border-radius: 0.5rem !important;
     }
     
     .stSelectbox > div > div > div {
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 700 !important;
     }
     
-    /* LABELS MÁS VISIBLES */
+    /* LABELS EN BLANCO BRILLANTE */
     .stTextInput > label,
     .stNumberInput > label,
     .stSelectbox > label,
     .stDateInput > label,
     .stCheckbox > label {
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 800 !important;
         font-size: 18px !important;
+        text-shadow: 0 0 5px rgba(255,255,255,0.3) !important;
     }
     
     /* BOTONES CON MEJOR CONTRASTE */
     .stButton > button {
         border-radius: 0.5rem !important;
-        border: 3px solid #000000 !important;
+        border: 2px solid #ffffff !important;
         font-weight: 800 !important;
         font-size: 16px !important;
-        background-color: #ffffff !important;
-        color: #000000 !important;
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        color: #ffffff !important;
         transition: all 0.2s ease !important;
+        backdrop-filter: blur(10px) !important;
+    }
+    
+    .stButton > button:hover {
+        background-color: rgba(255, 255, 255, 0.2) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(255,255,255,0.2) !important;
     }
     
     .stButton > button[kind="primary"] {
-        background-color: #1f2937 !important;
+        background-color: #3b82f6 !important;
         color: #ffffff !important;
-        border-color: #1f2937 !important;
+        border-color: #3b82f6 !important;
         font-weight: 900 !important;
     }
     
-    /* SIDEBAR CON TEXTO NEGRO */
+    /* SIDEBAR CON FONDO OSCURO Y TEXTO BLANCO */
     .css-1d391kg {
-        background: #f8fafc !important;
-        color: #000000 !important;
+        background: rgba(0, 0, 0, 0.3) !important;
+        color: #ffffff !important;
+        backdrop-filter: blur(20px) !important;
     }
     
     .css-1d391kg * {
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 600 !important;
     }
     
     /* TABS CON MEJOR VISIBILIDAD */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
-        background: #e5e7eb;
+        background: rgba(255, 255, 255, 0.1);
         padding: 0.5rem;
         border-radius: 0.75rem;
-        border: 3px solid #000000;
+        border: 2px solid #ffffff;
+        backdrop-filter: blur(10px);
     }
     
     .stTabs [data-baseweb="tab"] {
-        background: #ffffff !important;
-        border: 3px solid #000000 !important;
+        background: rgba(255, 255, 255, 0.1) !important;
+        border: 2px solid #ffffff !important;
         border-radius: 0.5rem !important;
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 800 !important;
         padding: 0.75rem 1.5rem !important;
+        backdrop-filter: blur(10px) !important;
     }
     
     .stTabs [aria-selected="true"] {
-        background: #1f2937 !important;
+        background: #3b82f6 !important;
         color: #ffffff !important;
-        border-color: #1f2937 !important;
+        border-color: #3b82f6 !important;
         font-weight: 900 !important;
     }
     
-    /* ALERTAS CON TEXTO MÁS OSCURO */
+    /* ALERTAS CON MEJOR CONTRASTE PARA FONDO OSCURO */
     .stInfo {
-        background: #dbeafe !important;
-        border: 3px solid #1d4ed8 !important;
-        color: #000000 !important;
+        background: rgba(59, 130, 246, 0.2) !important;
+        border: 2px solid #3b82f6 !important;
+        color: #ffffff !important;
         border-radius: 0.5rem !important;
         font-weight: 700 !important;
+        backdrop-filter: blur(10px) !important;
     }
     
     .stSuccess {
-        background: #dcfce7 !important;
-        border: 3px solid #16a34a !important;
-        color: #000000 !important;
+        background: rgba(34, 197, 94, 0.2) !important;
+        border: 2px solid #22c55e !important;
+        color: #ffffff !important;
         border-radius: 0.5rem !important;
         font-weight: 700 !important;
+        backdrop-filter: blur(10px) !important;
     }
     
     .stWarning {
-        background: #fef3c7 !important;
-        border: 3px solid #d97706 !important;
-        color: #000000 !important;
+        background: rgba(251, 146, 60, 0.2) !important;
+        border: 2px solid #fb923c !important;
+        color: #ffffff !important;
         border-radius: 0.5rem !important;
         font-weight: 700 !important;
+        backdrop-filter: blur(10px) !important;
     }
     
     .stError {
-        background: #fecaca !important;
-        border: 3px solid #dc2626 !important;
-        color: #000000 !important;
+        background: rgba(239, 68, 68, 0.2) !important;
+        border: 2px solid #ef4444 !important;
+        color: #ffffff !important;
         border-radius: 0.5rem !important;
         font-weight: 700 !important;
+        backdrop-filter: blur(10px) !important;
     }
     
-    /* DATAFRAMES MÁS LEGIBLES */
+    /* DATAFRAMES ADAPTADOS */
     .dataframe {
-        background: #ffffff !important;
-        border: 3px solid #000000 !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 2px solid #ffffff !important;
         border-radius: 0.5rem !important;
-        color: #000000 !important;
+        color: #ffffff !important;
+        backdrop-filter: blur(10px) !important;
     }
     
     .dataframe th, .dataframe td {
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 600 !important;
-    }
-    
-    /* CAPTIONS Y TEXTO PEQUEÑO */
-    .stCaption {
-        color: #374151 !important;
-        font-weight: 600 !important;
+        background: transparent !important;
     }
     
     /* EXPANDER */
     .streamlit-expander {
-        background: #ffffff !important;
-        border: 3px solid #000000 !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 2px solid #ffffff !important;
         border-radius: 0.5rem !important;
-        color: #000000 !important;
+        color: #ffffff !important;
+        backdrop-filter: blur(10px) !important;
     }
     
     .streamlit-expander > div > div > div {
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 600 !important;
     }
     
-    /* METRIC CARD PERSONALIZADA CON MÁXIMO CONTRASTE */
+    /* METRIC CARD PERSONALIZADA PARA FONDO OSCURO */
     .metric-card {
-        background: #ffffff;
-        border: 4px solid #000000;
+        background: rgba(255, 255, 255, 0.1);
+        border: 2px solid #ffffff;
         border-radius: 1rem;
         padding: 1.5rem;
         margin: 1rem 0;
-        box-shadow: 0 6px 12px rgba(0,0,0,0.3);
-        color: #000000;
+        box-shadow: 0 6px 20px rgba(255,255,255,0.1);
+        color: #ffffff;
+        backdrop-filter: blur(15px);
     }
     
     .metric-card h4 {
-        color: #000000 !important;
+        color: #ffffff !important;
         font-weight: 900 !important;
         margin-bottom: 1rem !important;
         font-size: 18px !important;
+        text-shadow: 0 0 10px rgba(255,255,255,0.3) !important;
     }
     
     .metric-card p {
-        color: #000000 !important;
+        color: #e5e7eb !important;
         font-weight: 700 !important;
         margin: 0.5rem 0 !important;
         font-size: 16px !important;
     }
     
-    /* FORZAR COLOR NEGRO EN TODOS LOS ELEMENTOS */
-    * {
-        color: #000000 !important;
+    /* ALERTAS PERSONALIZADAS PARA FONDO OSCURO */
+    .alert-high { 
+        background: rgba(239, 68, 68, 0.2); 
+        border: 2px solid #ef4444;
+        color: #ffffff !important;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        font-weight: 600;
+        backdrop-filter: blur(10px);
+    }
+    .alert-medium { 
+        background: rgba(251, 146, 60, 0.2); 
+        border: 2px solid #fb923c;
+        color: #ffffff !important;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        font-weight: 600;
+        backdrop-filter: blur(10px);
+    }
+    .alert-low { 
+        background: rgba(34, 197, 94, 0.2); 
+        border: 2px solid #22c55e;
+        color: #ffffff !important;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        font-weight: 600;
+        backdrop-filter: blur(10px);
     }
     
-    /* EXCEPCIONES PARA ELEMENTOS QUE DEBEN MANTENER SU COLOR */
-    .stButton > button[kind="primary"],
-    .stTabs [aria-selected="true"],
-    .recomendacion-card,
-    .recomendacion-card * {
+    .alert-high h4, .alert-medium h4, .alert-low h4,
+    .alert-high p, .alert-medium p, .alert-low p {
         color: #ffffff !important;
     }
     
-    /* BARRA DE PROGRESO */
+    /* BARRA DE PROGRESO PARA FONDO OSCURO */
     .progress-bar {
-        background: #e5e7eb;
+        background: rgba(255, 255, 255, 0.2);
         border-radius: 1rem;
         height: 1.5rem;
         overflow: hidden;
         width: 100%;
-        border: 3px solid #000000;
+        border: 2px solid #ffffff;
+        backdrop-filter: blur(10px);
     }
     
     .progress-fill {
         height: 100%;
         border-radius: 1rem;
         transition: width 0.3s ease;
+    }
+    
+    /* RECOMENDACIONES IA PARA FONDO OSCURO */
+    .recomendacion-card {
+        background: linear-gradient(135deg, rgba(79, 70, 229, 0.3) 0%, rgba(124, 58, 237, 0.3) 100%);
+        color: #ffffff;
+        padding: 2rem;
+        border-radius: 1rem;
+        margin: 1rem 0;
+        box-shadow: 0 8px 32px rgba(255,255,255,0.1);
+        border: 2px solid #4f46e5;
+        backdrop-filter: blur(20px);
+    }
+    
+    .recomendacion-card h4, .recomendacion-card p {
+        color: #ffffff !important;
+        font-weight: 600 !important;
     }
 </style>
 """, unsafe_allow_html=True)
