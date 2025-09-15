@@ -1835,7 +1835,7 @@ def render_tab_ia_alertas_corregida():
 def render_detalles_analisis_reales():
     """Renderiza detalles de análisis con datos reales"""
     
-    st.markdown("#### 📈 Detalles del Análisis")
+    render_detalles_analisis_reales()
     
     detalles = generar_detalles_analisis_reales(supabase)
     
