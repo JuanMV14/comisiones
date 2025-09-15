@@ -1017,370 +1017,268 @@ st.set_page_config(
     page_icon="🧠"
 )
 
-#CSS CORREGIDO PARA MEJOR LEGIBILIDAD Y CONTRASTE */
-#TEXTO PRINCIPAL - ALTA LEGIBILIDAD */
-.main .element-container,
-.main .stMarkdown,
-.main .stText,
-.main p,
-.main span,
-.main div {
-    color: #1a202c !important; /* Texto muy oscuro para máximo contraste */
-}
+# CSS mejorado y corregido - Reemplaza el CSS existente
+# Reemplaza la sección CSS existente en tu código con esta versión corregida:
 
-#HEADERS Y TÍTULOS */
-h1, h2, h3, h4, h5, h6 {
-    color: #2d3748 !important; /* Azul muy oscuro */
-    font-weight: 700 !important;
-}
-
-#MÉTRICAS - TEXTO MUY VISIBLE */
-div[data-testid="metric-container"] {
-    background: #ffffff !important;
-    border: 2px solid #e2e8f0 !important;
-    border-radius: 12px !important;
-    padding: 1.5rem !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
-}
-
-div[data-testid="metric-container"] > div:first-child {
-    color: #2d3748 !important; /* Valor principal muy oscuro */
-    font-size: 1.5rem !important;
-    font-weight: 800 !important;
-}
-
-div[data-testid="metric-container"] > div:last-child {
-    color: #4a5568 !important; /* Label más claro pero legible */
-    font-size: 0.875rem !important;
-    font-weight: 600 !important;
-}
-
-#INPUTS Y FORMS CON MEJOR CONTRASTE */
-.stTextInput > div > div > input,
-.stNumberInput > div > div > input,
-.stTextArea > div > div > textarea {
-    background-color: #ffffff !important;
-    color: #1a202c !important; /* Texto muy oscuro */
-    border: 2px solid #cbd5e0 !important;
-    border-radius: 8px !important;
-    font-size: 16px !important;
-    font-weight: 500 !important;
-    padding: 12px 16px !important;
-}
-
-.stTextInput > div > div > input:focus,
-.stNumberInput > div > div > input:focus,
-.stTextArea > div > div > textarea:focus {
-    border-color: #4299e1 !important;
-    box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15) !important;
-    outline: none !important;
-}
-
-#SELECTBOXES */
-.stSelectbox > div > div {
-    background-color: #ffffff !important;
-    border: 2px solid #cbd5e0 !important;
-    border-radius: 8px !important;
-}
-
-.stSelectbox > div > div > div {
-    color: #1a202c !important; /* Texto muy oscuro */
-    font-weight: 500 !important;
-    font-size: 16px !important;
-}
-
-#LABELS DE INPUTS */
-.stTextInput > label,
-.stNumberInput > label,
-.stSelectbox > label,
-.stDateInput > label,
-.stCheckbox > label,
-.stTextArea > label {
-    color: #2d3748 !important; /* Muy oscuro para labels */
-    font-weight: 700 !important;
-    font-size: 15px !important;
-    margin-bottom: 8px !important;
-}
-
-#PLACEHOLDERS */
-.stTextInput > div > div > input::placeholder,
-.stNumberInput > div > div > input::placeholder,
-.stTextArea > div > div > textarea::placeholder {
-    color: #718096 !important; /* Gris medio, pero legible */
-    font-weight: 400 !important;
-}
-
-#BOTONES CON MEJOR CONTRASTE */
-.stButton > button {
-    border-radius: 8px !important;
-    border: 2px solid #cbd5e0 !important;
-    font-weight: 600 !important;
-    font-size: 15px !important;
-    padding: 12px 24px !important;
-    background-color: #ffffff !important;
-    color: #2d3748 !important; /* Texto oscuro */
-    transition: all 0.2s ease !important;
-}
-
-.stButton > button:hover {
-    background-color: #f7fafc !important;
-    border-color: #a0aec0 !important;
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-}
-
-#BOTÓN PRIMARIO */
-.stButton > button[kind="primary"] {
-    background-color: #4299e1 !important;
-    color: #ffffff !important; /* Blanco sobre azul */
-    border-color: #4299e1 !important;
-    font-weight: 700 !important;
-}
-
-.stButton > button[kind="primary"]:hover {
-    background-color: #3182ce !important;
-    border-color: #3182ce !important;
-}
-
-#SIDEBAR CON MEJOR CONTRASTE */
-.css-1d391kg {
-    background: #2d3748 !important; /* Fondo oscuro */
-    color: #ffffff !important;
-}
-
-.css-1d391kg .stMarkdown,
-.css-1d391kg p,
-.css-1d391kg h1,
-.css-1d391kg h2,
-.css-1d391kg h3,
-.css-1d391kg h4 {
-    color: #ffffff !important; /* Texto blanco en sidebar */
-}
-
-.css-1d391kg .stButton > button {
-    background-color: #4a5568 !important;
-    color: #ffffff !important;
-    border-color: #718096 !important;
-}
-
-.css-1d391kg .stSelectbox > div > div {
-    background-color: #4a5568 !important;
-    color: #ffffff !important;
-    border-color: #718096 !important;
-}
-
-#TABS MEJORADOS */
-.stTabs [data-baseweb="tab-list"] {
-    background: #f7fafc !important;
-    padding: 8px !important;
-    border-radius: 12px !important;
-    gap: 4px !important;
-}
-
-.stTabs [data-baseweb="tab"] {
-    background: #ffffff !important;
-    border: 2px solid #e2e8f0 !important;
-    border-radius: 8px !important;
-    color: #4a5568 !important; /* Gris oscuro */
-    font-weight: 600 !important;
-    font-size: 15px !important;
-    padding: 12px 20px !important;
-}
-
-.stTabs [aria-selected="true"] {
-    background: #4299e1 !important;
-    color: #ffffff !important; /* Blanco sobre azul */
-    border-color: #4299e1 !important;
-    font-weight: 700 !important;
-}
-
-#ALERTAS Y MENSAJES */
-.stSuccess {
-    background: #f0fff4 !important;
-    border: 2px solid #38a169 !important;
-    color: #22543d !important; /* Verde muy oscuro */
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-}
-
-.stError {
-    background: #fed7d7 !important;
-    border: 2px solid #e53e3e !important;
-    color: #742a2a !important; /* Rojo muy oscuro */
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-}
-
-.stWarning {
-    background: #fefcbf !important;
-    border: 2px solid #d69e2e !important;
-    color: #744210 !important; /* Amarillo muy oscuro */
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-}
-
-.stInfo {
-    background: #bee3f8 !important;
-    border: 2px solid #3182ce !important;
-    color: #2a4365 !important; /* Azul muy oscuro */
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-}
-
-#CARDS PERSONALIZADAS */
-.alert-high { 
-    background: #fed7d7 !important;
-    border: 3px solid #e53e3e !important;
-    color: #742a2a !important; /* Texto muy oscuro */
-    padding: 1.5rem !important;
-    border-radius: 12px !important;
-    margin: 1rem 0 !important;
-    font-weight: 600 !important;
-}
-
-.alert-medium { 
-    background: #fefcbf !important;
-    border: 3px solid #d69e2e !important;
-    color: #744210 !important; /* Texto muy oscuro */
-    padding: 1.5rem !important;
-    border-radius: 12px !important;
-    margin: 1rem 0 !important;
-    font-weight: 600 !important;
-}
-
-.alert-low { 
-    background: #f0fff4 !important;
-    border: 3px solid #38a169 !important;
-    color: #22543d !important; /* Texto muy oscuro */
-    padding: 1.5rem !important;
-    border-radius: 12px !important;
-    margin: 1rem 0 !important;
-    font-weight: 600 !important;
-}
-
-#CARD DE RECOMENDACIONES IA */
-.recomendacion-card {
-    background: linear-gradient(135deg, #4299e1 0%, #667eea 100%) !important;
-    color: #ffffff !important; /* Blanco sobre gradiente */
-    padding: 2rem !important;
-    border-radius: 16px !important;
-    margin: 1rem 0 !important;
-    box-shadow: 0 8px 25px rgba(66, 153, 225, 0.3) !important;
-    font-weight: 600 !important;
-}
-
-.recomendacion-card h4 {
-    color: #ffffff !important;
-    font-weight: 800 !important;
-}
-
-#PROGRESS BAR MEJORADA */
-.progress-bar {
-    background: #e2e8f0 !important;
-    border-radius: 20px !important;
-    height: 12px !important;
-    overflow: hidden !important;
-    width: 100% !important;
-    border: 2px solid #cbd5e0 !important;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1) !important;
-}
-
-.progress-fill {
-    height: 100% !important;
-    border-radius: 20px !important;
-    transition: width 0.5s ease !important;
-    background: linear-gradient(90deg, #38a169 0%, #48bb78 100%) !important;
-}
-
-/* DATAFRAMES Y TABLAS */
-.dataframe {
-    background: #ffffff !important;
-    border: 2px solid #e2e8f0 !important;
-    border-radius: 12px !important;
-    color: #1a202c !important; /* Texto muy oscuro */
-}
-
-.dataframe th {
-    background-color: #f7fafc !important;
-    color: #2d3748 !important; /* Headers oscuros */
-    font-weight: 700 !important;
-    border-bottom: 2px solid #e2e8f0 !important;
-}
-
-.dataframe td {
-    color: #1a202c !important; /* Contenido muy oscuro */
-    border-bottom: 1px solid #e2e8f0 !important;
-}
-
-#EXPANDER MEJORADO */
-.streamlit-expanderHeader {
-    background-color: #f7fafc !important;
-    color: #2d3748 !important; /* Texto oscuro */
-    font-weight: 700 !important;
-    border: 2px solid #e2e8f0 !important;
-    border-radius: 8px !important;
-}
-
-.streamlit-expanderContent {
-    background-color: #ffffff !important;
-    border: 2px solid #e2e8f0 !important;
-    border-top: none !important;
-    color: #1a202c !important; /* Contenido muy oscuro */
-}
-
-#CHECKBOX MEJORADO */
-.stCheckbox > label > div {
-    color: #2d3748 !important; /* Texto muy oscuro */
-    font-weight: 600 !important;
-    font-size: 15px !important;
-}
-
-.stCheckbox > label > div > span {
-    color: #2d3748 !important;
-}
-
-#DATE INPUT */
-.stDateInput > div > div > input {
-    background-color: #ffffff !important;
-    color: #1a202c !important; /* Texto muy oscuro */
-    border: 2px solid #cbd5e0 !important;
-    border-radius: 8px !important;
-    font-size: 16px !important;
-    font-weight: 500 !important;
-    padding: 12px 16px !important;
-}
-
-#CAPTIONS Y TEXTO PEQUEÑO */
-.caption,
-.stCaption,
-small {
-    color: #4a5568 !important; /* Gris oscuro pero legible */
-    font-weight: 500 !important;
-}
-
-#METRIC DELTA */
-div[data-testid="metric-container"] .metric-delta {
-    color: #38a169 !important; /* Verde para positivo */
-    font-weight: 700 !important;
-}
-
-#CORRECCION GENERAL DE TEXTO */
-* {
-    -webkit-font-smoothing: antialiased !important;
-    -moz-osx-font-smoothing: grayscale !important;
-}
-
-#FONDO PRINCIPAL */
-.main > div {
-    background-color: #f7fafc !important;
-}
-
-#CONTAINERS CON FONDO BLANCO */
-.element-container,
-.stContainer {
-    background-color: #ffffff !important;
-    border-radius: 8px !important;
-}
+st.markdown("""
+<style>
+    /* CORRECCIÓN PRINCIPAL: Inputs y selectboxes con mejor contraste */
+    .stTextInput > div > div > input {
+        background-color: #ffffff !important;
+        color: #1f2937 !important;
+        border: 2px solid #d1d5db !important;
+        border-radius: 0.5rem !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+    }
+    
+    .stNumberInput > div > div > input {
+        background-color: #ffffff !important;
+        color: #1f2937 !important;
+        border: 2px solid #d1d5db !important;
+        border-radius: 0.5rem !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+    }
+    
+    .stNumberInput > div > div > input:focus {
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+    }
+    
+    .stSelectbox > div > div {
+        background-color: #ffffff !important;
+        color: #1f2937 !important;
+        border: 2px solid #d1d5db !important;
+        border-radius: 0.5rem !important;
+    }
+    
+    .stSelectbox > div > div > div {
+        color: #1f2937 !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Labels más visibles */
+    .stTextInput > label,
+    .stNumberInput > label,
+    .stSelectbox > label,
+    .stDateInput > label,
+    .stCheckbox > label {
+        color: #1f2937 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+    }
+    
+    /* Date input */
+    .stDateInput > div > div > input {
+        background-color: #ffffff !important;
+        color: #1f2937 !important;
+        border: 2px solid #d1d5db !important;
+        border-radius: 0.5rem !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Checkbox mejorado */
+    .stCheckbox > label > div {
+        color: #1f2937 !important;
+        font-weight: 500 !important;
+    }
+    
+    /* Placeholder text más visible */
+    .stTextInput > div > div > input::placeholder,
+    .stNumberInput > div > div > input::placeholder {
+        color: #6b7280 !important;
+        opacity: 0.8 !important;
+    }
+    
+    /* Métricas con mejor contraste */
+    div[data-testid="metric-container"] {
+        background: #ffffff !important;
+        border: 2px solid #e5e7eb !important;
+        border-radius: 0.75rem !important;
+        padding: 1rem !important;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+    }
+    
+    div[data-testid="metric-container"] > div {
+        color: #1f2937 !important;
+        font-weight: 600 !important;
+    }
+    
+    /* Formularios con fondo blanco */
+    .stForm {
+        background: #ffffff !important;
+        border: 2px solid #e5e7eb !important;
+        border-radius: 1rem !important;
+        padding: 2rem !important;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+    }
+    
+    /* Botones con mejor contraste */
+    .stButton > button {
+        border-radius: 0.5rem !important;
+        border: 2px solid #d1d5db !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease !important;
+        background-color: #ffffff !important;
+        color: #374151 !important;
+    }
+    
+    /* Botón primario */
+    .stButton > button[kind="primary"] {
+        background-color: #3b82f6 !important;
+        color: #ffffff !important;
+        border-color: #3b82f6 !important;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15) !important;
+    }
+    
+    /* Headers y texto */
+    h1, h2, h3, h4, h5, h6 {
+        color: #1f2937 !important;
+    }
+    
+    p, span, div {
+        color: #374151 !important;
+    }
+    
+    /* Info boxes más visibles */
+    .stInfo {
+        background: #f0f9ff !important;
+        border: 2px solid #0ea5e9 !important;
+        color: #0c4a6e !important;
+        border-radius: 0.5rem !important;
+    }
+    
+    .stSuccess {
+        background: #f0fdf4 !important;
+        border: 2px solid #22c55e !important;
+        color: #14532d !important;
+        border-radius: 0.5rem !important;
+    }
+    
+    .stWarning {
+        background: #fffbeb !important;
+        border: 2px solid #f59e0b !important;
+        color: #92400e !important;
+        border-radius: 0.5rem !important;
+    }
+    
+    .stError {
+        background: #fef2f2 !important;
+        border: 2px solid #ef4444 !important;
+        color: #991b1b !important;
+        border-radius: 0.5rem !important;
+    }
+    
+    /* Contenedor principal con fondo claro */
+    .main > div {
+        background-color: #f9fafb !important;
+    }
+    
+    /* Sidebar mejorado */
+    .css-1d391kg {
+        background: #1f2937 !important;
+    }
+    
+    .css-1d391kg .stMetric {
+        color: #ffffff !important;
+    }
+    
+    /* Tabs mejorados */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background: #f9fafb;
+        padding: 0.5rem;
+        border-radius: 0.75rem;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background: #ffffff !important;
+        border: 2px solid #e5e7eb !important;
+        border-radius: 0.5rem !important;
+        color: #374151 !important;
+        font-weight: 600 !important;
+        padding: 0.75rem 1.5rem !important;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: #3b82f6 !important;
+        color: #ffffff !important;
+        border-color: #3b82f6 !important;
+    }
+    
+    /* Dataframes más legibles */
+    .dataframe {
+        background: #ffffff !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 0.5rem !important;
+    }
+    
+    /* ALERTAS PERSONALIZADAS - mantener del código original */
+    .alert-high { 
+        border-left: 5px solid #ef4444; 
+        background: #fef2f2; 
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+        color: #1f2937;
+        border: 2px solid #ef4444;
+    }
+    .alert-medium { 
+        border-left: 5px solid #f59e0b; 
+        background: #fffbeb; 
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+        color: #1f2937;
+        border: 2px solid #f59e0b;
+    }
+    .alert-low { 
+        border-left: 5px solid #10b981; 
+        background: #f0fdf4; 
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+        color: #1f2937;
+        border: 2px solid #10b981;
+    }
+    
+    /* Recomendaciones IA */
+    .recomendacion-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 0.75rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    
+    /* Barra de progreso */
+    .progress-bar {
+        background: #e5e7eb;
+        border-radius: 1rem;
+        height: 0.75rem;
+        overflow: hidden;
+        width: 100%;
+        border: 1px solid #d1d5db;
+    }
+    .progress-fill {
+        height: 100%;
+        border-radius: 1rem;
+        transition: width 0.3s ease;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Variables de estado
 meta_actual = obtener_meta_mes_actual(supabase)
