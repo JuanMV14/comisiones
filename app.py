@@ -10,40 +10,96 @@ import pandas as pd
 # ========================
 
 def cargar_datos(supabase: Client):
-    """Carga todas las ventas desde la tabla comisiones"""
+    """Carga todas las ventas desde la tabla comisiones - VERSIÓN CORREGIDA"""
     try:
+        print("Iniciando carga de datos desde Supabase...")
         response = supabase.table("comisiones").select("*").execute()
+        
         if not response.data:
+            print("No hay datos en la tabla comisiones")
             return pd.DataFrame()
 
         df = pd.DataFrame(response.data)
+        print(f"Datos cargados: {len(df)} registros")
+        print(f"Columnas encontradas: {df.columns.tolist()}")
 
-        # Ajustar nombres de columnas según tu tabla
-        if "monto" in df.columns:
-            df.rename(columns={"monto": "valor"}, inplace=True)
-        if "fecha" in df.columns:
-            df.rename(columns={"fecha": "fecha_factura"}, inplace=True)
+        # MAPEO INTELIGENTE DE COLUMNAS - Ajusta según tu estructura real
+        # Revisa estas líneas y ajusta los nombres según lo que veas en tu tabla
+        
+        # Posibles nombres para valor total
+        if "monto" in df.columns and "valor" not in df.columns:
+            df["valor"] = df["monto"]
+            print("Mapeando 'monto' -> 'valor'")
+        elif "total" in df.columns and "valor" not in df.columns:
+            df["valor"] = df["total"]
+            print("Mapeando 'total' -> 'valor'")
+        elif "valor_total" in df.columns and "valor" not in df.columns:
+            df["valor"] = df["valor_total"]
+            print("Mapeando 'valor_total' -> 'valor'")
+        
+        # Posibles nombres para fecha
+        if "fecha_creacion" in df.columns and "fecha_factura" not in df.columns:
+            df["fecha_factura"] = df["fecha_creacion"]
+            print("Mapeando 'fecha_creacion' -> 'fecha_factura'")
+        elif "fecha" in df.columns and "fecha_factura" not in df.columns:
+            df["fecha_factura"] = df["fecha"]
+            print("Mapeando 'fecha' -> 'fecha_factura'")
+        elif "created_at" in df.columns and "fecha_factura" not in df.columns:
+            df["fecha_factura"] = df["created_at"]
+            print("Mapeando 'created_at' -> 'fecha_factura'")
 
-        # Columnas que deben existir
+        # Asegurar que existan todas las columnas necesarias con valores por defecto
         columnas_requeridas = {
-            "id": None, "pedido": "", "cliente": "", "factura": "", 
-            "valor": 0, "valor_neto": 0, "iva": 0,
-            "cliente_propio": False, "descuento_pie_factura": False, 
-            "descuento_adicional": 0, "condicion_especial": False,
-            "dias_pago_real": None, "valor_devuelto": 0,
-            "base_comision": 0, "comision": 0, "porcentaje": 0,
-            "comision_ajustada": 0, "comision_perdida": False,
-            "razon_perdida": "", "pagado": False,
-            "fecha_factura": None, "fecha_pago_est": None, 
-            "fecha_pago_max": None, "fecha_pago_real": None,
-            "comprobante_url": "", "comprobante_file": "",
-            "referencia": "", "metodo_pago": "", "observaciones_pago": "",
-            "created_at": None, "updated_at": None
+            "id": None,
+            "pedido": "",
+            "cliente": "",
+            "factura": "",
+            "valor": 0,
+            "valor_neto": 0,
+            "iva": 0,
+            "cliente_propio": False,
+            "descuento_pie_factura": False,
+            "descuento_adicional": 0,
+            "condicion_especial": False,
+            "dias_pago_real": None,
+            "valor_devuelto": 0,
+            "base_comision": 0,
+            "comision": 0,
+            "porcentaje": 0,
+            "comision_ajustada": 0,
+            "comision_perdida": False,
+            "razon_perdida": "",
+            "pagado": False,
+            "fecha_factura": None,
+            "fecha_pago_est": None,
+            "fecha_pago_max": None,
+            "fecha_pago_real": None,
+            "comprobante_url": "",
+            "comprobante_file": "",
+            "referencia": "",
+            "metodo_pago": "",
+            "observaciones_pago": "",
+            "created_at": None,
+            "updated_at": None
         }
 
-        for col, default in columnas_requeridas.items():
+        # Agregar columnas faltantes con valores por defecto
+        for col, default_value in columnas_requeridas.items():
             if col not in df.columns:
-                df[col] = default
+                df[col] = default_value
+                print(f"Agregando columna faltante: {col}")
+
+        # Convertir tipos de datos
+        numeric_columns = ["valor", "valor_neto", "iva", "base_comision", "comision", "porcentaje", "descuento_adicional"]
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+        # Convertir columnas booleanas
+        boolean_columns = ["cliente_propio", "descuento_pie_factura", "condicion_especial", "comision_perdida", "pagado"]
+        for col in boolean_columns:
+            if col in df.columns:
+                df[col] = df[col].astype(bool)
 
         # Procesar fechas
         fecha_cols = ["fecha_factura", "fecha_pago_est", "fecha_pago_max", "fecha_pago_real", "created_at", "updated_at"]
@@ -51,17 +107,110 @@ def cargar_datos(supabase: Client):
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors="coerce")
 
-        # Calcular mes de la factura y días de vencimiento
+        # CÁLCULOS DERIVADOS - ESTO ES CLAVE PARA SOLUCIONAR EL PROBLEMA
+        
+        # Si valor_neto está vacío pero valor existe, calcularlo
+        if df["valor_neto"].sum() == 0 and df["valor"].sum() > 0:
+            df["valor_neto"] = df["valor"] / 1.19  # Quitar IVA del 19%
+            print("Calculando valor_neto desde valor (quitando IVA)")
+
+        # Si iva está vacío, calcularlo
+        if df["iva"].sum() == 0 and df["valor"].sum() > 0:
+            df["iva"] = df["valor"] - df["valor_neto"]
+            print("Calculando IVA")
+
+        # Si base_comision está vacía, calcularla
+        if df["base_comision"].sum() == 0 and df["valor_neto"].sum() > 0:
+            # Base de comisión = valor_neto * 0.85 (descuento automático del 15%)
+            # excepto si tiene descuento a pie de factura
+            df["base_comision"] = df.apply(
+                lambda row: row["valor_neto"] if row["descuento_pie_factura"] else row["valor_neto"] * 0.85,
+                axis=1
+            )
+            print("Calculando base_comision")
+
+        # Si comision está vacía, calcularla
+        if df["comision"].sum() == 0 and df["base_comision"].sum() > 0:
+            def calcular_porcentaje_comision(row):
+                if row["cliente_propio"]:
+                    return 1.5 if row["descuento_adicional"] > 15 else 2.5
+                else:
+                    return 0.5 if row["descuento_adicional"] > 15 else 1.0
+
+            df["porcentaje"] = df.apply(calcular_porcentaje_comision, axis=1)
+            df["comision"] = df["base_comision"] * (df["porcentaje"] / 100)
+            print("Calculando comisiones")
+
+        # Crear columna de mes de factura
         df["mes_factura"] = df["fecha_factura"].dt.to_period("M").astype(str)
+
+        # Calcular días de vencimiento
         hoy = pd.Timestamp.now()
         df["dias_vencimiento"] = (df["fecha_pago_max"] - hoy).dt.days
+
+        # DEBUG: Mostrar resumen de datos cargados
+        print(f"RESUMEN DE DATOS CARGADOS:")
+        print(f"- Total registros: {len(df)}")
+        print(f"- Suma valor: ${df['valor'].sum():,.0f}")
+        print(f"- Suma valor_neto: ${df['valor_neto'].sum():,.0f}")
+        print(f"- Suma comisiones: ${df['comision'].sum():,.0f}")
+        print(f"- Registros pagados: {df['pagado'].sum()}")
+        print(f"- Meses disponibles: {df['mes_factura'].unique().tolist()}")
 
         return df
 
     except Exception as e:
-        print(f"Error cargando datos desde Supabase: {e}")
+        print(f"ERROR CARGANDO DATOS: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return pd.DataFrame()
 
+
+# FUNCIÓN ADICIONAL PARA DEBUGGEAR TU BASE DE DATOS ESPECÍFICA
+def mostrar_estructura_tabla(supabase: Client):
+    """Muestra la estructura completa de tu tabla comisiones"""
+    try:
+        # Obtener una muestra de datos
+        response = supabase.table("comisiones").select("*").limit(1).execute()
+        
+        if response.data:
+            df = pd.DataFrame(response.data)
+            st.write("### ESTRUCTURA DE TU TABLA 'comisiones':")
+            
+            for col in df.columns:
+                sample_value = df[col].iloc[0] if not pd.isna(df[col].iloc[0]) else "NULL"
+                st.write(f"**{col}:** {type(sample_value).__name__} - Valor ejemplo: `{sample_value}`")
+        else:
+            st.write("No hay datos en la tabla para mostrar estructura")
+            
+    except Exception as e:
+        st.error(f"Error obteniendo estructura: {e}")
+
+
+# FUNCIÓN DE DEBUG ESPECÍFICA PARA TU CASO
+def debug_mi_base_datos(supabase: Client):
+    """Debug específico para tu base de datos"""
+    st.write("## 🔍 DEBUG DE TU BASE DE DATOS")
+    
+    # 1. Mostrar estructura
+    mostrar_estructura_tabla(supabase)
+    
+    # 2. Contar registros
+    try:
+        response = supabase.table("comisiones").select("*", count="exact").execute()
+        st.write(f"**Total de registros en comisiones:** {response.count}")
+    except Exception as e:
+        st.error(f"Error contando registros: {e}")
+    
+    # 3. Mostrar primeros registros
+    try:
+        response = supabase.table("comisiones").select("*").limit(3).execute()
+        if response.data:
+            df_sample = pd.DataFrame(response.data)
+            st.write("### PRIMEROS 3 REGISTROS:")
+            st.dataframe(df_sample)
+    except Exception as e:
+        st.error(f"Error obteniendo muestra: {e}")
 def insertar_venta(supabase: Client, data: dict):
     """Inserta una nueva venta en tabla comisiones"""
     try:
@@ -912,6 +1061,11 @@ if st.session_state.show_meta_config:
                 st.session_state.show_meta_config = False
                 st.rerun()
 
+# AGREGAR ESTO EN LA SIDEBAR (después de los filtros)
+with st.sidebar:
+    st.markdown("---")
+    if st.button("🔍 Debug Base de Datos"):
+        debug_mi_base_datos(supabase)
 # ========================
 # LAYOUT PRINCIPAL
 # ========================
