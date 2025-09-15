@@ -1017,19 +1017,36 @@ st.set_page_config(
     page_icon="🧠"
 )
 
-# CSS mejorado y corregido - Reemplaza el CSS existente
-# Reemplaza la sección CSS existente en tu código con esta versión corregida:
-
+# CSS COMPLETAMENTE CORREGIDO PARA MEJOR CONTRASTE Y VISIBILIDAD
 st.markdown("""
 <style>
-    /* CORRECCIÓN PRINCIPAL: Inputs y selectboxes con mejor contraste */
+    /* ========== CORRECCIÓN PRINCIPAL DE CONTRASTE ========== */
+    
+    /* FONDO PRINCIPAL - Cambiar a fondo claro */
+    .main .block-container {
+        background-color: #ffffff !important;
+        color: #1f2937 !important;
+    }
+    
+    /* TEXTO GENERAL - Asegurar texto oscuro visible */
+    .stMarkdown, .stMarkdown p, .stMarkdown div, .stText {
+        color: #1f2937 !important;
+    }
+    
+    /* HEADERS - Texto oscuro y visible */
+    h1, h2, h3, h4, h5, h6 {
+        color: #1f2937 !important;
+        font-weight: 700 !important;
+    }
+    
+    /* INPUTS CON MEJOR CONTRASTE */
     .stTextInput > div > div > input {
         background-color: #ffffff !important;
         color: #1f2937 !important;
-        border: 2px solid #d1d5db !important;
+        border: 2px solid #374151 !important;
         border-radius: 0.5rem !important;
         font-size: 14px !important;
-        font-weight: 500 !important;
+        font-weight: 600 !important;
     }
     
     .stTextInput > div > div > input:focus {
@@ -1040,174 +1057,110 @@ st.markdown("""
     .stNumberInput > div > div > input {
         background-color: #ffffff !important;
         color: #1f2937 !important;
-        border: 2px solid #d1d5db !important;
+        border: 2px solid #374151 !important;
         border-radius: 0.5rem !important;
         font-size: 14px !important;
-        font-weight: 500 !important;
-    }
-    
-    .stNumberInput > div > div > input:focus {
-        border-color: #3b82f6 !important;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+        font-weight: 600 !important;
     }
     
     .stSelectbox > div > div {
         background-color: #ffffff !important;
         color: #1f2937 !important;
-        border: 2px solid #d1d5db !important;
+        border: 2px solid #374151 !important;
         border-radius: 0.5rem !important;
     }
     
     .stSelectbox > div > div > div {
         color: #1f2937 !important;
-        font-weight: 500 !important;
+        font-weight: 600 !important;
     }
     
-    /* Labels más visibles */
+    /* LABELS MÁS VISIBLES */
     .stTextInput > label,
     .stNumberInput > label,
     .stSelectbox > label,
     .stDateInput > label,
     .stCheckbox > label {
         color: #1f2937 !important;
-        font-weight: 600 !important;
-        font-size: 14px !important;
+        font-weight: 700 !important;
+        font-size: 16px !important;
     }
     
-    /* Date input */
-    .stDateInput > div > div > input {
-        background-color: #ffffff !important;
-        color: #1f2937 !important;
-        border: 2px solid #d1d5db !important;
-        border-radius: 0.5rem !important;
-        font-size: 14px !important;
-        font-weight: 500 !important;
-    }
-    
-    /* Checkbox mejorado */
-    .stCheckbox > label > div {
-        color: #1f2937 !important;
-        font-weight: 500 !important;
-    }
-    
-    /* Placeholder text más visible */
-    .stTextInput > div > div > input::placeholder,
-    .stNumberInput > div > div > input::placeholder {
-        color: #6b7280 !important;
-        opacity: 0.8 !important;
-    }
-    
-    /* Métricas con mejor contraste */
+    /* MÉTRICAS CON MEJOR CONTRASTE */
     div[data-testid="metric-container"] {
         background: #ffffff !important;
-        border: 2px solid #e5e7eb !important;
+        border: 3px solid #374151 !important;
         border-radius: 0.75rem !important;
-        padding: 1rem !important;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+        padding: 1.5rem !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
     }
     
     div[data-testid="metric-container"] > div {
         color: #1f2937 !important;
+        font-weight: 700 !important;
+        font-size: 16px !important;
+    }
+    
+    div[data-testid="metric-container"] [data-testid="metric-value"] {
+        color: #1f2937 !important;
+        font-weight: 800 !important;
+        font-size: 20px !important;
+    }
+    
+    div[data-testid="metric-container"] [data-testid="metric-label"] {
+        color: #374151 !important;
         font-weight: 600 !important;
+        font-size: 14px !important;
     }
     
-    /* Formularios con fondo blanco */
-    .stForm {
-        background: #ffffff !important;
-        border: 2px solid #e5e7eb !important;
-        border-radius: 1rem !important;
-        padding: 2rem !important;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
-    }
-    
-    /* Botones con mejor contraste */
+    /* BOTONES CON MAYOR CONTRASTE */
     .stButton > button {
         border-radius: 0.5rem !important;
-        border: 2px solid #d1d5db !important;
-        font-weight: 600 !important;
-        transition: all 0.2s ease !important;
+        border: 2px solid #374151 !important;
+        font-weight: 700 !important;
+        font-size: 14px !important;
         background-color: #ffffff !important;
-        color: #374151 !important;
+        color: #1f2937 !important;
+        transition: all 0.2s ease !important;
     }
     
-    /* Botón primario */
     .stButton > button[kind="primary"] {
         background-color: #3b82f6 !important;
         color: #ffffff !important;
         border-color: #3b82f6 !important;
+        font-weight: 800 !important;
     }
     
     .stButton > button:hover {
-        transform: translateY(-1px) !important;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.15) !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 12px rgba(0,0,0,0.2) !important;
     }
     
-    /* Headers y texto */
-    h1, h2, h3, h4, h5, h6 {
+    /* SIDEBAR - Fondo claro */
+    .css-1d391kg {
+        background: #f8fafc !important;
         color: #1f2937 !important;
     }
     
-    p, span, div {
-        color: #374151 !important;
-    }
-    
-    /* Info boxes más visibles */
-    .stInfo {
-        background: #f0f9ff !important;
-        border: 2px solid #0ea5e9 !important;
-        color: #0c4a6e !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    .stSuccess {
-        background: #f0fdf4 !important;
-        border: 2px solid #22c55e !important;
-        color: #14532d !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    .stWarning {
-        background: #fffbeb !important;
-        border: 2px solid #f59e0b !important;
-        color: #92400e !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    .stError {
-        background: #fef2f2 !important;
-        border: 2px solid #ef4444 !important;
-        color: #991b1b !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    /* Contenedor principal con fondo claro */
-    .main > div {
-        background-color: #f9fafb !important;
-    }
-    
-    /* Sidebar mejorado */
-    .css-1d391kg {
-        background: #1f2937 !important;
-    }
-    
     .css-1d391kg .stMetric {
-        color: #ffffff !important;
+        color: #1f2937 !important;
     }
     
-    /* Tabs mejorados */
+    /* TABS CON MEJOR VISIBILIDAD */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
-        background: #f9fafb;
+        background: #f1f5f9;
         padding: 0.5rem;
         border-radius: 0.75rem;
+        border: 2px solid #e2e8f0;
     }
     
     .stTabs [data-baseweb="tab"] {
         background: #ffffff !important;
-        border: 2px solid #e5e7eb !important;
+        border: 2px solid #374151 !important;
         border-radius: 0.5rem !important;
-        color: #374151 !important;
-        font-weight: 600 !important;
+        color: #1f2937 !important;
+        font-weight: 700 !important;
         padding: 0.75rem 1.5rem !important;
     }
     
@@ -1215,67 +1168,163 @@ st.markdown("""
         background: #3b82f6 !important;
         color: #ffffff !important;
         border-color: #3b82f6 !important;
+        font-weight: 800 !important;
     }
     
-    /* Dataframes más legibles */
+    /* ALERTAS MÁS VISIBLES */
+    .stInfo {
+        background: #eff6ff !important;
+        border: 3px solid #3b82f6 !important;
+        color: #1e40af !important;
+        border-radius: 0.5rem !important;
+        font-weight: 600 !important;
+    }
+    
+    .stSuccess {
+        background: #f0fdf4 !important;
+        border: 3px solid #16a34a !important;
+        color: #15803d !important;
+        border-radius: 0.5rem !important;
+        font-weight: 600 !important;
+    }
+    
+    .stWarning {
+        background: #fffbeb !important;
+        border: 3px solid #f59e0b !important;
+        color: #d97706 !important;
+        border-radius: 0.5rem !important;
+        font-weight: 600 !important;
+    }
+    
+    .stError {
+        background: #fef2f2 !important;
+        border: 3px solid #ef4444 !important;
+        color: #dc2626 !important;
+        border-radius: 0.5rem !important;
+        font-weight: 600 !important;
+    }
+    
+    /* FORMULARIOS CON MEJOR VISIBILIDAD */
+    .stForm {
+        background: #ffffff !important;
+        border: 3px solid #374151 !important;
+        border-radius: 1rem !important;
+        padding: 2rem !important;
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15) !important;
+    }
+    
+    /* DATAFRAMES MÁS LEGIBLES */
     .dataframe {
         background: #ffffff !important;
-        border: 1px solid #e5e7eb !important;
+        border: 2px solid #374151 !important;
         border-radius: 0.5rem !important;
+        color: #1f2937 !important;
     }
     
-    /* ALERTAS PERSONALIZADAS - mantener del código original */
+    /* TEXTO EN GENERAL MÁS OSCURO */
+    .stMarkdown p, .stMarkdown span, .stMarkdown div {
+        color: #1f2937 !important;
+        font-weight: 500 !important;
+    }
+    
+    /* CAPTIONS Y TEXTO PEQUEÑO */
+    .stCaption {
+        color: #374151 !important;
+        font-weight: 500 !important;
+    }
+    
+    /* EXPANDER */
+    .streamlit-expander {
+        background: #ffffff !important;
+        border: 2px solid #374151 !important;
+        border-radius: 0.5rem !important;
+        color: #1f2937 !important;
+    }
+    
+    /* ALERTAS PERSONALIZADAS - con mejor contraste */
     .alert-high { 
         border-left: 5px solid #ef4444; 
         background: #fef2f2; 
-        padding: 1rem;
+        padding: 1.5rem;
         border-radius: 0.5rem;
-        margin: 0.5rem 0;
+        margin: 1rem 0;
         color: #1f2937;
-        border: 2px solid #ef4444;
+        border: 3px solid #ef4444;
+        font-weight: 600;
     }
     .alert-medium { 
         border-left: 5px solid #f59e0b; 
         background: #fffbeb; 
-        padding: 1rem;
+        padding: 1.5rem;
         border-radius: 0.5rem;
-        margin: 0.5rem 0;
+        margin: 1rem 0;
         color: #1f2937;
-        border: 2px solid #f59e0b;
+        border: 3px solid #f59e0b;
+        font-weight: 600;
     }
     .alert-low { 
         border-left: 5px solid #10b981; 
         background: #f0fdf4; 
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
-        color: #1f2937;
-        border: 2px solid #10b981;
-    }
-    
-    /* Recomendaciones IA */
-    .recomendacion-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
         padding: 1.5rem;
-        border-radius: 0.75rem;
+        border-radius: 0.5rem;
         margin: 1rem 0;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        color: #1f2937;
+        border: 3px solid #10b981;
+        font-weight: 600;
     }
     
-    /* Barra de progreso */
+    /* RECOMENDACIONES IA - mejor contraste */
+    .recomendacion-card {
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        color: #ffffff;
+        padding: 2rem;
+        border-radius: 1rem;
+        margin: 1rem 0;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+        border: 2px solid #4f46e5;
+    }
+    
+    .recomendacion-card h4, .recomendacion-card p {
+        color: #ffffff !important;
+        font-weight: 600 !important;
+    }
+    
+    /* BARRA DE PROGRESO MEJORADA */
     .progress-bar {
         background: #e5e7eb;
         border-radius: 1rem;
-        height: 0.75rem;
+        height: 1rem;
         overflow: hidden;
         width: 100%;
-        border: 1px solid #d1d5db;
+        border: 2px solid #374151;
     }
     .progress-fill {
         height: 100%;
         border-radius: 1rem;
         transition: width 0.3s ease;
+    }
+    
+    /* METRIC CARD PERSONALIZADA */
+    .metric-card {
+        background: #ffffff;
+        border: 3px solid #374151;
+        border-radius: 1rem;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+        color: #1f2937;
+    }
+    
+    .metric-card h4 {
+        color: #1f2937 !important;
+        font-weight: 800 !important;
+        margin-bottom: 1rem !important;
+    }
+    
+    .metric-card p {
+        color: #374151 !important;
+        font-weight: 600 !important;
+        margin: 0.5rem 0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
