@@ -1868,6 +1868,3 @@ def render_detalles_analisis_reales():
             • {detalles['factores_riesgo'][1] if len(detalles['factores_riesgo']) > 1 else 'Situación estable'}
             • {detalles['factores_riesgo'][2] if len(detalles['factores_riesgo']) > 2 else 'Seguimiento rutinario'}
             """)
-
-    
-render_detalles_analisis_reales()
