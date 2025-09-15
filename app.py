@@ -11,11 +11,11 @@ import pandas as pd
 def cargar_datos(supabase: Client):
     """Carga datos específicamente para la estructura de tu tabla comisiones"""
     try:
-        print("🔄 Cargando datos desde tu tabla comisiones...")
+        print("Cargando datos desde tu tabla comisiones...")
         response = supabase.table("comisiones").select("*").execute()
         
         if not response.data:
-            print("❌ No hay datos en la tabla")
+            print("No hay datos en la tabla")
             return pd.DataFrame()
 
         df = pd.DataFrame(response.data)
@@ -31,7 +31,7 @@ def cargar_datos(supabase: Client):
             if col in df.columns:
                 # Convertir "NULL" strings a 0, otros valores a float
                 df[col] = df[col].apply(lambda x: 0 if x in [None, "NULL", "null", ""] else float(x) if str(x).replace('.','').replace('-','').isdigit() else 0)
-                print(f"✅ Convertido {col} de string a float")
+                print(f"Convertido {col} de string a float")
 
         # 2. ASEGURAR QUE LAS COLUMNAS NUMÉRICAS EXISTENTES SEAN FLOAT
         columnas_numericas_existentes = ['valor', 'porcentaje', 'comision', 'porcentaje_descuento', 'descuento_adicional', 'valor_devuelto']
@@ -45,12 +45,12 @@ def cargar_datos(supabase: Client):
         # Si valor_neto está vacío (0), calcularlo desde valor
         if df['valor_neto'].sum() == 0 and df['valor'].sum() > 0:
             df['valor_neto'] = df['valor'] / 1.19  # Quitar IVA 19%
-            print("📊 Calculando valor_neto desde valor")
+            print("Calculando valor_neto desde valor")
 
         # Si iva está vacío, calcularlo
         if df['iva'].sum() == 0 and df['valor'].sum() > 0:
             df['iva'] = df['valor'] - df['valor_neto']
-            print("📊 Calculando IVA")
+            print("Calculando IVA")
 
         # Si base_comision está vacío, usar tu lógica específica
         if df['base_comision'].sum() == 0:
@@ -67,7 +67,7 @@ def cargar_datos(supabase: Client):
         for col in columnas_fecha:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
-                print(f"📅 Convertido {col} a datetime")
+                print(f"Convertido {col} a datetime")
 
         # 5. CREAR COLUMNAS DERIVADAS NECESARIAS PARA EL DASHBOARD
         
@@ -91,7 +91,7 @@ def cargar_datos(supabase: Client):
                 df[col] = df[col].fillna('').astype(str)
 
         # ===== DIAGNÓSTICO FINAL =====
-        print(f"\n📈 RESUMEN FINAL DE DATOS:")
+        print(f"\nRESUMEN FINAL DE DATOS:")
         print(f"   Total registros: {len(df)}")
         print(f"   Suma valor total: ${df['valor'].sum():,.0f}")
         print(f"   Suma valor neto: ${df['valor_neto'].sum():,.0f}")
@@ -103,7 +103,7 @@ def cargar_datos(supabase: Client):
         return df
 
     except Exception as e:
-        print(f"❌ ERROR en cargar_datos: {str(e)}")
+        print(f"ERROR en cargar_datos: {str(e)}")
         import traceback
         print(traceback.format_exc())
         return pd.DataFrame()
@@ -246,29 +246,30 @@ def mostrar_estructura_tabla(supabase: Client):
 
 
 # FUNCIÓN DE DEBUG ESPECÍFICA PARA TU CASO
-def debug_mi_base_datos(supabase: Client):
-    """Debug específico para tu base de datos"""
-    st.write("## 🔍 DEBUG DE TU BASE DE DATOS")
+#def debug_mi_base_datos(supabase: Client):
+    #"""Debug específico para tu base de datos"""
+    #st.write("## DEBUG DE TU BASE DE DATOS")
     
     # 1. Mostrar estructura
-    mostrar_estructura_tabla(supabase)
+    #mostrar_estructura_tabla(supabase)
     
     # 2. Contar registros
-    try:
-        response = supabase.table("comisiones").select("*", count="exact").execute()
-        st.write(f"**Total de registros en comisiones:** {response.count}")
-    except Exception as e:
-        st.error(f"Error contando registros: {e}")
+    #try:
+        #response = supabase.table("comisiones").select("*", count="exact").execute()
+        #st.write(f"**Total de registros en comisiones:** {response.count}")
+    #except Exception as e:
+        #st.error(f"Error contando registros: {e}")
     
     # 3. Mostrar primeros registros
-    try:
-        response = supabase.table("comisiones").select("*").limit(3).execute()
-        if response.data:
-            df_sample = pd.DataFrame(response.data)
-            st.write("### PRIMEROS 3 REGISTROS:")
-            st.dataframe(df_sample)
-    except Exception as e:
-        st.error(f"Error obteniendo muestra: {e}")
+    #try:
+        #response = supabase.table("comisiones").select("*").limit(3).execute()
+        #if response.data:
+            #df_sample = pd.DataFrame(response.data)
+            #st.write("### PRIMEROS 3 REGISTROS:")
+            #st.dataframe(df_sample)
+    #except Exception as e:
+        #st.error(f"Error obteniendo muestra: {e}")
+        
 def insertar_venta(supabase: Client, data: dict):
     """Inserta una nueva venta en tabla comisiones"""
     try:
@@ -581,16 +582,13 @@ def render_factura_card(factura, index):
     if factura.get("pagado"):
         estado_badge = "PAGADA"
         estado_color = "success"
-        estado_icon = "✅"
     elif factura.get("dias_vencimiento", 0) < 0:
         estado_badge = "VENCIDA"
         estado_color = "error"
-        estado_icon = "⚠️"
         dias_vencida = abs(factura.get("dias_vencimiento", 0))
     else:
         estado_badge = "PENDIENTE"
         estado_color = "warning"
-        estado_icon = "⏳"
     
     # Usar contenedor simple sin HTML complejo
     with st.container():
@@ -615,13 +613,13 @@ def render_factura_card(factura, index):
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("💰 Valor Neto", format_currency(factura.get('valor_neto', 0)))
+            st.metric("Valor Neto", format_currency(factura.get('valor_neto', 0)))
         
         with col2:
-            st.metric("📊 Base Comisión", format_currency(factura.get('base_comision', 0)))
+            st.metric("Base Comisión", format_currency(factura.get('base_comision', 0)))
         
         with col3:
-            st.metric("🎯 Comisión", format_currency(factura.get('comision', 0)))
+            st.metric("Comisión", format_currency(factura.get('comision', 0)))
         
         with col4:
             fecha_factura = factura.get('fecha_factura')
@@ -629,15 +627,15 @@ def render_factura_card(factura, index):
                 fecha_str = pd.to_datetime(fecha_factura).strftime('%d/%m/%Y')
             else:
                 fecha_str = "N/A"
-            st.metric("📅 Fecha", fecha_str)
+            st.metric("Fecha", fecha_str)
 
         # Información adicional si existe
         if factura.get('dias_vencimiento') is not None:
             dias_venc = factura.get('dias_vencimiento', 0)
             if dias_venc < 0:
-                st.warning(f"⚠️ Vencida hace {abs(dias_venc)} días")
+                st.warning(f"Vencida hace {abs(dias_venc)} días")
             elif dias_venc <= 5:
-                st.info(f"⏰ Vence en {dias_venc} días")
+                st.info(f"Vence en {dias_venc} días")
         
         # Cerrar el contenedor
         st.markdown("</div>", unsafe_allow_html=True)
@@ -646,7 +644,7 @@ def mostrar_modal_pago(factura):
     """Modal para marcar factura como pagada con subida de comprobante"""
     
     with st.form(f"marcar_pagado_{factura.get('id')}"):
-        st.markdown(f"### ✅ Marcar como Pagada - {factura.get('pedido', 'N/A')}")
+        st.markdown(f"### Marcar como Pagada - {factura.get('pedido', 'N/A')}")
         
         col1, col2 = st.columns(2)
         
@@ -681,12 +679,12 @@ def mostrar_modal_pago(factura):
         )
         
         if comprobante_file:
-            st.success(f"📄 Archivo seleccionado: {comprobante_file.name}")
+            st.success(f"Archivo seleccionado: {comprobante_file.name}")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.form_submit_button("✅ Confirmar Pago", type="primary"):
+            if st.form_submit_button("Confirmar Pago", type="primary"):
                 fecha_factura = pd.to_datetime(factura.get('fecha_factura'))
                 dias_pago = (pd.to_datetime(fecha_pago_real) - fecha_factura).days
                 
@@ -710,17 +708,17 @@ def mostrar_modal_pago(factura):
                     updates["comision_perdida"] = True
                     updates["razon_perdida"] = f"Pago después de 80 días ({dias_pago} días)"
                     updates["comision_ajustada"] = 0
-                    st.warning(f"⚠️ ATENCIÓN: La comisión se pierde por pago tardío ({dias_pago} días)")
+                    st.warning(f"ATENCIÓN: La comisión se pierde por pago tardío ({dias_pago} días)")
                 
                 if actualizar_factura(supabase, factura.get('id'), updates):
-                    st.success("✅ Factura marcada como pagada correctamente")
+                    st.success("Factura marcada como pagada correctamente")
                     st.session_state[f"show_pago_{factura.get('id')}"] = False
                     st.rerun()
                 else:
-                    st.error("❌ Error al actualizar factura")
+                    st.error("Error al actualizar factura")
         
         with col2:
-            if st.form_submit_button("❌ Cancelar"):
+            if st.form_submit_button("Cancelar"):
                 st.session_state[f"show_pago_{factura.get('id')}"] = False
                 st.rerun()
 
@@ -733,9 +731,9 @@ def mostrar_comprobante(comprobante_url):
             try:
                 st.image(comprobante_url, caption="Comprobante de Pago", width=300)
             except:
-                st.markdown(f"🖼️ [Ver Comprobante]({comprobante_url})")
+                st.markdown(f"[Ver Comprobante]({comprobante_url})")
     else:
-        st.info("📄 No hay comprobante subido")
+        st.info("No hay comprobante subido")
 
 def generar_detalles_analisis_reales(supabase: Client):
     """Genera detalles de análisis basados en datos reales de la base de datos"""
@@ -830,22 +828,22 @@ def generar_detalles_analisis_reales(supabase: Client):
 def render_tab_comisiones_corregida():
     """Renderiza el tab de comisiones con UI corregida"""
     
-    st.header("💰 Gestión de Comisiones")
+    st.header("Gestión de Comisiones")
     
     # Filtros
     with st.container():
-        st.markdown("### 🔍 Filtros")
+        st.markdown("### Filtros")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            estado_filter = st.selectbox("📊 Estado", ["Todos", "Pendientes", "Pagadas", "Vencidas"])
+            estado_filter = st.selectbox("Estado", ["Todos", "Pendientes", "Pagadas", "Vencidas"])
         with col2:
-            cliente_filter = st.text_input("🔎 Buscar cliente")
+            cliente_filter = st.text_input("Buscar cliente")
         with col3:
-            monto_min = st.number_input("💰 Valor mínimo", min_value=0, value=0, step=100000)
+            monto_min = st.number_input("Valor mínimo", min_value=0, value=0, step=100000)
         with col4:
-            if st.button("📥 Exportar Excel", help="Exportar datos filtrados"):
-                st.success("📊 Funcionalidad de exportación próximamente")
+            if st.button("Exportar Excel", help="Exportar datos filtrados"):
+                st.success("Funcionalidad de exportación próximamente")
     
     # Cargar datos
     df = cargar_datos(supabase)
@@ -872,18 +870,18 @@ def render_tab_comisiones_corregida():
     
     # Resumen
     if not df_filtrado.empty:
-        st.markdown("### 📊 Resumen")
+        st.markdown("### Resumen")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("📋 Facturas", len(df_filtrado))
+            st.metric("Facturas", len(df_filtrado))
         with col2:
-            st.metric("💰 Total Comisiones", format_currency(df_filtrado["comision"].sum()))
+            st.metric("Total Comisiones", format_currency(df_filtrado["comision"].sum()))
         with col3:
-            st.metric("📈 Valor Promedio", format_currency(df_filtrado["valor"].mean()))
+            st.metric("Valor Promedio", format_currency(df_filtrado["valor"].mean()))
         with col4:
             pendientes = len(df_filtrado[df_filtrado["pagado"] == False])
-            st.metric("⏳ Pendientes", pendientes, 
+            st.metric("Pendientes", pendientes, 
                      delta=f"-{len(df_filtrado)-pendientes}" if len(df_filtrado)-pendientes > 0 else None,
                      delta_color="inverse")
     
@@ -891,7 +889,7 @@ def render_tab_comisiones_corregida():
     
     # Lista de facturas
     if not df_filtrado.empty:
-        st.markdown("### 📋 Facturas Detalladas")
+        st.markdown("### Facturas Detalladas")
         
         for index, (_, factura) in enumerate(df_filtrado.iterrows()):
             # Usar la nueva función de renderizado
@@ -901,48 +899,48 @@ def render_tab_comisiones_corregida():
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             
             with col1:
-                if st.button("✏️ Editar", key=f"edit_{factura.get('id', 0)}_{index}"):
+                if st.button("Editar", key=f"edit_{factura.get('id', 0)}_{index}"):
                     st.session_state[f"show_edit_{factura.get('id')}"] = True
             
             with col2:
                 if not factura.get("pagado"):
-                    if st.button("✅ Pagar", key=f"pay_{factura.get('id', 0)}_{index}"):
+                    if st.button("Pagar", key=f"pay_{factura.get('id', 0)}_{index}"):
                         st.session_state[f"show_pago_{factura.get('id')}"] = True
             
             with col3:
                 if factura.get("pagado"):
-                    if st.button("🔄 Devolución", key=f"dev_{factura.get('id', 0)}_{index}"):
+                    if st.button("Devolución", key=f"dev_{factura.get('id', 0)}_{index}"):
                         st.session_state[f"show_devolucion_{factura.get('id')}"] = True
             
             with col4:
-                if st.button("📄 Detalles", key=f"detail_{factura.get('id', 0)}_{index}"):
+                if st.button("Detalles", key=f"detail_{factura.get('id', 0)}_{index}"):
                     st.session_state[f"show_detail_{factura.get('id')}"] = True
             
             with col5:
                 if factura.get("comprobante_url"):
-                    if st.button("📎 Comprobante", key=f"comp_{factura.get('id', 0)}_{index}"):
+                    if st.button("Comprobante", key=f"comp_{factura.get('id', 0)}_{index}"):
                         st.session_state[f"show_comprobante_{factura.get('id')}"] = True
             
             with col6:
                 if factura.get("dias_vencimiento", 0) < 0:
-                    st.error(f"🚨 Vencida ({abs(factura.get('dias_vencimiento', 0))} días)")
+                    st.error(f"Vencida ({abs(factura.get('dias_vencimiento', 0))} días)")
             
             # Modales/Expandables
             if st.session_state.get(f"show_pago_{factura.get('id')}", False):
-                with st.expander(f"✅ Marcar como Pagada - {factura.get('pedido', 'N/A')}", expanded=True):
+                with st.expander(f"Marcar como Pagada - {factura.get('pedido', 'N/A')}", expanded=True):
                     mostrar_modal_pago(factura)
             
             if st.session_state.get(f"show_comprobante_{factura.get('id')}", False):
-                with st.expander(f"📎 Comprobante - {factura.get('pedido', 'N/A')}", expanded=True):
+                with st.expander(f"Comprobante - {factura.get('pedido', 'N/A')}", expanded=True):
                     mostrar_comprobante(factura.get("comprobante_url"))
-                    if st.button("❌ Cerrar", key=f"close_comp_{factura.get('id')}_{index}"):
+                    if st.button("Cerrar", key=f"close_comp_{factura.get('id')}_{index}"):
                         st.session_state[f"show_comprobante_{factura.get('id')}"] = False
                         st.rerun()
             
             if st.session_state.get(f"show_detail_{factura.get('id')}", False):
-                with st.expander(f"📄 Detalles Completos - {factura.get('pedido', 'N/A')}", expanded=True):
+                with st.expander(f"Detalles Completos - {factura.get('pedido', 'N/A')}", expanded=True):
                     mostrar_detalles_completos(factura)
-                    if st.button("❌ Cerrar Detalles", key=f"close_detail_{factura.get('id')}_{index}"):
+                    if st.button("Cerrar Detalles", key=f"close_detail_{factura.get('id')}_{index}"):
                         st.session_state[f"show_detail_{factura.get('id')}"] = False
                         st.rerun()
             
@@ -956,7 +954,7 @@ def mostrar_detalles_completos(factura):
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("#### 🏷️ Información General")
+        st.markdown("#### Información General")
         st.write(f"**Pedido:** {factura.get('pedido', 'N/A')}")
         st.write(f"**Cliente:** {factura.get('cliente', 'N/A')}")
         st.write(f"**Factura:** {factura.get('factura', 'N/A')}")
@@ -964,7 +962,7 @@ def mostrar_detalles_completos(factura):
         st.write(f"**Condición Especial:** {'Sí' if factura.get('condicion_especial') else 'No'}")
     
     with col2:
-        st.markdown("#### 💰 Información Financiera")
+        st.markdown("#### Información Financiera")
         st.write(f"**Valor Total:** {format_currency(factura.get('valor', 0))}")
         st.write(f"**Valor Neto:** {format_currency(factura.get('valor_neto', 0))}")
         st.write(f"**IVA:** {format_currency(factura.get('iva', 0))}")
@@ -974,7 +972,7 @@ def mostrar_detalles_completos(factura):
         if factura.get('descuento_adicional', 0) > 0:
             st.write(f"**Descuento Adicional:** {factura.get('descuento_adicional', 0)}%")
     
-    st.markdown("#### 📅 Fechas")
+    st.markdown("#### Fechas")
     col3, col4, col5 = st.columns(3)
     
     with col3:
@@ -993,7 +991,7 @@ def mostrar_detalles_completos(factura):
             st.write(f"**Fecha Pago Real:** {fecha_pago_real}")
     
     if factura.get('observaciones_pago'):
-        st.markdown("#### 📝 Observaciones")
+        st.markdown("#### Observaciones")
         st.write(factura.get('observaciones_pago'))
 
 # ========================
@@ -1005,7 +1003,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 BUCKET = os.getenv("SUPABASE_BUCKET_COMPROBANTES", "comprobantes")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    st.error("❌ Faltan las variables de entorno SUPABASE_URL o SUPABASE_KEY.")
+    st.error("Faltan las variables de entorno SUPABASE_URL o SUPABASE_KEY.")
     st.stop()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -1341,15 +1339,15 @@ with st.sidebar:
     st.title("🧠 CRM Inteligente")
     st.markdown("---")
     
-    st.subheader("🎯 Meta Mensual")
+    st.subheader("Meta Mensual")
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("⚙️ Config"):
+        if st.button("Config"):
             st.session_state.show_meta_config = True
     
     with col2:
-        if st.button("📊 Ver Meta"):
+        if st.button("Ver Meta"):
             st.session_state.show_meta_detail = True
     
     df_tmp = cargar_datos(supabase)
@@ -1386,7 +1384,7 @@ with st.sidebar:
 # ========================
 if st.session_state.show_meta_config:
     with st.form("config_meta"):
-        st.markdown("### ⚙️ Configurar Meta Mensual")
+        st.markdown("### Configurar Meta Mensual")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -1406,28 +1404,28 @@ if st.session_state.show_meta_config:
             )
         
         bono_potencial = nueva_meta * 0.005
-        st.info(f"🎁 **Bono potencial si cumples ambas metas:** {format_currency(bono_potencial)} (0.5% de la meta)")
+        st.info(f"**Bono potencial si cumples ambas metas:** {format_currency(bono_potencial)} (0.5% de la meta)")
         
         col1, col2 = st.columns(2)
         with col1:
             if st.form_submit_button("💾 Guardar Meta", type="primary"):
                 mes_actual_str = date.today().strftime("%Y-%m")
                 if actualizar_meta(supabase, mes_actual_str, nueva_meta, nueva_meta_clientes):
-                    st.success("✅ Meta actualizada correctamente en la base de datos")
+                    st.success("Meta actualizada correctamente en la base de datos")
                     st.session_state.show_meta_config = False
                     st.rerun()
                 else:
-                    st.error("❌ Error al guardar la meta")
+                    st.error("Error al guardar la meta")
         
         with col2:
-            if st.form_submit_button("❌ Cancelar"):
+            if st.form_submit_button("Cancelar"):
                 st.session_state.show_meta_config = False
                 st.rerun()
 
 # AGREGAR ESTO EN LA SIDEBAR (después de los filtros)
 with st.sidebar:
     st.markdown("---")
-    if st.button("🔍 Debug Base de Datos"):
+    if st.button("Debug Base de Datos"):
         debug_mi_base_datos(supabase)
 # ========================
 # LAYOUT PRINCIPAL
@@ -1437,18 +1435,18 @@ if not st.session_state.show_meta_config:
     st.title("🧠 CRM Inteligente")
 
     tabs = st.tabs([
-        "🎯 Dashboard",
-        "💰 Comisiones", 
-        "➕ Nueva Venta",
-        "👥 Clientes",
-        "🧠 IA & Alertas"
+        "Dashboard",
+        "Comisiones", 
+        "Nueva Venta",
+        "Clientes",
+        "IA & Alertas"
     ])
 
     # ========================
     # TAB 1 - DASHBOARD
     # ========================
     with tabs[0]:
-        st.header("🎯 Dashboard Ejecutivo")
+        st.header("Dashboard Ejecutivo")
         
         df = cargar_datos(supabase)
         if not df.empty:
@@ -1470,21 +1468,21 @@ if not st.session_state.show_meta_config:
         
         with col1:
             st.metric(
-                "💵 Total Facturado",
+                "Total Facturado",
                 format_currency(total_facturado),
                 delta="+12.5%" if total_facturado > 0 else None
             )
         
         with col2:
             st.metric(
-                "💰 Comisiones Mes", 
+                "Comisiones Mes", 
                 format_currency(total_comisiones),
                 delta="+8.2%" if total_comisiones > 0 else None
             )
         
         with col3:
             st.metric(
-                "📋 Facturas Pendientes",
+                "Facturas Pendientes",
                 facturas_pendientes,
                 delta="-3" if facturas_pendientes > 0 else None,
                 delta_color="inverse"
@@ -1492,7 +1490,7 @@ if not st.session_state.show_meta_config:
         
         with col4:
             st.metric(
-                "📈 % Comisión Promedio",
+                "% Comisión Promedio",
                 f"{promedio_comision:.1f}%",
                 delta="+0.3%" if promedio_comision > 0 else None
             )
@@ -1503,7 +1501,7 @@ if not st.session_state.show_meta_config:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.markdown("### 🎯 Progreso Meta Mensual")
+            st.markdown("### Progreso Meta Mensual")
             
             meta = meta_actual["meta_ventas"]
             actual = total_facturado
@@ -1529,7 +1527,7 @@ if not st.session_state.show_meta_config:
             """, unsafe_allow_html=True)
         
         with col2:
-            st.markdown("### 🧠 Recomendaciones IA")
+            st.markdown("### Recomendaciones IA")
             
             recomendaciones = generar_recomendaciones_reales(supabase)
             
@@ -1555,10 +1553,10 @@ if not st.session_state.show_meta_config:
 # REEMPLAZA LA SECCIÓN DEL TAB 3 - NUEVA VENTA con esto:
 
 with tabs[2]:
-    st.header("➕ Registrar Nueva Venta")
+    st.header("Registrar Nueva Venta")
     
     with st.form("nueva_venta_form", clear_on_submit=False):
-        st.markdown("### 📋 Información Básica")
+        st.markdown("### Información Básica")
         
         col1, col2 = st.columns(2)
         
@@ -1593,23 +1591,23 @@ with tabs[2]:
                 help="Valor total de la venta incluyendo IVA"
             )
             condicion_especial = st.checkbox(
-                "⏰ Condición Especial (60 días de pago)",
+                "Condición Especial (60 días de pago)",
                 help="Marcar si el cliente tiene condiciones especiales de pago"
             )
         
-        st.markdown("### 🎯 Configuración de Comisión")
+        st.markdown("### Configuración de Comisión")
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
             cliente_propio = st.checkbox(
-                "✅ Cliente Propio", 
+                "Cliente Propio", 
                 help="Cliente directo (2.5% comisión vs 1% externo)"
             )
         
         with col2:
             descuento_pie_factura = st.checkbox(
-                "📄 Descuento a Pie de Factura",
+                "Descuento a Pie de Factura",
                 help="Si el descuento aparece directamente en la factura"
             )
         
@@ -1625,23 +1623,23 @@ with tabs[2]:
         # Preview de cálculos en tiempo real
         if valor_total > 0:
             st.markdown("---")
-            st.markdown("### 🧮 Preview de Comisión")
+            st.markdown("### Preview de Comisión")
             
             calc = calcular_comision_inteligente(valor_total, cliente_propio, descuento_adicional, descuento_pie_factura)
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("💰 Valor Neto", format_currency(calc['valor_neto']))
+                st.metric("Valor Neto", format_currency(calc['valor_neto']))
             with col2:
-                st.metric("📊 IVA (19%)", format_currency(calc['iva']))
+                st.metric("IVA (19%)", format_currency(calc['iva']))
             with col3:
-                st.metric("🎯 Base Comisión", format_currency(calc['base_comision']))
+                st.metric("Base Comisión", format_currency(calc['base_comision']))
             with col4:
-                st.metric("💸 Comisión Final", format_currency(calc['comision']))
+                st.metric("Comisión Final", format_currency(calc['comision']))
             
             # Explicación del cálculo
             st.info(f"""
-            **💡 Detalles del cálculo:**
+            **Detalles del cálculo:**
             - Tipo cliente: {'Propio' if cliente_propio else 'Externo'}
             - Porcentaje comisión: {calc['porcentaje']}%
             - {'Descuento aplicado en factura' if descuento_pie_factura else 'Descuento automático del 15%'}
@@ -1655,21 +1653,21 @@ with tabs[2]:
         
         with col1:
             submit = st.form_submit_button(
-                "💾 Registrar Venta", 
+                "Registrar Venta", 
                 type="primary", 
                 use_container_width=True
             )
         
         with col2:
-            if st.form_submit_button("🧹 Limpiar", use_container_width=True):
+            if st.form_submit_button("Limpiar", use_container_width=True):
                 st.rerun()
         
         with col3:
-            if st.form_submit_button("👁️ Previsualizar", use_container_width=True):
+            if st.form_submit_button("👁Previsualizar", use_container_width=True):
                 if pedido and cliente and valor_total > 0:
-                    st.success("✅ Los datos se ven correctos para registrar")
+                    st.success("Los datos se ven correctos para registrar")
                 else:
-                    st.warning("⚠️ Faltan campos obligatorios")
+                    st.warning("Faltan campos obligatorios")
         
         # Lógica de guardado
         if submit:
@@ -1709,30 +1707,30 @@ with tabs[2]:
                     
                     # Intentar insertar
                     if insertar_venta(supabase, data):
-                        st.success(f"🎉 ¡Venta registrada correctamente!")
-                        st.success(f"💰 Comisión calculada: {format_currency(calc['comision'])}")
+                        st.success(f"¡Venta registrada correctamente!")
+                        st.success(f"Comisión calculada: {format_currency(calc['comision'])}")
                         st.balloons()
                         
                         # Mostrar resumen
-                        st.markdown("### 📊 Resumen de la venta:")
+                        st.markdown("### Resumen de la venta:")
                         st.write(f"**Cliente:** {cliente}")
                         st.write(f"**Pedido:** {pedido}")
                         st.write(f"**Valor:** {format_currency(valor_total)}")
                         st.write(f"**Comisión:** {format_currency(calc['comision'])} ({calc['porcentaje']}%)")
                         st.write(f"**Fecha límite pago:** {fecha_pago_max.strftime('%d/%m/%Y')}")
                     else:
-                        st.error("❌ Error al registrar la venta. Inténtalo nuevamente.")
+                        st.error("Error al registrar la venta. Inténtalo nuevamente.")
                         
                 except Exception as e:
-                    st.error(f"❌ Error procesando la venta: {str(e)}")
+                    st.error(f"Error procesando la venta: {str(e)}")
             else:
-                st.error("⚠️ Por favor completa todos los campos marcados con *")
+                st.error("Por favor completa todos los campos marcados con *")
     # ========================
     # TAB 4 - CLIENTES
     # ========================
     with tabs[3]:
-        st.header("👥 Gestión de Clientes")
-        st.info("🚧 Módulo en desarrollo - Próximamente funcionalidad completa de gestión de clientes")
+        st.header(" Gestión de Clientes")
+        st.info(" Módulo en desarrollo - Próximamente funcionalidad completa de gestión de clientes")
         
         if not df.empty:
             clientes_stats = df.groupby('cliente').agg({
@@ -1744,7 +1742,7 @@ with tabs[2]:
             clientes_stats.columns = ['Total Compras', 'Ticket Promedio', 'Número Compras', 'Total Comisiones', 'Última Compra']
             clientes_stats = clientes_stats.sort_values('Total Compras', ascending=False).head(10)
             
-            st.markdown("### 🏆 Top 10 Clientes")
+            st.markdown("###  Top 10 Clientes")
             
             for cliente, row in clientes_stats.iterrows():
                 st.markdown(f"""
@@ -1775,7 +1773,7 @@ with tabs[2]:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.markdown("### 🚨 Alertas Críticas")
+            st.markdown("###  Alertas Críticas")
             
             alertas = []
             
@@ -1830,10 +1828,10 @@ with tabs[2]:
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                st.success("✅ No hay alertas críticas en este momento")
+                st.success("No hay alertas críticas en este momento")
         
         with col2:
-            st.markdown("### 🎯 Recomendaciones Estratégicas")
+            st.markdown("### Recomendaciones Estratégicas")
             
             recomendaciones = generar_recomendaciones_reales(supabase)
             
@@ -1854,7 +1852,7 @@ with tabs[2]:
                 </div>
                 """, unsafe_allow_html=True)
             
-            if st.button("🔄 Generar Nuevas Recomendaciones"):
+            if st.button("Generar Nuevas Recomendaciones"):
                 st.rerun()
 
 def mostrar_recomendaciones_ia():
@@ -1866,7 +1864,7 @@ def mostrar_recomendaciones_ia():
         # Usar container y columnas en lugar de HTML personalizado
         with st.container():
             # Crear un expander para cada recomendación
-            with st.expander(f"🎯 #{i+1} {rec['cliente']} - {rec['probabilidad']}% probabilidad", expanded=True):
+            with st.expander(f"#{i+1} {rec['cliente']} - {rec['probabilidad']}% probabilidad", expanded=True):
                 col1, col2 = st.columns([3, 1])
                 
                 with col1:
@@ -1880,13 +1878,13 @@ def mostrar_recomendaciones_ia():
                 
                 with col2:
                     st.metric(
-                        label="💰 Impacto Comisión",
+                        label="Impacto Comisión",
                         value=format_currency(rec['impacto_comision']),
                         delta=f"+{rec['probabilidad']}%"
                     )
                 
                 # Botón de acción
-                if st.button(f"📞 Ejecutar Acción", key=f"action_rec_{i}"):
+                if st.button(f"Ejecutar Acción", key=f"action_rec_{i}"):
                     st.success(f"Acción programada para {rec['cliente']}")
 
 # Reemplaza también la sección completa del TAB 5 con esta versión corregida
@@ -1898,7 +1896,7 @@ def render_tab_ia_alertas_corregida():
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.markdown("### 🚨 Alertas Críticas")
+        st.markdown("###  Alertas Críticas")
         
         df = cargar_datos(supabase)
         alertas = []
@@ -1907,39 +1905,39 @@ def render_tab_ia_alertas_corregida():
             # Facturas vencidas
             vencidas = df[df["dias_vencimiento"] < 0]
             for _, factura in vencidas.head(3).iterrows():
-                st.error(f"⚠️ **Factura Vencida:** {factura.get('cliente', 'N/A')} - {factura.get('pedido', 'N/A')} ({format_currency(factura.get('valor_neto', 0))})")
+                st.error(f" **Factura Vencida:** {factura.get('cliente', 'N/A')} - {factura.get('pedido', 'N/A')} ({format_currency(factura.get('valor_neto', 0))})")
             
             # Próximas a vencer
             prox_vencer = df[(df["dias_vencimiento"] >= 0) & (df["dias_vencimiento"] <= 5) & (df["pagado"] == False)]
             for _, factura in prox_vencer.head(3).iterrows():
-                st.warning(f"⏰ **Próximo Vencimiento:** {factura.get('cliente', 'N/A')} vence en {factura.get('dias_vencimiento', 0)} días")
+                st.warning(f" **Próximo Vencimiento:** {factura.get('cliente', 'N/A')} vence en {factura.get('dias_vencimiento', 0)} días")
             
             # Altas comisiones pendientes
             alto_valor = df[df["comision"] > df["comision"].quantile(0.8)]
             for _, factura in alto_valor.head(2).iterrows():
                 if not factura.get("pagado"):
-                    st.info(f"💎 **Alta Comisión Pendiente:** {format_currency(factura.get('comision', 0))} esperando pago")
+                    st.info(f" **Alta Comisión Pendiente:** {format_currency(factura.get('comision', 0))} esperando pago")
         
         if not alertas and df.empty:
-            st.success("✅ No hay alertas críticas en este momento")
+            st.success(" No hay alertas críticas en este momento")
     
     with col2:
-        st.markdown("### 🎯 Recomendaciones Estratégicas")
+        st.markdown("###  Recomendaciones Estratégicas")
         mostrar_recomendaciones_ia()
         
-        if st.button("🔄 Generar Nuevas Recomendaciones"):
+        if st.button(" Generar Nuevas Recomendaciones"):
             st.rerun()
     
     st.markdown("---")
     
     # Análisis predictivo corregido
-    st.markdown("### 📊 Análisis Predictivo")
+    st.markdown("###  Análisis Predictivo")
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.metric(
-            label="🔮 Predicción Meta",
+            label="Predicción Meta",
             value="75%",
             delta="5%",
             help="Probabilidad de cumplir meta mensual basada en tendencias actuales"
@@ -1948,7 +1946,7 @@ def render_tab_ia_alertas_corregida():
     
     with col2:
         st.metric(
-            label="📈 Tendencia Comisiones",
+            label="Tendencia Comisiones",
             value="+15%",
             delta="3%",
             delta_color="normal",
@@ -1958,7 +1956,7 @@ def render_tab_ia_alertas_corregida():
     
     with col3:
         st.metric(
-            label="🎯 Clientes en Riesgo",
+            label="Clientes en Riesgo",
             value="3",
             delta="-1",
             delta_color="inverse",
@@ -1977,7 +1975,7 @@ def render_detalles_analisis_reales():
     
     with info_col1:
         st.info(f"""
-        **🔮 Modelo Predictivo:**
+        **Modelo Predictivo:**
         • {detalles['modelo'][0]}
         • {detalles['modelo'][1]}  
         • {detalles['modelo'][2]}
@@ -1990,14 +1988,14 @@ def render_detalles_analisis_reales():
         
         if num_factores_criticos > 0:
             st.error(f"""
-            **⚠️ Factores de Riesgo CRÍTICOS:**
+            **Factores de Riesgo CRÍTICOS:**
             • {detalles['factores_riesgo'][0]}
             • {detalles['factores_riesgo'][1] if len(detalles['factores_riesgo']) > 1 else 'Situación controlable'}
             • {detalles['factores_riesgo'][2] if len(detalles['factores_riesgo']) > 2 else 'Monitorear evolución'}
             """)
         else:
             st.warning(f"""
-            **⚠️ Factores de Riesgo:**
+            **Factores de Riesgo:**
             • {detalles['factores_riesgo'][0]}
             • {detalles['factores_riesgo'][1] if len(detalles['factores_riesgo']) > 1 else 'Situación estable'}
             • {detalles['factores_riesgo'][2] if len(detalles['factores_riesgo']) > 2 else 'Seguimiento rutinario'}
