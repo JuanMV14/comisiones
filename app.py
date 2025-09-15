@@ -1017,9 +1017,8 @@ st.set_page_config(
     page_icon="🧠"
 )
 
-/* CSS CORREGIDO PARA MEJOR LEGIBILIDAD Y CONTRASTE */
-
-/* TEXTO PRINCIPAL - ALTA LEGIBILIDAD */
+#CSS CORREGIDO PARA MEJOR LEGIBILIDAD Y CONTRASTE */
+#TEXTO PRINCIPAL - ALTA LEGIBILIDAD */
 .main .element-container,
 .main .stMarkdown,
 .main .stText,
@@ -1029,13 +1028,13 @@ st.set_page_config(
     color: #1a202c !important; /* Texto muy oscuro para máximo contraste */
 }
 
-/* HEADERS Y TÍTULOS */
+#HEADERS Y TÍTULOS */
 h1, h2, h3, h4, h5, h6 {
     color: #2d3748 !important; /* Azul muy oscuro */
     font-weight: 700 !important;
 }
 
-/* MÉTRICAS - TEXTO MUY VISIBLE */
+#MÉTRICAS - TEXTO MUY VISIBLE */
 div[data-testid="metric-container"] {
     background: #ffffff !important;
     border: 2px solid #e2e8f0 !important;
@@ -1056,7 +1055,7 @@ div[data-testid="metric-container"] > div:last-child {
     font-weight: 600 !important;
 }
 
-/* INPUTS Y FORMS CON MEJOR CONTRASTE */
+#INPUTS Y FORMS CON MEJOR CONTRASTE */
 .stTextInput > div > div > input,
 .stNumberInput > div > div > input,
 .stTextArea > div > div > textarea {
@@ -1077,7 +1076,7 @@ div[data-testid="metric-container"] > div:last-child {
     outline: none !important;
 }
 
-/* SELECTBOXES */
+#SELECTBOXES */
 .stSelectbox > div > div {
     background-color: #ffffff !important;
     border: 2px solid #cbd5e0 !important;
@@ -1090,7 +1089,7 @@ div[data-testid="metric-container"] > div:last-child {
     font-size: 16px !important;
 }
 
-/* LABELS DE INPUTS */
+#LABELS DE INPUTS */
 .stTextInput > label,
 .stNumberInput > label,
 .stSelectbox > label,
@@ -1103,7 +1102,7 @@ div[data-testid="metric-container"] > div:last-child {
     margin-bottom: 8px !important;
 }
 
-/* PLACEHOLDERS */
+#PLACEHOLDERS */
 .stTextInput > div > div > input::placeholder,
 .stNumberInput > div > div > input::placeholder,
 .stTextArea > div > div > textarea::placeholder {
@@ -1111,7 +1110,7 @@ div[data-testid="metric-container"] > div:last-child {
     font-weight: 400 !important;
 }
 
-/* BOTONES CON MEJOR CONTRASTE */
+#BOTONES CON MEJOR CONTRASTE */
 .stButton > button {
     border-radius: 8px !important;
     border: 2px solid #cbd5e0 !important;
@@ -1130,7 +1129,7 @@ div[data-testid="metric-container"] > div:last-child {
     box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
 }
 
-/* BOTÓN PRIMARIO */
+#BOTÓN PRIMARIO */
 .stButton > button[kind="primary"] {
     background-color: #4299e1 !important;
     color: #ffffff !important; /* Blanco sobre azul */
@@ -1143,7 +1142,7 @@ div[data-testid="metric-container"] > div:last-child {
     border-color: #3182ce !important;
 }
 
-/* SIDEBAR CON MEJOR CONTRASTE */
+#SIDEBAR CON MEJOR CONTRASTE */
 .css-1d391kg {
     background: #2d3748 !important; /* Fondo oscuro */
     color: #ffffff !important;
@@ -1170,7 +1169,7 @@ div[data-testid="metric-container"] > div:last-child {
     border-color: #718096 !important;
 }
 
-/* TABS MEJORADOS */
+#TABS MEJORADOS */
 .stTabs [data-baseweb="tab-list"] {
     background: #f7fafc !important;
     padding: 8px !important;
@@ -1195,7 +1194,7 @@ div[data-testid="metric-container"] > div:last-child {
     font-weight: 700 !important;
 }
 
-/* ALERTAS Y MENSAJES */
+#ALERTAS Y MENSAJES */
 .stSuccess {
     background: #f0fff4 !important;
     border: 2px solid #38a169 !important;
@@ -1228,7 +1227,7 @@ div[data-testid="metric-container"] > div:last-child {
     font-weight: 600 !important;
 }
 
-/* CARDS PERSONALIZADAS */
+#CARDS PERSONALIZADAS */
 .alert-high { 
     background: #fed7d7 !important;
     border: 3px solid #e53e3e !important;
@@ -1259,7 +1258,7 @@ div[data-testid="metric-container"] > div:last-child {
     font-weight: 600 !important;
 }
 
-/* CARD DE RECOMENDACIONES IA */
+#CARD DE RECOMENDACIONES IA */
 .recomendacion-card {
     background: linear-gradient(135deg, #4299e1 0%, #667eea 100%) !important;
     color: #ffffff !important; /* Blanco sobre gradiente */
@@ -1275,7 +1274,7 @@ div[data-testid="metric-container"] > div:last-child {
     font-weight: 800 !important;
 }
 
-/* PROGRESS BAR MEJORADA */
+#PROGRESS BAR MEJORADA */
 .progress-bar {
     background: #e2e8f0 !important;
     border-radius: 20px !important;
@@ -1313,7 +1312,7 @@ div[data-testid="metric-container"] > div:last-child {
     border-bottom: 1px solid #e2e8f0 !important;
 }
 
-/* EXPANDER MEJORADO */
+#EXPANDER MEJORADO */
 .streamlit-expanderHeader {
     background-color: #f7fafc !important;
     color: #2d3748 !important; /* Texto oscuro */
@@ -1329,7 +1328,7 @@ div[data-testid="metric-container"] > div:last-child {
     color: #1a202c !important; /* Contenido muy oscuro */
 }
 
-/* CHECKBOX MEJORADO */
+#CHECKBOX MEJORADO */
 .stCheckbox > label > div {
     color: #2d3748 !important; /* Texto muy oscuro */
     font-weight: 600 !important;
@@ -1340,7 +1339,7 @@ div[data-testid="metric-container"] > div:last-child {
     color: #2d3748 !important;
 }
 
-/* DATE INPUT */
+#DATE INPUT */
 .stDateInput > div > div > input {
     background-color: #ffffff !important;
     color: #1a202c !important; /* Texto muy oscuro */
@@ -1351,7 +1350,7 @@ div[data-testid="metric-container"] > div:last-child {
     padding: 12px 16px !important;
 }
 
-/* CAPTIONS Y TEXTO PEQUEÑO */
+#CAPTIONS Y TEXTO PEQUEÑO */
 .caption,
 .stCaption,
 small {
@@ -1359,24 +1358,24 @@ small {
     font-weight: 500 !important;
 }
 
-/* METRIC DELTA */
+#METRIC DELTA */
 div[data-testid="metric-container"] .metric-delta {
     color: #38a169 !important; /* Verde para positivo */
     font-weight: 700 !important;
 }
 
-/* CORRECCION GENERAL DE TEXTO */
+#CORRECCION GENERAL DE TEXTO */
 * {
     -webkit-font-smoothing: antialiased !important;
     -moz-osx-font-smoothing: grayscale !important;
 }
 
-/* FONDO PRINCIPAL */
+#FONDO PRINCIPAL */
 .main > div {
     background-color: #f7fafc !important;
 }
 
-/* CONTAINERS CON FONDO BLANCO */
+#CONTAINERS CON FONDO BLANCO */
 .element-container,
 .stContainer {
     background-color: #ffffff !important;
