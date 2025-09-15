@@ -245,30 +245,30 @@ def mostrar_estructura_tabla(supabase: Client):
         st.error(f"Error obteniendo estructura: {e}")
 
 
-# FUNCIÓN DE DEBUG ESPECÍFICA PARA TU CASO
-#def debug_mi_base_datos(supabase: Client):
-    #"""Debug específico para tu base de datos"""
-    #st.write("## DEBUG DE TU BASE DE DATOS")
+FUNCIÓN DE DEBUG ESPECÍFICA PARA TU CASO
+def debug_mi_base_datos(supabase: Client):
+    """Debug específico para tu base de datos"""
+    st.write("## DEBUG DE TU BASE DE DATOS")
     
     # 1. Mostrar estructura
-    #mostrar_estructura_tabla(supabase)
+    mostrar_estructura_tabla(supabase)
     
-    # 2. Contar registros
-    #try:
-        #response = supabase.table("comisiones").select("*", count="exact").execute()
-        #st.write(f"**Total de registros en comisiones:** {response.count}")
-    #except Exception as e:
-        #st.error(f"Error contando registros: {e}")
+     #2. Contar registros
+    try:
+        response = supabase.table("comisiones").select("*", count="exact").execute()
+        st.write(f"**Total de registros en comisiones:** {response.count}")
+    except Exception as e:
+        st.error(f"Error contando registros: {e}")
     
-    # 3. Mostrar primeros registros
-    #try:
-        #response = supabase.table("comisiones").select("*").limit(3).execute()
-        #if response.data:
-            #df_sample = pd.DataFrame(response.data)
-            #st.write("### PRIMEROS 3 REGISTROS:")
-            #st.dataframe(df_sample)
-    #except Exception as e:
-        #st.error(f"Error obteniendo muestra: {e}")
+     #3. Mostrar primeros registros
+    try:
+        response = supabase.table("comisiones").select("*").limit(3).execute()
+        if response.data:
+            df_sample = pd.DataFrame(response.data)
+            st.write("### PRIMEROS 3 REGISTROS:")
+            st.dataframe(df_sample)
+    except Exception as e:
+        st.error(f"Error obteniendo muestra: {e}")
         
 def insertar_venta(supabase: Client, data: dict):
     """Inserta una nueva venta en tabla comisiones"""
