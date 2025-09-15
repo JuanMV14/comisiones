@@ -245,7 +245,9 @@ def mostrar_estructura_tabla(supabase: Client):
         st.error(f"Error obteniendo estructura: {e}")
 
 
-FUNCIÓN DE DEBUG ESPECÍFICA PARA TU CASO
+# Reemplaza las líneas 248-250 en tu código original con esto:
+
+# FUNCIÓN DE DEBUG ESPECÍFICA PARA TU CASO
 def debug_mi_base_datos(supabase: Client):
     """Debug específico para tu base de datos"""
     st.write("## DEBUG DE TU BASE DE DATOS")
@@ -253,14 +255,14 @@ def debug_mi_base_datos(supabase: Client):
     # 1. Mostrar estructura
     mostrar_estructura_tabla(supabase)
     
-     #2. Contar registros
+    # 2. Contar registros
     try:
         response = supabase.table("comisiones").select("*", count="exact").execute()
         st.write(f"**Total de registros en comisiones:** {response.count}")
     except Exception as e:
         st.error(f"Error contando registros: {e}")
     
-     #3. Mostrar primeros registros
+    # 3. Mostrar primeros registros
     try:
         response = supabase.table("comisiones").select("*").limit(3).execute()
         if response.data:
