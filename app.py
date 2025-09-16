@@ -1824,6 +1824,11 @@ st.subheader("🔧 Debugging")
 with st.sidebar:
     render_storage_debug_sidebar(supabase)
 
+# Agrega esto en la sidebar, en la sección de Storage Debug
+with st.sidebar:
+    if st.button("Debug Subida Individual"):
+        debug_subida_individual(supabase)
+
 debug_factura_id = st.number_input("ID de factura a debuggear", min_value=1, step=1, key="debug_id")
 if st.button("Debug Factura") and debug_factura_id:
     debug_factura_especifica(supabase, debug_factura_id)
