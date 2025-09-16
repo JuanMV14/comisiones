@@ -285,15 +285,47 @@ def insertar_venta(supabase: Client, data: dict):
         return False
 
 def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
-    """Actualiza una factura en tabla comisiones"""
+    """Actualiza una factura en tabla comisiones - VERSIÓN CORREGIDA"""
     try:
+        print(f"Intentando actualizar factura ID: {factura_id}")
+        print(f"Datos a actualizar: {updates}")
+        
+        # Validar que factura_id existe
+        if not factura_id:
+            print("ERROR: factura_id es None o vacío")
+            return False
+        
+        # Verificar que la factura existe antes de actualizar
+        check_response = supabase.table("comisiones").select("id").eq("id", factura_id).execute()
+        
+        if not check_response.data:
+            print(f"ERROR: No existe factura con ID {factura_id}")
+            return False
+        
+        print(f"Factura encontrada, procediendo con actualización...")
+        
+        # Actualizar con manejo de errores detallado
         updates["updated_at"] = datetime.now().isoformat()
+        
         result = supabase.table("comisiones").update(updates).eq("id", factura_id).execute()
-        return True if result.data else False
+        
+        # Verificar el resultado
+        if result.data:
+            print(f"✅ Factura actualizada correctamente: {result.data}")
+            return True
+        else:
+            print(f"❌ No se pudo actualizar - Result: {result}")
+            # Intentar obtener más información del error
+            if hasattr(result, 'error') and result.error:
+                print(f"Error específico: {result.error}")
+            return False
+            
     except Exception as e:
-        print(f"Error actualizando factura: {e}")
+        print(f"ERROR CRÍTICO en actualizar_factura: {str(e)}")
+        import traceback
+        print(f"Traceback completo: {traceback.format_exc()}")
         return False
-
+        
 def obtener_meta_mes_actual(supabase: Client):
     """Obtiene la meta del mes actual de la base de datos"""
     try:
@@ -350,24 +382,44 @@ def actualizar_meta(supabase: Client, mes: str, meta_ventas: float, meta_cliente
         return False
 
 def subir_comprobante(supabase: Client, file, factura_id: int):
-    """Sube un archivo de comprobante a Supabase Storage"""
+    """Sube un archivo de comprobante a Supabase Storage - VERSIÓN CORREGIDA"""
     try:
-        if file is not None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_extension = file.name.split('.')[-1]
-            file_name = f"comprobante_{factura_id}_{timestamp}.{file_extension}"
+        print(f"Intentando subir comprobante para factura {factura_id}")
+        
+        if file is None:
+            print("No hay archivo para subir")
+            return None
             
-            result = supabase.storage.from_(BUCKET).upload(file_name, file.getvalue())
+        # Generar nombre único para el archivo
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_extension = file.name.split('.')[-1].lower()
+        file_name = f"comprobante_{factura_id}_{timestamp}.{file_extension}"
+        
+        print(f"Nombre del archivo: {file_name}")
+        print(f"Tamaño del archivo: {len(file.getvalue())} bytes")
+        
+        # Verificar que el bucket existe (ajusta el nombre según tu configuración)
+        BUCKET_NAME = "comprobantes"  # Cambia esto por el nombre real de tu bucket
+        
+        # Subir archivo
+        result = supabase.storage.from_(BUCKET_NAME).upload(file_name, file.getvalue())
+        
+        if result:
+            print(f"✅ Archivo subido correctamente")
+            # Obtener URL pública
+            public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_name)
+            print(f"URL pública: {public_url}")
+            return public_url
+        else:
+            print(f"❌ Error subiendo archivo: {result}")
+            return None
             
-            if result:
-                public_url = supabase.storage.from_(BUCKET).get_public_url(file_name)
-                return public_url
-            else:
-                return None
     except Exception as e:
-        print(f"Error subiendo comprobante: {e}")
+        print(f"ERROR en subir_comprobante: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return None
-
+        
 # Funciones auxiliares
 def format_currency(value):
     """Formatea números como moneda colombiana"""
@@ -641,11 +693,22 @@ def render_factura_card(factura, index):
                 st.warning(f"Vencida hace {abs(dias_venc)} días")
             elif dias_venc <= 5:
                 st.info(f"Vence en {dias_venc} días")
+                
 def mostrar_modal_pago(factura):
-    """Modal para marcar factura como pagada con subida de comprobante"""
+    """Modal para marcar factura como pagada - VERSIÓN CORREGIDA"""
     
-    with st.form(f"marcar_pagado_{factura.get('id')}"):
+    # Verificar que tenemos el ID de la factura
+    factura_id = factura.get('id')
+    if not factura_id:
+        st.error("Error: No se puede identificar la factura (falta ID)")
+        return
+    
+    # Crear un formulario único para evitar conflictos
+    form_key = f"marcar_pagado_{factura_id}_{hash(str(factura_id))}"
+    
+    with st.form(form_key):
         st.markdown(f"### Marcar como Pagada - {factura.get('pedido', 'N/A')}")
+        st.caption(f"ID Factura: {factura_id}")  # Para debug
         
         col1, col2 = st.columns(2)
         
@@ -676,7 +739,8 @@ def mostrar_modal_pago(factura):
         comprobante_file = st.file_uploader(
             "Sube el comprobante de pago",
             type=['pdf', 'jpg', 'jpeg', 'png'],
-            help="Formatos: PDF, JPG, PNG. Máximo 10MB"
+            help="Formatos: PDF, JPG, PNG. Máximo 10MB",
+            key=f"comprobante_{factura_id}"
         )
         
         if comprobante_file:
@@ -686,42 +750,107 @@ def mostrar_modal_pago(factura):
         
         with col1:
             if st.form_submit_button("Confirmar Pago", type="primary"):
-                fecha_factura = pd.to_datetime(factura.get('fecha_factura'))
-                dias_pago = (pd.to_datetime(fecha_pago_real) - fecha_factura).days
                 
-                comprobante_url = None
-                if comprobante_file:
-                    comprobante_url = subir_comprobante(supabase, comprobante_file, factura.get('id'))
+                st.info("Procesando pago...")
                 
-                updates = {
-                    "pagado": True,
-                    "fecha_pago_real": fecha_pago_real.isoformat(),
-                    "dias_pago_real": dias_pago,
-                    "metodo_pago": metodo_pago,
-                    "referencia": referencia_pago,
-                    "observaciones_pago": observaciones
-                }
-                
-                if comprobante_url:
-                    updates["comprobante_url"] = comprobante_url
-                
-                if dias_pago > 80:
-                    updates["comision_perdida"] = True
-                    updates["razon_perdida"] = f"Pago después de 80 días ({dias_pago} días)"
-                    updates["comision_ajustada"] = 0
-                    st.warning(f"ATENCIÓN: La comisión se pierde por pago tardío ({dias_pago} días)")
-                
-                if actualizar_factura(supabase, factura.get('id'), updates):
-                    st.success("Factura marcada como pagada correctamente")
-                    st.session_state[f"show_pago_{factura.get('id')}"] = False
-                    st.rerun()
-                else:
-                    st.error("Error al actualizar factura")
+                try:
+                    # Calcular días de pago
+                    fecha_factura = pd.to_datetime(factura.get('fecha_factura'))
+                    dias_pago = (pd.to_datetime(fecha_pago_real) - fecha_factura).days
+                    
+                    # Intentar subir comprobante primero (si existe)
+                    comprobante_url = None
+                    if comprobante_file:
+                        st.info("Subiendo comprobante...")
+                        comprobante_url = subir_comprobante(supabase, comprobante_file, factura_id)
+                        if comprobante_url:
+                            st.success("Comprobante subido correctamente")
+                        else:
+                            st.warning("Error subiendo comprobante, pero continuando con el pago...")
+                    
+                    # Preparar datos de actualización
+                    updates = {
+                        "pagado": True,
+                        "fecha_pago_real": fecha_pago_real.isoformat(),
+                        "dias_pago_real": dias_pago,
+                        "metodo_pago": metodo_pago,
+                        "referencia": referencia_pago,
+                        "observaciones_pago": observaciones
+                    }
+                    
+                    if comprobante_url:
+                        updates["comprobante_url"] = comprobante_url
+                    
+                    # Verificar si se pierde la comisión por pago tardío
+                    if dias_pago > 80:
+                        updates["comision_perdida"] = True
+                        updates["razon_perdida"] = f"Pago después de 80 días ({dias_pago} días)"
+                        updates["comision_ajustada"] = 0
+                        st.warning(f"ATENCIÓN: La comisión se pierde por pago tardío ({dias_pago} días)")
+                    
+                    # Intentar actualizar
+                    st.info("Actualizando factura en la base de datos...")
+                    
+                    if actualizar_factura(supabase, factura_id, updates):
+                        st.success("✅ Factura marcada como pagada correctamente")
+                        st.balloons()
+                        
+                        # Limpiar el estado del modal
+                        if f"show_pago_{factura_id}" in st.session_state:
+                            del st.session_state[f"show_pago_{factura_id}"]
+                        
+                        # Forzar recarga
+                        st.rerun()
+                        
+                    else:
+                        st.error("❌ Error al actualizar la factura en la base de datos")
+                        st.error("Por favor verifica los logs para más detalles")
+                        
+                except Exception as e:
+                    st.error(f"Error procesando el pago: {str(e)}")
+                    print(f"Error completo: {e}")
+                    import traceback
+                    print(traceback.format_exc())
         
         with col2:
             if st.form_submit_button("Cancelar"):
-                st.session_state[f"show_pago_{factura.get('id')}"] = False
+                # Limpiar estado del modal
+                if f"show_pago_{factura_id}" in st.session_state:
+                    del st.session_state[f"show_pago_{factura_id}"]
                 st.rerun()
+
+def debug_factura_especifica(supabase: Client, factura_id):
+    """Debug específico para una factura"""
+    st.write(f"### DEBUG FACTURA ID: {factura_id}")
+    
+    try:
+        # Verificar que existe la factura
+        response = supabase.table("comisiones").select("*").eq("id", factura_id).execute()
+        
+        if response.data:
+            st.success(f"✅ Factura encontrada en la base de datos")
+            factura_data = response.data[0]
+            
+            st.write("**Datos actuales de la factura:**")
+            for key, value in factura_data.items():
+                st.write(f"- **{key}:** {value}")
+                
+        else:
+            st.error(f"❌ No se encontró factura con ID {factura_id}")
+            
+        # Probar una actualización simple
+        if st.button(f"Probar actualización simple"):
+            test_updates = {"updated_at": datetime.now().isoformat()}
+            result = supabase.table("comisiones").update(test_updates).eq("id", factura_id).execute()
+            
+            if result.data:
+                st.success("✅ Actualización de prueba exitosa")
+            else:
+                st.error("❌ Falló la actualización de prueba")
+                st.write(f"Resultado: {result}")
+                
+    except Exception as e:
+        st.error(f"Error en debug: {e}")
 
 def mostrar_comprobante(comprobante_url):
     """Muestra el comprobante de pago"""
