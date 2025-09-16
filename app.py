@@ -1643,7 +1643,13 @@ with st.sidebar:
         meses_disponibles,
         index=0
     )
+# En la sidebar, después de los filtros existentes
+st.markdown("---")
+st.subheader("🔧 Debugging")
 
+debug_factura_id = st.number_input("ID de factura a debuggear", min_value=1, step=1, key="debug_id")
+if st.button("Debug Factura") and debug_factura_id:
+    debug_factura_especifica(supabase, debug_factura_id)
 # ========================
 # MODAL DE CONFIGURACIÓN DE META
 # ========================
