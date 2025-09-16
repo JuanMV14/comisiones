@@ -390,7 +390,29 @@ def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
         import traceback
         print(f"   - Traceback: {traceback.format_exc()}")
         return False
-        
+
+def debug_actualizar_factura_individual(supabase: Client, factura_id: int):
+    """Debug individual para actualización de factura"""
+    print(f"\n🧪 DEBUG ACTUALIZACIÓN INDIVIDUAL - ID: {factura_id}")
+    
+    # Datos de prueba
+    test_updates = {
+        "pagado": True,
+        "fecha_pago_real": date.today().isoformat(),
+        "dias_pago_real": 5,
+        "metodo_pago": "Transferencia - TEST",
+        "referencia": "TEST-123456",
+        "observaciones_pago": f"Prueba de actualización {datetime.now().strftime('%H:%M:%S')}"
+    }
+    
+    print(f"📝 Datos de prueba: {test_updates}")
+    
+    # Intentar actualización
+    resultado = actualizar_factura_debug(supabase, factura_id, test_updates)
+    
+    print(f"🎯 RESULTADO FINAL: {'ÉXITO' if resultado else 'FALLO'}")
+    
+    return resultado
 def obtener_meta_mes_actual(supabase: Client):
     """Obtiene la meta del mes actual de la base de datos"""
     try:
@@ -447,77 +469,54 @@ def actualizar_meta(supabase: Client, mes: str, meta_ventas: float, meta_cliente
         return False
 
 def subir_comprobante(supabase: Client, file, factura_id: int):
-    """Sube un archivo de comprobante a Supabase Storage - CORRECCIÓN DEFINITIVA"""
+    """Sube archivo con nombre personalizado - CORRECCIÓN FINAL"""
     try:
-        print(f"🔄 Iniciando subida para factura ID: {factura_id}")
+        print(f"🔄 Subiendo comprobante para factura {factura_id}")
         
         if file is None:
-            print("❌ No hay archivo para subir")
+            print("❌ No hay archivo")
             return None
             
-        # Generar nombre del archivo con ID de factura
+        # CORRECCIÓN 1: Leer el contenido del archivo y crear uno nuevo con nombre personalizado
+        file_content = file.getvalue()
+        original_extension = file.name.split('.')[-1].lower()
+        
+        # Crear nombre personalizado
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_extension = file.name.split('.')[-1].lower()
+        new_filename = f"comprobante_{factura_id}_{timestamp}.{original_extension}"
         
-        # CORRECCIÓN 1: Crear ruta dentro de carpeta usando "/"
-        file_name = f"comprobante_{factura_id}_{timestamp}.{file_extension}"
-        file_path_in_folder = f"comprobantes/{file_name}"  # CLAVE: Usar "/" para carpeta
+        print(f"📁 Nombre original: {file.name}")
+        print(f"📝 Nombre nuevo: {new_filename}")
+        print(f"📦 Tamaño: {len(file_content)} bytes")
         
-        print(f"📁 Archivo: {file_name}")
-        print(f"🗂️ Ruta completa: {file_path_in_folder}")
-        print(f"📦 Tamaño: {len(file.getvalue())} bytes")
-        
-        # CORRECCIÓN 2: Subir al bucket root, pero con ruta de carpeta
-        BUCKET_NAME = "comprobantes"  # El bucket principal
-        
+        # CORRECCIÓN 2: Subir con el nombre personalizado
         try:
-            # Método 1: Intentar subir con path completo
-            print("🚀 Método 1: Subiendo con path completo...")
-            result = supabase.storage.from_(BUCKET_NAME).upload(
-                file_path_in_folder,  # Incluye la carpeta en el path
-                file.getvalue(),
+            result = supabase.storage.from_("comprobantes").upload(
+                new_filename,  # Usar el nombre personalizado directamente
+                file_content,
                 file_options={
-                    "content-type": f"application/{file_extension}",
-                    "upsert": "false"  # No sobrescribir si existe
+                    "content-type": f"application/{original_extension}",
+                    "upsert": "true"  # Sobrescribir si existe
                 }
             )
             
-            if result and not hasattr(result, 'error'):
-                print(f"✅ Subida exitosa con Método 1")
-                public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path_in_folder)
-                print(f"🌐 URL generada: {public_url}")
+            print(f"📤 Resultado subida: {result}")
+            
+            if result:
+                # Generar URL pública
+                public_url = supabase.storage.from_("comprobantes").get_public_url(new_filename)
+                print(f"✅ Subida exitosa: {public_url}")
                 return public_url
             else:
-                print(f"⚠️ Método 1 falló: {getattr(result, 'error', 'Sin error específico')}")
+                print(f"❌ Fallo en subida")
+                return None
                 
-        except Exception as method1_error:
-            print(f"💥 Error Método 1: {method1_error}")
-        
-        try:
-            # Método 2: Intentar solo con el nombre del archivo (sin carpeta)
-            print("🚀 Método 2: Subiendo solo nombre de archivo...")
-            result2 = supabase.storage.from_(BUCKET_NAME).upload(
-                file_name,  # Solo el nombre, sin carpeta
-                file.getvalue(),
-                file_options={"upsert": "true"}  # Permitir sobrescribir
-            )
-            
-            if result2:
-                print(f"✅ Subida exitosa con Método 2")
-                public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_name)
-                print(f"🌐 URL generada: {public_url}")
-                return public_url
-                
-        except Exception as method2_error:
-            print(f"💥 Error Método 2: {method2_error}")
-        
-        print("❌ Ambos métodos fallaron")
-        return None
+        except Exception as upload_error:
+            print(f"💥 Error en subida: {upload_error}")
+            return None
             
     except Exception as e:
-        print(f"💥 ERROR CRÍTICO en subir_comprobante: {str(e)}")
-        import traceback
-        print(f"📊 Traceback:\n{traceback.format_exc()}")
+        print(f"💥 ERROR CRÍTICO: {str(e)}")
         return None
 
 # INTEGRACIÓN EN SIDEBAR: Agregar estas líneas en la sidebar después del debug existente
@@ -894,130 +893,153 @@ def render_factura_card(factura, index):
             elif dias_venc <= 5:
                 st.info(f"Vence en {dias_venc} días")
                 
-def mostrar_modal_pago(factura):
-    """Modal para marcar factura como pagada - VERSIÓN CORREGIDA"""
+def mostrar_modal_pago_final(factura):
+    """Modal de pago con correcciones finales"""
     
-    # Verificar que tenemos el ID de la factura
     factura_id = factura.get('id')
     if not factura_id:
-        st.error("Error: No se puede identificar la factura (falta ID)")
+        st.error("ERROR CRÍTICO: Factura sin ID")
+        st.json(factura)
         return
     
-    # Crear un formulario único para evitar conflictos
-    form_key = f"marcar_pagado_{factura_id}_{hash(str(factura_id))}"
+    st.info(f"Debug Info: ID = {factura_id}, Tipo = {type(factura_id)}")
+    
+    form_key = f"pago_final_{factura_id}_{int(datetime.now().timestamp())}"
     
     with st.form(form_key):
-        st.markdown(f"### Marcar como Pagada - {factura.get('pedido', 'N/A')}")
-        st.caption(f"ID Factura: {factura_id}")  # Para debug
+        st.markdown(f"### 💳 Procesar Pago - {factura.get('pedido', 'N/A')}")
         
+        # Información básica
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**ID:** {factura_id}")
+            st.write(f"**Cliente:** {factura.get('cliente', 'N/A')}")
+        with col2:
+            st.write(f"**Valor:** {format_currency(factura.get('valor', 0))}")
+            st.write(f"**Estado:** {'PAGADA' if factura.get('pagado') else 'PENDIENTE'}")
+        
+        st.markdown("---")
+        
+        # Campos del formulario
         col1, col2 = st.columns(2)
         
         with col1:
-            fecha_pago_real = st.date_input(
-                "Fecha de Pago Real",
-                value=date.today(),
-                help="Fecha en que realmente se recibió el pago"
-            )
-            
-            metodo_pago = st.selectbox(
-                "Método de Pago",
-                ["Transferencia", "Efectivo", "Cheque", "Tarjeta", "Otro"]
-            )
+            fecha_pago = st.date_input("Fecha de Pago", value=date.today())
+            metodo = st.selectbox("Método", ["Transferencia", "Efectivo", "Cheque", "Tarjeta"])
         
         with col2:
-            referencia_pago = st.text_input(
-                "Referencia/Número de Transacción",
-                help="Número de referencia del pago"
-            )
-            
-            observaciones = st.text_area(
-                "Observaciones",
-                help="Notas adicionales sobre el pago"
-            )
+            referencia = st.text_input("Referencia", placeholder="Número de transacción")
+            observaciones = st.text_area("Observaciones", placeholder="Notas del pago")
         
-        st.markdown("#### 📎 Comprobante de Pago")
-        comprobante_file = st.file_uploader(
-            "Sube el comprobante de pago",
+        # Comprobante
+        st.markdown("#### 📎 Comprobante")
+        archivo = st.file_uploader(
+            "Subir comprobante", 
             type=['pdf', 'jpg', 'jpeg', 'png'],
-            help="Formatos: PDF, JPG, PNG. Máximo 10MB",
-            key=f"comprobante_{factura_id}"
+            key=f"archivo_{factura_id}"
         )
         
-        if comprobante_file:
-            st.success(f"Archivo seleccionado: {comprobante_file.name}")
+        if archivo:
+            st.success(f"Archivo: {archivo.name}")
         
-        col1, col2 = st.columns(2)
+        # Botones
+        col1, col2, col3 = st.columns([1, 1, 1])
         
         with col1:
-            if st.form_submit_button("Confirmar Pago", type="primary"):
+            if st.form_submit_button("🧪 TEST UPDATE", help="Probar solo la actualización"):
+                st.info("Probando actualización...")
+                resultado = debug_actualizar_factura_individual(supabase, factura_id)
+                if resultado:
+                    st.success("TEST EXITOSO - La actualización funciona")
+                else:
+                    st.error("TEST FALLÓ - Hay problemas con la actualización")
+        
+        with col2:
+            procesar = st.form_submit_button("✅ PROCESAR PAGO", type="primary")
+        
+        with col3:
+            if st.form_submit_button("❌ Cancelar"):
+                if f"show_pago_{factura_id}" in st.session_state:
+                    del st.session_state[f"show_pago_{factura_id}"]
+                st.rerun()
+        
+        # Procesamiento completo
+        if procesar:
+            st.info("🔄 Procesando pago completo...")
+            
+            success = True  # Flag para tracking
+            comprobante_url = None
+            
+            # Paso 1: Subir comprobante si existe
+            if archivo:
+                with st.spinner("📤 Subiendo comprobante..."):
+                    comprobante_url = subir_comprobante(supabase, archivo, factura_id)
                 
-                st.info("Procesando pago...")
-                
-                try:
-                    # Calcular días de pago
+                if comprobante_url:
+                    st.success("✅ Comprobante subido")
+                    st.write(f"URL: {comprobante_url}")
+                else:
+                    st.warning("⚠️ Error subiendo comprobante")
+                    success = False
+            
+            # Paso 2: Actualizar factura
+            if success or not archivo:  # Continuar si no hay archivo o subida exitosa
+                with st.spinner("💾 Actualizando factura..."):
+                    
+                    # Calcular días
                     fecha_factura = pd.to_datetime(factura.get('fecha_factura'))
-                    dias_pago = (pd.to_datetime(fecha_pago_real) - fecha_factura).days
+                    dias = (pd.to_datetime(fecha_pago) - fecha_factura).days
                     
-                    # Intentar subir comprobante primero (si existe)
-                    comprobante_url = None
-                    if comprobante_file:
-                        st.info("Subiendo comprobante...")
-                        comprobante_url = subir_comprobante(supabase, comprobante_file, factura_id)
-                        if comprobante_url:
-                            st.success("Comprobante subido correctamente")
-                        else:
-                            st.warning("Error subiendo comprobante, pero continuando con el pago...")
-                    
-                    # Preparar datos de actualización
                     updates = {
                         "pagado": True,
-                        "fecha_pago_real": fecha_pago_real.isoformat(),
-                        "dias_pago_real": dias_pago,
-                        "metodo_pago": metodo_pago,
-                        "referencia": referencia_pago,
+                        "fecha_pago_real": fecha_pago.isoformat(),
+                        "dias_pago_real": dias,
+                        "metodo_pago": metodo,
+                        "referencia": referencia,
                         "observaciones_pago": observaciones
                     }
                     
                     if comprobante_url:
                         updates["comprobante_url"] = comprobante_url
                     
-                    # Verificar si se pierde la comisión por pago tardío
-                    if dias_pago > 80:
+                    # Comisión perdida si es muy tarde
+                    if dias > 80:
                         updates["comision_perdida"] = True
-                        updates["razon_perdida"] = f"Pago después de 80 días ({dias_pago} días)"
-                        updates["comision_ajustada"] = 0
-                        st.warning(f"ATENCIÓN: La comisión se pierde por pago tardío ({dias_pago} días)")
+                        updates["razon_perdida"] = f"Pago tardío: {dias} días"
+                        st.warning(f"⚠️ Comisión perdida por pago tardío ({dias} días)")
                     
-                    # Intentar actualizar
-                    st.info("Actualizando factura en la base de datos...")
+                    # Intentar actualización
+                    resultado = actualizar_factura_debug(supabase, factura_id, updates)
                     
-                    if actualizar_factura(supabase, factura_id, updates):
-                        st.success("✅ Factura marcada como pagada correctamente")
+                    if resultado:
+                        st.success("🎉 PAGO PROCESADO EXITOSAMENTE!")
                         st.balloons()
                         
-                        # Limpiar el estado del modal
+                        # Resumen
+                        st.markdown("### 📋 Resumen:")
+                        st.write(f"✅ Factura: {factura.get('pedido')}")
+                        st.write(f"💰 Valor: {format_currency(factura.get('valor', 0))}")
+                        st.write(f"📅 Fecha: {fecha_pago}")
+                        st.write(f"💳 Método: {metodo}")
+                        if comprobante_url:
+                            st.write("📎 Comprobante: Subido")
+                        
+                        # Limpiar y recargar
                         if f"show_pago_{factura_id}" in st.session_state:
                             del st.session_state[f"show_pago_{factura_id}"]
                         
-                        # Forzar recarga
                         st.rerun()
                         
                     else:
-                        st.error("❌ Error al actualizar la factura en la base de datos")
-                        st.error("Por favor verifica los logs para más detalles")
-                        
-                except Exception as e:
-                    st.error(f"Error procesando el pago: {str(e)}")
-                    print(f"Error completo: {e}")
-                    import traceback
-                    print(traceback.format_exc())
-        
-        with col2:
-            if st.form_submit_button("Cancelar"):
-                # Limpiar estado del modal
-                if f"show_pago_{factura_id}" in st.session_state:
-                    del st.session_state[f"show_pago_{factura_id}"]
-                st.rerun()
+                        st.error("❌ ERROR: No se pudo actualizar la factura")
+                        st.markdown("### 🔍 Debug Info:")
+                        st.json({
+                            "factura_id": factura_id,
+                            "tipo_id": str(type(factura_id)),
+                            "updates": updates
+                        })
+            else:
+                st.error("❌ No se puede procesar el pago sin comprobante válido")
 
 def debug_subida_individual(supabase: Client):
     """Función para debuggear la subida de archivos individualmente"""
