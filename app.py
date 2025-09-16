@@ -285,45 +285,110 @@ def insertar_venta(supabase: Client, data: dict):
         return False
 
 def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
-    """Actualiza una factura en tabla comisiones - VERSIÓN CORREGIDA"""
+    """Actualiza una factura en tabla comisiones - VERSIÓN SUPER CORREGIDA"""
     try:
-        print(f"Intentando actualizar factura ID: {factura_id}")
-        print(f"Datos a actualizar: {updates}")
+        print(f"🔍 DEBUG: Iniciando actualización")
+        print(f"   - ID factura: {factura_id} (tipo: {type(factura_id)})")
+        print(f"   - Updates: {updates}")
         
-        # Validar que factura_id existe
-        if not factura_id:
-            print("ERROR: factura_id es None o vacío")
+        # Validar que factura_id existe y es válido
+        if not factura_id or factura_id == 0:
+            print("❌ ERROR: factura_id es None, 0 o vacío")
             return False
+        
+        # Convertir a int si es necesario
+        try:
+            factura_id = int(factura_id)
+        except (ValueError, TypeError):
+            print(f"❌ ERROR: No se puede convertir {factura_id} a entero")
+            return False
+        
+        print(f"✅ ID validado: {factura_id}")
         
         # Verificar que la factura existe antes de actualizar
-        check_response = supabase.table("comisiones").select("id").eq("id", factura_id).execute()
+        print("🔍 Verificando existencia de la factura...")
+        check_response = supabase.table("comisiones").select("id, pedido, cliente").eq("id", factura_id).execute()
+        
+        print(f"📊 Respuesta verificación: {check_response}")
         
         if not check_response.data:
-            print(f"ERROR: No existe factura con ID {factura_id}")
+            print(f"❌ ERROR: No existe factura con ID {factura_id}")
+            # Intentar ver qué IDs existen
+            all_ids = supabase.table("comisiones").select("id").limit(10).execute()
+            print(f"IDs disponibles (muestra): {[row['id'] for row in all_ids.data if all_ids.data]}")
             return False
         
-        print(f"Factura encontrada, procediendo con actualización...")
+        print(f"✅ Factura encontrada: {check_response.data[0]}")
         
-        # Actualizar con manejo de errores detallado
-        updates["updated_at"] = datetime.now().isoformat()
+        # Preparar datos de actualización con validaciones
+        safe_updates = {}
         
-        result = supabase.table("comisiones").update(updates).eq("id", factura_id).execute()
+        # Validar cada campo antes de agregarlo
+        for key, value in updates.items():
+            if key == "fecha_pago_real" and isinstance(value, str):
+                # Validar formato de fecha
+                try:
+                    from datetime import datetime
+                    datetime.fromisoformat(value.replace('Z', '+00:00'))
+                    safe_updates[key] = value
+                    print(f"✅ Fecha válida: {key} = {value}")
+                except:
+                    print(f"❌ Fecha inválida: {key} = {value}")
+                    continue
+                    
+            elif key in ["pagado", "comision_perdida"] and isinstance(value, bool):
+                safe_updates[key] = value
+                print(f"✅ Boolean válido: {key} = {value}")
+                
+            elif key in ["dias_pago_real", "comision_ajustada"] and isinstance(value, (int, float)):
+                safe_updates[key] = value
+                print(f"✅ Número válido: {key} = {value}")
+                
+            elif key in ["metodo_pago", "referencia", "observaciones_pago", "razon_perdida", "comprobante_url"]:
+                safe_updates[key] = str(value) if value is not None else ""
+                print(f"✅ String válido: {key} = {safe_updates[key][:50]}...")
+                
+            else:
+                print(f"⚠️ Campo no validado: {key} = {value} (tipo: {type(value)})")
+                safe_updates[key] = value
         
-        # Verificar el resultado
-        if result.data:
-            print(f"✅ Factura actualizada correctamente: {result.data}")
+        # Agregar timestamp
+        safe_updates["updated_at"] = datetime.now().isoformat()
+        
+        print(f"🔍 Datos finales a actualizar: {safe_updates}")
+        
+        # Intentar actualización
+        print("🚀 Ejecutando actualización en Supabase...")
+        result = supabase.table("comisiones").update(safe_updates).eq("id", factura_id).execute()
+        
+        print(f"📊 Respuesta completa de Supabase: {result}")
+        
+        # Análisis detallado del resultado
+        if hasattr(result, 'data') and result.data:
+            print(f"✅ ÉXITO: Factura actualizada correctamente")
+            print(f"   - Registros afectados: {len(result.data)}")
+            print(f"   - Datos actualizados: {result.data[0] if result.data else 'N/A'}")
             return True
+            
+        elif hasattr(result, 'error') and result.error:
+            print(f"❌ ERROR de Supabase: {result.error}")
+            return False
+            
         else:
-            print(f"❌ No se pudo actualizar - Result: {result}")
-            # Intentar obtener más información del error
-            if hasattr(result, 'error') and result.error:
-                print(f"Error específico: {result.error}")
+            print(f"❌ RESULTADO INESPERADO:")
+            print(f"   - Tiene data: {hasattr(result, 'data')}")
+            print(f"   - Data: {getattr(result, 'data', 'No disponible')}")
+            print(f"   - Tiene error: {hasattr(result, 'error')}")
+            print(f"   - Error: {getattr(result, 'error', 'No disponible')}")
+            print(f"   - Resultado completo: {result}")
             return False
             
     except Exception as e:
-        print(f"ERROR CRÍTICO en actualizar_factura: {str(e)}")
+        print(f"💥 ERROR CRÍTICO en actualizar_factura:")
+        print(f"   - Error: {str(e)}")
+        print(f"   - Tipo: {type(e)}")
         import traceback
-        print(f"Traceback completo: {traceback.format_exc()}")
+        print(f"   - Traceback: {traceback.format_exc()}")
         return False
         
 def obtener_meta_mes_actual(supabase: Client):
@@ -825,6 +890,7 @@ def debug_factura_especifica(supabase: Client, factura_id):
     
     try:
         # Verificar que existe la factura
+        st.info("Buscando factura en la base de datos...")
         response = supabase.table("comisiones").select("*").eq("id", factura_id).execute()
         
         if response.data:
@@ -834,23 +900,77 @@ def debug_factura_especifica(supabase: Client, factura_id):
             st.write("**Datos actuales de la factura:**")
             for key, value in factura_data.items():
                 st.write(f"- **{key}:** {value}")
+            
+            # Verificar estructura de tabla
+            st.write("**Columnas detectadas:**", list(factura_data.keys()))
                 
         else:
             st.error(f"❌ No se encontró factura con ID {factura_id}")
             
+            # Mostrar facturas disponibles
+            all_response = supabase.table("comisiones").select("id, pedido, cliente").limit(5).execute()
+            if all_response.data:
+                st.write("**Facturas disponibles (muestra):**")
+                for f in all_response.data:
+                    st.write(f"  - ID: {f['id']}, Pedido: {f.get('pedido', 'N/A')}, Cliente: {f.get('cliente', 'N/A')}")
+            
         # Probar una actualización simple
-        if st.button(f"Probar actualización simple"):
-            test_updates = {"updated_at": datetime.now().isoformat()}
+        if st.button(f"🧪 Probar actualización simple", key=f"test_update_{factura_id}"):
+            st.info("Probando actualización básica...")
+            
+            test_updates = {
+                "updated_at": datetime.now().isoformat(),
+                "observaciones_pago": f"Test de actualización {datetime.now().strftime('%H:%M:%S')}"
+            }
+            
+            print(f"🧪 TEST UPDATE para ID {factura_id}: {test_updates}")
+            
             result = supabase.table("comisiones").update(test_updates).eq("id", factura_id).execute()
+            
+            st.write(f"**Resultado de la prueba:**")
+            st.json({
+                "success": bool(result.data),
+                "data": result.data,
+                "error": getattr(result, 'error', None)
+            })
             
             if result.data:
                 st.success("✅ Actualización de prueba exitosa")
+                st.balloons()
             else:
                 st.error("❌ Falló la actualización de prueba")
-                st.write(f"Resultado: {result}")
+                st.error("Revisar permisos de Supabase o estructura de tabla")
+        
+        # Probar permisos específicos
+        if st.button(f"🔐 Verificar permisos de escritura", key=f"test_perms_{factura_id}"):
+            try:
+                # Intentar una operación de escritura mínima
+                perm_test = supabase.table("comisiones").select("id").eq("id", factura_id).execute()
+                
+                if perm_test.data:
+                    st.success("✅ Permisos de lectura OK")
+                    
+                    # Intentar escritura
+                    write_test = supabase.table("comisiones").update({
+                        "updated_at": datetime.now().isoformat()
+                    }).eq("id", factura_id).execute()
+                    
+                    if write_test.data:
+                        st.success("✅ Permisos de escritura OK")
+                    else:
+                        st.error("❌ Sin permisos de escritura")
+                        if hasattr(write_test, 'error'):
+                            st.error(f"Error: {write_test.error}")
+                else:
+                    st.error("❌ Sin permisos de lectura")
+                    
+            except Exception as e:
+                st.error(f"Error verificando permisos: {e}")
                 
     except Exception as e:
         st.error(f"Error en debug: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 def mostrar_comprobante(comprobante_url):
     """Muestra el comprobante de pago"""
