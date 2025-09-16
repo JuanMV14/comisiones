@@ -447,83 +447,77 @@ def actualizar_meta(supabase: Client, mes: str, meta_ventas: float, meta_cliente
         return False
 
 def subir_comprobante(supabase: Client, file, factura_id: int):
-    """Sube un archivo de comprobante a Supabase Storage - VERSIÓN CORREGIDA"""
+    """Sube un archivo de comprobante a Supabase Storage - CORRECCIÓN DEFINITIVA"""
     try:
-        print(f"🔄 Iniciando subida de comprobante para factura {factura_id}")
+        print(f"🔄 Iniciando subida para factura ID: {factura_id}")
         
         if file is None:
             print("❌ No hay archivo para subir")
             return None
             
-        # Generar nombre único para el archivo DENTRO de la carpeta comprobantes
+        # Generar nombre del archivo con ID de factura
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_extension = file.name.split('.')[-1].lower()
         
-        # CLAVE: Incluir la carpeta en el nombre del archivo
-        file_path = f"comprobante_{factura_id}_{timestamp}.{file_extension}"
+        # CORRECCIÓN 1: Crear ruta dentro de carpeta usando "/"
+        file_name = f"comprobante_{factura_id}_{timestamp}.{file_extension}"
+        file_path_in_folder = f"comprobantes/{file_name}"  # CLAVE: Usar "/" para carpeta
         
-        print(f"📁 Ruta del archivo: comprobantes/{file_path}")
-        print(f"📦 Tamaño del archivo: {len(file.getvalue())} bytes")
+        print(f"📁 Archivo: {file_name}")
+        print(f"🗂️ Ruta completa: {file_path_in_folder}")
+        print(f"📦 Tamaño: {len(file.getvalue())} bytes")
         
-        # El bucket debe existir - verificar el nombre correcto
-        BUCKET_NAME = "comprobantes"
+        # CORRECCIÓN 2: Subir al bucket root, pero con ruta de carpeta
+        BUCKET_NAME = "comprobantes"  # El bucket principal
         
         try:
-            # Subir archivo CON la ruta completa incluyendo carpeta
-            # Opción 1: Si quieres que se guarde en la raíz del bucket con nombre descriptivo
+            # Método 1: Intentar subir con path completo
+            print("🚀 Método 1: Subiendo con path completo...")
             result = supabase.storage.from_(BUCKET_NAME).upload(
-                file_path, 
+                file_path_in_folder,  # Incluye la carpeta en el path
                 file.getvalue(),
-                file_options={"content-type": f"application/{file_extension}"}
+                file_options={
+                    "content-type": f"application/{file_extension}",
+                    "upsert": "false"  # No sobrescribir si existe
+                }
             )
             
-            print(f"📤 Resultado de subida: {result}")
-            
-            if result:
-                print(f"✅ Archivo subido correctamente a: {file_path}")
-                
-                # Obtener URL pública
-                try:
-                    public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
-                    print(f"🌐 URL pública generada: {public_url}")
-                    return public_url
-                except Exception as url_error:
-                    print(f"⚠️ Error generando URL pública: {url_error}")
-                    # Aún así devolvemos una URL manual
-                    manual_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{file_path}"
-                    print(f"🔧 URL manual: {manual_url}")
-                    return manual_url
+            if result and not hasattr(result, 'error'):
+                print(f"✅ Subida exitosa con Método 1")
+                public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path_in_folder)
+                print(f"🌐 URL generada: {public_url}")
+                return public_url
             else:
-                print(f"❌ Error en la subida - resultado vacío")
-                return None
+                print(f"⚠️ Método 1 falló: {getattr(result, 'error', 'Sin error específico')}")
                 
-        except Exception as upload_error:
-            print(f"💥 Error específico de Supabase Storage: {upload_error}")
+        except Exception as method1_error:
+            print(f"💥 Error Método 1: {method1_error}")
+        
+        try:
+            # Método 2: Intentar solo con el nombre del archivo (sin carpeta)
+            print("🚀 Método 2: Subiendo solo nombre de archivo...")
+            result2 = supabase.storage.from_(BUCKET_NAME).upload(
+                file_name,  # Solo el nombre, sin carpeta
+                file.getvalue(),
+                file_options={"upsert": "true"}  # Permitir sobrescribir
+            )
             
-            # Si falla, intentar método alternativo
-            print("🔄 Intentando método alternativo...")
-            try:
-                # Método alternativo: usar upsert en lugar de upload
-                result_alt = supabase.storage.from_(BUCKET_NAME).upload(
-                    file_path,
-                    file.getvalue(),
-                    file_options={"upsert": "true"}
-                )
+            if result2:
+                print(f"✅ Subida exitosa con Método 2")
+                public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_name)
+                print(f"🌐 URL generada: {public_url}")
+                return public_url
                 
-                if result_alt:
-                    public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
-                    print(f"✅ Subida alternativa exitosa: {public_url}")
-                    return public_url
-                    
-            except Exception as alt_error:
-                print(f"💥 También falló método alternativo: {alt_error}")
-            
-            return None
+        except Exception as method2_error:
+            print(f"💥 Error Método 2: {method2_error}")
+        
+        print("❌ Ambos métodos fallaron")
+        return None
             
     except Exception as e:
         print(f"💥 ERROR CRÍTICO en subir_comprobante: {str(e)}")
         import traceback
-        print(f"📊 Traceback completo:\n{traceback.format_exc()}")
+        print(f"📊 Traceback:\n{traceback.format_exc()}")
         return None
 
 # INTEGRACIÓN EN SIDEBAR: Agregar estas líneas en la sidebar después del debug existente
@@ -1024,6 +1018,45 @@ def mostrar_modal_pago(factura):
                 if f"show_pago_{factura_id}" in st.session_state:
                     del st.session_state[f"show_pago_{factura_id}"]
                 st.rerun()
+
+def debug_subida_individual(supabase: Client):
+    """Función para debuggear la subida de archivos individualmente"""
+    st.markdown("### 🧪 Prueba de Subida Individual")
+    
+    with st.form("debug_upload"):
+        test_file = st.file_uploader("Archivo de prueba", type=['pdf', 'jpg', 'png'])
+        test_factura_id = st.number_input("ID de factura para prueba", min_value=1, value=999)
+        
+        if st.form_submit_button("Probar Subida"):
+            if test_file:
+                st.info("🔄 Iniciando prueba de subida...")
+                result_url = subir_comprobante(supabase, test_file, test_factura_id)
+                
+                if result_url:
+                    st.success(f"✅ Subida exitosa!")
+                    st.write(f"🔗 URL: {result_url}")
+                    
+                    # Verificar que el archivo realmente existe
+                    st.info("🔍 Verificando que el archivo existe en Storage...")
+                    try:
+                        files = supabase.storage.from_("comprobantes").list()
+                        archivo_encontrado = False
+                        for f in files:
+                            if f"comprobante_{test_factura_id}" in f.get('name', ''):
+                                archivo_encontrado = True
+                                st.success(f"✅ Archivo encontrado: {f['name']}")
+                                break
+                        
+                        if not archivo_encontrado:
+                            st.warning("⚠️ Archivo no encontrado en el listado")
+                            
+                    except Exception as e:
+                        st.error(f"Error verificando: {e}")
+                        
+                else:
+                    st.error("❌ Subida falló - revisar logs")
+            else:
+                st.warning("Selecciona un archivo primero")
 
 def debug_factura_especifica(supabase: Client, factura_id):
     """Debug específico para una factura"""
