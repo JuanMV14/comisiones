@@ -105,6 +105,7 @@ def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
     """Actualiza una factura"""
     try:
         if not factura_id or factura_id == 0:
+            st.error("ID de factura inválido")
             return False
             
         factura_id = int(factura_id)
@@ -112,6 +113,7 @@ def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
         # Verificar existencia
         check_response = supabase.table("comisiones").select("id").eq("id", factura_id).execute()
         if not check_response.data:
+            st.error("Factura no encontrada")
             return False
 
         # Preparar datos seguros
@@ -126,9 +128,11 @@ def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
             elif key in ["pagado", "comision_perdida"] and isinstance(value, bool):
                 safe_updates[key] = value
             elif key in ["dias_pago_real", "comision_ajustada"] and isinstance(value, (int, float)):
-                safe_updates[key] = value
+                safe_updates[key] = float(value)
             elif key in ["metodo_pago", "referencia", "observaciones_pago", "razon_perdida", "comprobante_url"]:
                 safe_updates[key] = str(value) if value is not None else ""
+            elif key in ["valor", "valor_neto", "comision", "porcentaje"]:
+                safe_updates[key] = float(value) if value is not None else 0
             else:
                 safe_updates[key] = value
 
@@ -219,6 +223,7 @@ def actualizar_meta(supabase: Client, mes: str, meta_ventas: float, meta_cliente
         return True if result.data else False
         
     except Exception as e:
+        st.error(f"Error actualizando meta: {e}")
         return False
 
 # ========================
@@ -398,7 +403,7 @@ def generar_recomendaciones_reales(supabase: Client):
         }]
 
 # ========================
-# FUNCIONES DE UI
+# FUNCIONES DE UI CORREGIDAS
 # ========================
 def render_factura_card(factura, index):
     """Renderiza una card de factura"""
@@ -416,7 +421,7 @@ def render_factura_card(factura, index):
         estado_color = "warning"
         estado_icon = "⏳"
     
-    with st.container():
+    with st.container(border=True):
         col1, col2 = st.columns([3, 1])
         
         with col1:
@@ -456,6 +461,106 @@ def render_factura_card(factura, index):
             elif dias_venc <= 5:
                 st.info(f"Vence en {dias_venc} días")
 
+def mostrar_modal_editar(factura):
+    """Modal de edición corregido"""
+    factura_id = factura.get('id')
+    if not factura_id:
+        st.error("ERROR: Factura sin ID")
+        return
+    
+    form_key = f"edit_{factura_id}_{int(datetime.now().timestamp())}"
+    
+    with st.form(form_key):
+        st.markdown(f"### ✏️ Editar Factura - {factura.get('pedido', 'N/A')}")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            nuevo_pedido = st.text_input("Pedido", value=factura.get('pedido', ''))
+            nuevo_cliente = st.text_input("Cliente", value=factura.get('cliente', ''))
+            nuevo_valor = st.number_input("Valor Total", value=float(factura.get('valor', 0)), min_value=0.0)
+        
+        with col2:
+            nueva_factura = st.text_input("Número Factura", value=factura.get('factura', ''))
+            cliente_propio = st.checkbox("Cliente Propio", value=bool(factura.get('cliente_propio', False)))
+            descuento_adicional = st.number_input("Descuento %", value=float(factura.get('descuento_adicional', 0)))
+        
+        nueva_fecha = st.date_input(
+            "Fecha Factura", 
+            value=pd.to_datetime(factura.get('fecha_factura', date.today())).date()
+        )
+        
+        st.markdown("#### Recálculo de Comisión")
+        if nuevo_valor > 0:
+            calc = calcular_comision_inteligente(
+                nuevo_valor, 
+                cliente_propio, 
+                descuento_adicional, 
+                factura.get('descuento_pie_factura', False)
+            )
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Nueva Comisión", format_currency(calc['comision']))
+            with col2:
+                st.metric("Porcentaje", f"{calc['porcentaje']}%")
+            with col3:
+                st.metric("Base", format_currency(calc['base_comision']))
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            guardar = st.form_submit_button("💾 Guardar Cambios", type="primary")
+        with col2:
+            if st.form_submit_button("❌ Cancelar"):
+                if f"show_edit_{factura_id}" in st.session_state:
+                    del st.session_state[f"show_edit_{factura_id}"]
+                st.rerun()
+        
+        if guardar:
+            if nuevo_pedido and nuevo_cliente and nuevo_valor > 0:
+                # Recalcular comisión
+                calc = calcular_comision_inteligente(
+                    nuevo_valor, 
+                    cliente_propio, 
+                    descuento_adicional,
+                    factura.get('descuento_pie_factura', False)
+                )
+                
+                # Recalcular fechas de pago
+                dias_pago = 60 if factura.get('condicion_especial', False) else 35
+                dias_max = 60 if factura.get('condicion_especial', False) else 45
+                fecha_pago_est = nueva_fecha + timedelta(days=dias_pago)
+                fecha_pago_max = nueva_fecha + timedelta(days=dias_max)
+                
+                updates = {
+                    "pedido": nuevo_pedido,
+                    "cliente": nuevo_cliente,
+                    "factura": nueva_factura,
+                    "valor": nuevo_valor,
+                    "valor_neto": calc['valor_neto'],
+                    "iva": calc['iva'],
+                    "base_comision": calc['base_comision'],
+                    "comision": calc['comision'],
+                    "porcentaje": calc['porcentaje'],
+                    "fecha_factura": nueva_fecha.isoformat(),
+                    "fecha_pago_est": fecha_pago_est.isoformat(),
+                    "fecha_pago_max": fecha_pago_max.isoformat(),
+                    "cliente_propio": cliente_propio,
+                    "descuento_adicional": descuento_adicional
+                }
+                
+                resultado = actualizar_factura(supabase, factura_id, updates)
+                
+                if resultado:
+                    st.success("✅ Factura actualizada exitosamente!")
+                    if f"show_edit_{factura_id}" in st.session_state:
+                        del st.session_state[f"show_edit_{factura_id}"]
+                    st.rerun()
+                else:
+                    st.error("❌ Error actualizando la factura")
+            else:
+                st.error("Por favor completa todos los campos requeridos")
+
 def mostrar_modal_pago_final(factura):
     """Modal de pago corregido"""
     factura_id = factura.get('id')
@@ -463,7 +568,12 @@ def mostrar_modal_pago_final(factura):
         st.error("ERROR: Factura sin ID")
         return
     
-    form_key = f"pago_final_{factura_id}_{int(datetime.now().timestamp())}"
+    # Verificar si ya está pagada
+    if factura.get('pagado'):
+        st.warning("Esta factura ya está marcada como pagada")
+        return
+    
+    form_key = f"pago_{factura_id}_{int(datetime.now().timestamp())}"
     
     with st.form(form_key):
         st.markdown(f"### 💳 Procesar Pago - {factura.get('pedido', 'N/A')}")
@@ -489,7 +599,7 @@ def mostrar_modal_pago_final(factura):
         archivo = st.file_uploader(
             "Subir comprobante", 
             type=['pdf', 'jpg', 'jpeg', 'png'],
-            key=f"archivo_{factura_id}"
+            key=f"archivo_{factura_id}_{int(datetime.now().timestamp())}"
         )
         
         col1, col2 = st.columns(2)
@@ -502,42 +612,50 @@ def mostrar_modal_pago_final(factura):
                 st.rerun()
         
         if procesar:
-            st.info("🔄 Procesando pago...")
-            
-            comprobante_url = None
-            if archivo:
-                comprobante_url = subir_comprobante(supabase, archivo, factura_id)
-            
-            fecha_factura = pd.to_datetime(factura.get('fecha_factura'))
-            dias = (pd.to_datetime(fecha_pago) - fecha_factura).days
-            
-            updates = {
-                "pagado": True,
-                "fecha_pago_real": fecha_pago.isoformat(),
-                "dias_pago_real": dias,
-                "metodo_pago": metodo,
-                "referencia": referencia,
-                "observaciones_pago": observaciones
-            }
-            
-            if comprobante_url:
-                updates["comprobante_url"] = comprobante_url
-            
-            if dias > 80:
-                updates["comision_perdida"] = True
-                updates["razon_perdida"] = f"Pago tardío: {dias} días"
-            
-            resultado = actualizar_factura(supabase, factura_id, updates)
-            
-            if resultado:
-                st.success("🎉 PAGO PROCESADO EXITOSAMENTE!")
-                st.balloons()
+            with st.spinner("🔄 Procesando pago..."):
+                comprobante_url = None
+                if archivo:
+                    comprobante_url = subir_comprobante(supabase, archivo, factura_id)
                 
-                if f"show_pago_{factura_id}" in st.session_state:
-                    del st.session_state[f"show_pago_{factura_id}"]
-                st.rerun()
-            else:
-                st.error("❌ Error procesando el pago")
+                # Calcular días de pago
+                fecha_factura = pd.to_datetime(factura.get('fecha_factura'))
+                dias = (pd.to_datetime(fecha_pago) - fecha_factura).days
+                
+                updates = {
+                    "pagado": True,
+                    "fecha_pago_real": fecha_pago.isoformat(),
+                    "dias_pago_real": dias,
+                    "metodo_pago": metodo,
+                    "referencia": referencia,
+                    "observaciones_pago": observaciones
+                }
+                
+                if comprobante_url:
+                    updates["comprobante_url"] = comprobante_url
+                
+                # Verificar si la comisión se pierde por pago tardío
+                if dias > 80:
+                    updates["comision_perdida"] = True
+                    updates["razon_perdida"] = f"Pago tardío: {dias} días"
+                    updates["comision_ajustada"] = 0
+                else:
+                    updates["comision_perdida"] = False
+                    updates["comision_ajustada"] = factura.get('comision', 0)
+                
+                resultado = actualizar_factura(supabase, factura_id, updates)
+                
+                if resultado:
+                    st.success("🎉 PAGO PROCESADO EXITOSAMENTE!")
+                    st.balloons()
+                    
+                    if dias > 80:
+                        st.warning(f"⚠️ COMISIÓN PERDIDA: Pago realizado después de 80 días ({dias} días)")
+                    
+                    if f"show_pago_{factura_id}" in st.session_state:
+                        del st.session_state[f"show_pago_{factura_id}"]
+                    st.rerun()
+                else:
+                    st.error("❌ Error procesando el pago")
 
 def mostrar_comprobante(comprobante_url):
     """Muestra comprobante de pago"""
@@ -562,23 +680,68 @@ def mostrar_detalles_completos(factura):
         st.write(f"**Cliente:** {factura.get('cliente', 'N/A')}")
         st.write(f"**Factura:** {factura.get('factura', 'N/A')}")
         st.write(f"**Cliente Propio:** {'Sí' if factura.get('cliente_propio') else 'No'}")
+        
+        fecha_factura = factura.get('fecha_factura')
+        if pd.notna(fecha_factura):
+            st.write(f"**Fecha Factura:** {pd.to_datetime(fecha_factura).strftime('%d/%m/%Y')}")
+        
+        fecha_pago_max = factura.get('fecha_pago_max')
+        if pd.notna(fecha_pago_max):
+            st.write(f"**Fecha Límite:** {pd.to_datetime(fecha_pago_max).strftime('%d/%m/%Y')}")
     
     with col2:
         st.markdown("#### Información Financiera")
         st.write(f"**Valor Total:** {format_currency(factura.get('valor', 0))}")
         st.write(f"**Valor Neto:** {format_currency(factura.get('valor_neto', 0))}")
+        st.write(f"**IVA:** {format_currency(factura.get('iva', 0))}")
+        st.write(f"**Base Comisión:** {format_currency(factura.get('base_comision', 0))}")
         st.write(f"**Comisión:** {format_currency(factura.get('comision', 0))} ({factura.get('porcentaje', 0)}%)")
+        
+        if factura.get('descuento_adicional', 0) > 0:
+            st.write(f"**Descuento Adicional:** {factura.get('descuento_adicional', 0)}%")
+    
+    # Información de pago si existe
+    if factura.get('pagado'):
+        st.markdown("#### Información de Pago")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fecha_pago_real = factura.get('fecha_pago_real')
+            if pd.notna(fecha_pago_real):
+                st.write(f"**Fecha Pago:** {pd.to_datetime(fecha_pago_real).strftime('%d/%m/%Y')}")
+            
+            if factura.get('metodo_pago'):
+                st.write(f"**Método:** {factura.get('metodo_pago')}")
+            
+            if factura.get('referencia'):
+                st.write(f"**Referencia:** {factura.get('referencia')}")
+        
+        with col2:
+            dias_pago = factura.get('dias_pago_real')
+            if dias_pago is not None:
+                st.write(f"**Días de Pago:** {dias_pago}")
+            
+            if factura.get('comision_perdida'):
+                st.error("**Estado:** Comisión Perdida")
+                if factura.get('razon_perdida'):
+                    st.write(f"**Razón:** {factura.get('razon_perdida')}")
+            else:
+                st.success("**Estado:** Comisión Ganada")
     
     if factura.get('observaciones_pago'):
         st.markdown("#### Observaciones")
         st.write(factura.get('observaciones_pago'))
 
 # ========================
-# FUNCIONES DE TAB
+# FUNCIONES DE TAB CORREGIDAS
 # ========================
 def render_tab_comisiones():
     """Tab de comisiones corregido"""
     st.header("Gestión de Comisiones")
+    
+    # Inicializar estados si no existen
+    if 'filtros_aplicados' not in st.session_state:
+        st.session_state.filtros_aplicados = False
     
     with st.container():
         st.markdown("### Filtros")
@@ -591,13 +754,16 @@ def render_tab_comisiones():
         with col3:
             monto_min = st.number_input("Valor mínimo", min_value=0, value=0, step=100000)
         with col4:
-            if st.button("Exportar Excel"):
-                st.success("Funcionalidad próximamente")
+            if st.button("🔄 Actualizar"):
+                st.session_state.filtros_aplicados = True
+                st.rerun()
     
+    # Cargar datos
     df = cargar_datos(supabase)
     if not df.empty:
         df = agregar_campos_faltantes(df)
         
+        # Aplicar filtros
         df_filtrado = df.copy()
         
         if estado_filter == "Pendientes":
@@ -615,6 +781,7 @@ def render_tab_comisiones():
     else:
         df_filtrado = pd.DataFrame()
     
+    # Mostrar resumen
     if not df_filtrado.empty:
         st.markdown("### Resumen")
         col1, col2, col3, col4 = st.columns(4)
@@ -631,54 +798,130 @@ def render_tab_comisiones():
     
     st.markdown("---")
     
+    # Mostrar facturas
     if not df_filtrado.empty:
         st.markdown("### Facturas Detalladas")
         
+        # Ordenar por fecha de factura descendente
+        df_filtrado = df_filtrado.sort_values('fecha_factura', ascending=False)
+        
         for index, (_, factura) in enumerate(df_filtrado.iterrows()):
+            # Crear un ID único para esta factura
+            factura_id = factura.get('id')
+            unique_key = f"{factura_id}_{index}"
+            
+            # Renderizar card
             render_factura_card(factura, index)
             
+            # Botones de acción
             col1, col2, col3, col4, col5, col6 = st.columns(6)
             
             with col1:
-                if st.button("Editar", key=f"edit_{factura.get('id', 0)}_{index}"):
-                    st.session_state[f"show_edit_{factura.get('id')}"] = True
+                if st.button("✏️ Editar", key=f"edit_{unique_key}"):
+                    # Limpiar otros estados
+                    for key in list(st.session_state.keys()):
+                        if key.startswith(f"show_") and str(factura_id) in key:
+                            del st.session_state[key]
+                    st.session_state[f"show_edit_{factura_id}"] = True
+                    st.rerun()
             
             with col2:
                 if not factura.get("pagado"):
-                    if st.button("Pagar", key=f"pay_{factura.get('id', 0)}_{index}"):
-                        st.session_state[f"show_pago_{factura.get('id')}"] = True
+                    if st.button("💳 Pagar", key=f"pay_{unique_key}"):
+                        # Limpiar otros estados
+                        for key in list(st.session_state.keys()):
+                            if key.startswith(f"show_") and str(factura_id) in key:
+                                del st.session_state[key]
+                        st.session_state[f"show_pago_{factura_id}"] = True
+                        st.rerun()
+                else:
+                    st.success("✅ Pagada")
             
             with col3:
-                if st.button("Detalles", key=f"detail_{factura.get('id', 0)}_{index}"):
-                    st.session_state[f"show_detail_{factura.get('id')}"] = True
+                if st.button("📊 Detalles", key=f"detail_{unique_key}"):
+                    # Limpiar otros estados
+                    for key in list(st.session_state.keys()):
+                        if key.startswith(f"show_") and str(factura_id) in key:
+                            del st.session_state[key]
+                    st.session_state[f"show_detail_{factura_id}"] = True
+                    st.rerun()
             
             with col4:
                 if factura.get("comprobante_url"):
-                    if st.button("Comprobante", key=f"comp_{factura.get('id', 0)}_{index}"):
-                        st.session_state[f"show_comprobante_{factura.get('id')}"] = True
+                    if st.button("📄 Comprobante", key=f"comp_{unique_key}"):
+                        # Limpiar otros estados
+                        for key in list(st.session_state.keys()):
+                            if key.startswith(f"show_") and str(factura_id) in key:
+                                del st.session_state[key]
+                        st.session_state[f"show_comprobante_{factura_id}"] = True
+                        st.rerun()
+                else:
+                    st.caption("Sin comprobante")
             
-            # Modales/Expandibles
-            if st.session_state.get(f"show_pago_{factura.get('id')}", False):
-                with st.expander(f"Marcar como Pagada - {factura.get('pedido', 'N/A')}", expanded=True):
+            with col5:
+                if factura.get("pagado"):
+                    dias_pago = factura.get("dias_pago_real", 0)
+                    if dias_pago > 80:
+                        st.error("⚠️ Sin comisión")
+                    else:
+                        st.success(f"✅ {dias_pago} días")
+                else:
+                    dias_venc = factura.get("dias_vencimiento", 0)
+                    if dias_venc < 0:
+                        st.error(f"🚨 -{abs(dias_venc)}d")
+                    elif dias_venc <= 5:
+                        st.warning(f"⏰ {dias_venc}d")
+                    else:
+                        st.info(f"📅 {dias_venc}d")
+            
+            with col6:
+                prioridad_score = 0
+                if not factura.get("pagado"):
+                    if factura.get("dias_vencimiento", 0) < 0:
+                        prioridad_score = 3  # Crítico
+                    elif factura.get("dias_vencimiento", 0) <= 5:
+                        prioridad_score = 2  # Alto
+                    else:
+                        prioridad_score = 1  # Medio
+                
+                if prioridad_score == 3:
+                    st.error("🚨 CRÍTICO")
+                elif prioridad_score == 2:
+                    st.warning("⚠️ ALTO")
+                elif prioridad_score == 1:
+                    st.info("📋 MEDIO")
+                else:
+                    st.success("✅ COMPLETO")
+            
+            # Mostrar modales/expandibles basados en el estado
+            if st.session_state.get(f"show_edit_{factura_id}", False):
+                with st.expander(f"✏️ Editando: {factura.get('pedido', 'N/A')}", expanded=True):
+                    mostrar_modal_editar(factura)
+            
+            if st.session_state.get(f"show_pago_{factura_id}", False):
+                with st.expander(f"💳 Procesando Pago: {factura.get('pedido', 'N/A')}", expanded=True):
                     mostrar_modal_pago_final(factura)
             
-            if st.session_state.get(f"show_comprobante_{factura.get('id')}", False):
-                with st.expander(f"Comprobante - {factura.get('pedido', 'N/A')}", expanded=True):
+            if st.session_state.get(f"show_comprobante_{factura_id}", False):
+                with st.expander(f"📄 Comprobante: {factura.get('pedido', 'N/A')}", expanded=True):
                     mostrar_comprobante(factura.get("comprobante_url"))
-                    if st.button("Cerrar", key=f"close_comp_{factura.get('id')}_{index}"):
-                        st.session_state[f"show_comprobante_{factura.get('id')}"] = False
+                    if st.button("❌ Cerrar", key=f"close_comp_{unique_key}"):
+                        del st.session_state[f"show_comprobante_{factura_id}"]
                         st.rerun()
             
-            if st.session_state.get(f"show_detail_{factura.get('id')}", False):
-                with st.expander(f"Detalles Completos - {factura.get('pedido', 'N/A')}", expanded=True):
+            if st.session_state.get(f"show_detail_{factura_id}", False):
+                with st.expander(f"📊 Detalles: {factura.get('pedido', 'N/A')}", expanded=True):
                     mostrar_detalles_completos(factura)
-                    if st.button("Cerrar Detalles", key=f"close_detail_{factura.get('id')}_{index}"):
-                        st.session_state[f"show_detail_{factura.get('id')}"] = False
+                    if st.button("❌ Cerrar", key=f"close_detail_{unique_key}"):
+                        del st.session_state[f"show_detail_{factura_id}"]
                         st.rerun()
             
             st.markdown("---")
     else:
         st.info("No hay facturas que coincidan con los filtros aplicados")
+        
+        if df.empty:
+            st.warning("No hay datos en la base de datos. Registra tu primera venta en la pestaña 'Nueva Venta'.")
 
 # ========================
 # CSS STYLES
@@ -722,7 +965,7 @@ def load_css():
             border-radius: 0.5rem !important;
             border: 2px solid #ffffff !important;
             font-weight: 800 !important;
-            font-size: 16px !important;
+            font-size: 14px !important;
             background-color: rgba(255, 255, 255, 0.1) !important;
             color: #ffffff !important;
             transition: all 0.2s ease !important;
@@ -838,6 +1081,19 @@ def load_css():
             border: 2px solid #4f46e5;
             backdrop-filter: blur(20px);
         }
+        
+        /* Estilos para expandibles */
+        .streamlit-expanderHeader {
+            background: rgba(255, 255, 255, 0.1) !important;
+            color: #ffffff !important;
+            border: 2px solid #ffffff !important;
+        }
+        
+        .streamlit-expanderContent {
+            background: rgba(255, 255, 255, 0.05) !important;
+            border: 2px solid #ffffff !important;
+            border-top: none !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -898,6 +1154,13 @@ def main():
             meses_disponibles,
             index=0
         )
+        
+        # Botón de limpieza de estado
+        if st.button("🔄 Limpiar Estados"):
+            keys_to_delete = [key for key in st.session_state.keys() if key.startswith('show_')]
+            for key in keys_to_delete:
+                del st.session_state[key]
+            st.rerun()
 
     # MODAL DE CONFIGURACIÓN DE META
     if st.session_state.show_meta_config:
@@ -1206,7 +1469,7 @@ def main():
                             
                             # Insertar
                             if insertar_venta(supabase, data):
-                                st.success(f"¡Venta registrada correctamente!")
+                                st.success("¡Venta registrada correctamente!")
                                 st.success(f"Comisión calculada: {format_currency(calc['comision'])}")
                                 st.balloons()
                                 
@@ -1216,6 +1479,9 @@ def main():
                                 st.write(f"**Valor:** {format_currency(valor_total)}")
                                 st.write(f"**Comisión:** {format_currency(calc['comision'])} ({calc['porcentaje']}%)")
                                 st.write(f"**Fecha límite pago:** {fecha_pago_max.strftime('%d/%m/%Y')}")
+                                
+                                # Limpiar el estado después del registro exitoso
+                                st.session_state['venta_registrada'] = True
                             else:
                                 st.error("Error al registrar la venta")
                                 
@@ -1243,7 +1509,7 @@ def main():
                 st.markdown("### Top 10 Clientes")
                 
                 for cliente, row in clientes_stats.iterrows():
-                    with st.container():
+                    with st.container(border=True):
                         st.markdown(f"**{cliente}**")
                         col1, col2, col3, col4 = st.columns(4)
                         with col1:
@@ -1254,11 +1520,12 @@ def main():
                             st.metric("Compras", int(row['Número Compras']))
                         with col4:
                             st.metric("Comisiones", format_currency(row['Total Comisiones']))
-                        st.markdown("---")
+            else:
+                st.warning("No hay datos de clientes disponibles")
 
         # TAB 5 - IA & ALERTAS
         with tabs[4]:
-            st.header("🧠 Inteligencia Artificial & Alertas")
+            st.header("Inteligencia Artificial & Alertas")
             
             col1, col2 = st.columns([1, 1])
             
@@ -1297,7 +1564,7 @@ def main():
                 recomendaciones = generar_recomendaciones_reales(supabase)
                 
                 for i, rec in enumerate(recomendaciones):
-                    with st.container():
+                    with st.container(border=True):
                         with st.expander(f"#{i+1} {rec['cliente']} - {rec['probabilidad']}% probabilidad", expanded=True):
                             col_a, col_b = st.columns([3, 1])
                             
@@ -1319,13 +1586,13 @@ def main():
                             if st.button(f"Ejecutar Acción", key=f"action_rec_{i}"):
                                 st.success(f"Acción programada para {rec['cliente']}")
                 
-                if st.button("🔄 Generar Nuevas Recomendaciones"):
+                if st.button("Generar Nuevas Recomendaciones"):
                     st.rerun()
             
             st.markdown("---")
             
             # Análisis predictivo
-            st.markdown("### 📊 Análisis Predictivo")
+            st.markdown("### Análisis Predictivo")
             
             col1, col2, col3 = st.columns(3)
             
@@ -1362,4 +1629,8 @@ def main():
 # EJECUTAR APLICACIÓN
 # ========================
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        st.error(f"Error en la aplicación: {str(e)}")
+        st.info("Por favor, recarga la página o contacta al administrador.")
