@@ -449,41 +449,182 @@ def actualizar_meta(supabase: Client, mes: str, meta_ventas: float, meta_cliente
 def subir_comprobante(supabase: Client, file, factura_id: int):
     """Sube un archivo de comprobante a Supabase Storage - VERSIÓN CORREGIDA"""
     try:
-        print(f"Intentando subir comprobante para factura {factura_id}")
+        print(f"🔄 Iniciando subida de comprobante para factura {factura_id}")
         
         if file is None:
-            print("No hay archivo para subir")
+            print("❌ No hay archivo para subir")
             return None
             
-        # Generar nombre único para el archivo
+        # Generar nombre único para el archivo DENTRO de la carpeta comprobantes
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         file_extension = file.name.split('.')[-1].lower()
-        file_name = f"comprobante_{factura_id}_{timestamp}.{file_extension}"
         
-        print(f"Nombre del archivo: {file_name}")
-        print(f"Tamaño del archivo: {len(file.getvalue())} bytes")
+        # CLAVE: Incluir la carpeta en el nombre del archivo
+        file_path = f"comprobante_{factura_id}_{timestamp}.{file_extension}"
         
-        # Verificar que el bucket existe (ajusta el nombre según tu configuración)
-        BUCKET_NAME = "comprobantes"  # Cambia esto por el nombre real de tu bucket
+        print(f"📁 Ruta del archivo: comprobantes/{file_path}")
+        print(f"📦 Tamaño del archivo: {len(file.getvalue())} bytes")
         
-        # Subir archivo
-        result = supabase.storage.from_(BUCKET_NAME).upload(file_name, file.getvalue())
+        # El bucket debe existir - verificar el nombre correcto
+        BUCKET_NAME = "comprobantes"
         
-        if result:
-            print(f"✅ Archivo subido correctamente")
-            # Obtener URL pública
-            public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_name)
-            print(f"URL pública: {public_url}")
-            return public_url
-        else:
-            print(f"❌ Error subiendo archivo: {result}")
+        try:
+            # Subir archivo CON la ruta completa incluyendo carpeta
+            # Opción 1: Si quieres que se guarde en la raíz del bucket con nombre descriptivo
+            result = supabase.storage.from_(BUCKET_NAME).upload(
+                file_path, 
+                file.getvalue(),
+                file_options={"content-type": f"application/{file_extension}"}
+            )
+            
+            print(f"📤 Resultado de subida: {result}")
+            
+            if result:
+                print(f"✅ Archivo subido correctamente a: {file_path}")
+                
+                # Obtener URL pública
+                try:
+                    public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
+                    print(f"🌐 URL pública generada: {public_url}")
+                    return public_url
+                except Exception as url_error:
+                    print(f"⚠️ Error generando URL pública: {url_error}")
+                    # Aún así devolvemos una URL manual
+                    manual_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_NAME}/{file_path}"
+                    print(f"🔧 URL manual: {manual_url}")
+                    return manual_url
+            else:
+                print(f"❌ Error en la subida - resultado vacío")
+                return None
+                
+        except Exception as upload_error:
+            print(f"💥 Error específico de Supabase Storage: {upload_error}")
+            
+            # Si falla, intentar método alternativo
+            print("🔄 Intentando método alternativo...")
+            try:
+                # Método alternativo: usar upsert en lugar de upload
+                result_alt = supabase.storage.from_(BUCKET_NAME).upload(
+                    file_path,
+                    file.getvalue(),
+                    file_options={"upsert": "true"}
+                )
+                
+                if result_alt:
+                    public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
+                    print(f"✅ Subida alternativa exitosa: {public_url}")
+                    return public_url
+                    
+            except Exception as alt_error:
+                print(f"💥 También falló método alternativo: {alt_error}")
+            
             return None
             
     except Exception as e:
-        print(f"ERROR en subir_comprobante: {str(e)}")
+        print(f"💥 ERROR CRÍTICO en subir_comprobante: {str(e)}")
         import traceback
-        print(traceback.format_exc())
+        print(f"📊 Traceback completo:\n{traceback.format_exc()}")
         return None
+
+# INTEGRACIÓN EN SIDEBAR: Agregar estas líneas en la sidebar después del debug existente
+def render_storage_debug_sidebar(supabase: Client):
+    """Renderiza controles de debug para Storage en la sidebar"""
+    st.markdown("### 📦 Storage Debug")
+    
+    if st.button("Verificar Storage Config"):
+        verificar_storage_config(supabase)
+    
+    if st.button("Probar Subida"):
+        if probar_subida_storage(supabase):
+            st.success("Storage funciona correctamente")
+        else:
+            st.error("Problemas con Storage")
+    
+    if st.button("Listar Archivos"):
+        try:
+            files = supabase.storage.from_("comprobantes").list()
+            st.write(f"**Archivos en bucket:** {len(files)}")
+            for f in files[:10]:  # Solo 10 primeros
+                st.write(f"- {f['name']}")
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+# FUNCIÓN ADICIONAL: Verificar configuración de Storage
+def verificar_storage_config(supabase: Client):
+    """Verifica la configuración de Supabase Storage"""
+    try:
+        print("🔍 Verificando configuración de Storage...")
+        
+        # Listar buckets disponibles
+        try:
+            buckets = supabase.storage.list_buckets()
+            print(f"📦 Buckets disponibles: {[bucket.name for bucket in buckets]}")
+            
+            # Verificar si existe el bucket 'comprobantes'
+            bucket_names = [bucket.name for bucket in buckets]
+            if "comprobantes" in bucket_names:
+                print("✅ Bucket 'comprobantes' encontrado")
+                
+                # Listar archivos en el bucket
+                files = supabase.storage.from_("comprobantes").list()
+                print(f"📄 Archivos en bucket: {len(files)} archivos")
+                
+                for file_info in files[:5]:  # Mostrar solo los primeros 5
+                    print(f"  - {file_info['name']} ({file_info.get('metadata', {}).get('size', 'N/A')} bytes)")
+                    
+            else:
+                print("❌ Bucket 'comprobantes' NO encontrado")
+                print("🔧 Buckets disponibles:", bucket_names)
+                
+        except Exception as bucket_error:
+            print(f"❌ Error listando buckets: {bucket_error}")
+            
+    except Exception as e:
+        print(f"💥 Error verificando Storage: {e}")
+
+# FUNCIÓN DE PRUEBA: Subir archivo de prueba
+def probar_subida_storage(supabase: Client):
+    """Función de prueba para verificar que Storage funciona"""
+    try:
+        print("🧪 Probando subida a Storage...")
+        
+        # Crear un archivo de prueba en memoria
+        import io
+        test_content = "Este es un archivo de prueba para verificar Storage"
+        test_file = io.BytesIO(test_content.encode('utf-8'))
+        test_file.name = "test_file.txt"
+        
+        # Intentar subir
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        test_filename = f"test_upload_{timestamp}.txt"
+        
+        result = supabase.storage.from_("comprobantes").upload(
+            test_filename,
+            test_file.getvalue()
+        )
+        
+        if result:
+            print(f"✅ Prueba de subida exitosa: {test_filename}")
+            
+            # Obtener URL
+            url = supabase.storage.from_("comprobantes").get_public_url(test_filename)
+            print(f"🌐 URL de prueba: {url}")
+            
+            # Limpiar - eliminar archivo de prueba
+            try:
+                supabase.storage.from_("comprobantes").remove([test_filename])
+                print(f"🗑️ Archivo de prueba eliminado")
+            except:
+                print(f"⚠️ No se pudo eliminar archivo de prueba")
+                
+            return True
+        else:
+            print("❌ Falló la prueba de subida")
+            return False
+            
+    except Exception as e:
+        print(f"💥 Error en prueba de Storage: {e}")
+        return False
         
 # Funciones auxiliares
 def format_currency(value):
