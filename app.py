@@ -1430,6 +1430,7 @@ def main():
             "Dashboard",
             "Comisiones", 
             "Nueva Venta",
+            "Devoluciones",
             "Clientes",
             "IA & Alertas"
         ])
@@ -1711,6 +1712,435 @@ def main():
 
         # TAB 4 - CLIENTES
         with tabs[3]:
+            # ========================
+# FUNCIONES DE DEVOLUCIONES - AÑADIR DESPUÉS DE LAS FUNCIONES EXISTENTES
+# ========================
+
+def cargar_devoluciones(supabase: Client):
+    """Carga datos de devoluciones con información de factura"""
+    try:
+        # Query con JOIN para obtener información de la factura
+        response = supabase.table("devoluciones").select("""
+            *,
+            comisiones!devoluciones_factura_id_fkey(
+                pedido,
+                cliente,
+                factura,
+                valor,
+                comision
+            )
+        """).execute()
+        
+        if not response.data:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(response.data)
+        
+        # Expandir datos de la factura relacionada
+        if 'comisiones' in df.columns:
+            factura_data = pd.json_normalize(df['comisiones'])
+            factura_data.columns = ['factura_' + col for col in factura_data.columns]
+            df = pd.concat([df.drop('comisiones', axis=1), factura_data], axis=1)
+        
+        # Conversión de tipos
+        df['valor_devuelto'] = pd.to_numeric(df['valor_devuelto'], errors='coerce').fillna(0)
+        df['afecta_comision'] = df['afecta_comision'].fillna(True).astype(bool)
+        
+        # Convertir fechas
+        for col in ['fecha_devolucion', 'created_at']:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+        
+        # Campos string
+        for col in ['motivo']:
+            if col in df.columns:
+                df[col] = df[col].fillna('').astype(str)
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"Error cargando devoluciones: {str(e)}")
+        return pd.DataFrame()
+
+def insertar_devolucion(supabase: Client, data: dict):
+    """Inserta una nueva devolución"""
+    try:
+        data["created_at"] = datetime.now().isoformat()
+        result = supabase.table("devoluciones").insert(data).execute()
+        
+        if result.data:
+            # Si la devolución afecta la comisión, actualizar la factura
+            if data.get("afecta_comision", True):
+                actualizar_comision_por_devolucion(supabase, data["factura_id"], data["valor_devuelto"])
+            
+            return True
+        return False
+        
+    except Exception as e:
+        st.error(f"Error insertando devolución: {e}")
+        return False
+
+def actualizar_comision_por_devolucion(supabase: Client, factura_id: int, valor_devuelto: float):
+    """Actualiza la comisión de una factura considerando devoluciones"""
+    try:
+        # Obtener datos actuales de la factura
+        factura_response = supabase.table("comisiones").select("*").eq("id", factura_id).execute()
+        if not factura_response.data:
+            return False
+        
+        factura = factura_response.data[0]
+        
+        # Obtener total de devoluciones que afectan comisión para esta factura
+        devoluciones_response = supabase.table("devoluciones").select("valor_devuelto").eq("factura_id", factura_id).eq("afecta_comision", True).execute()
+        
+        total_devuelto = sum([d['valor_devuelto'] for d in devoluciones_response.data]) if devoluciones_response.data else 0
+        
+        # Recalcular valores considerando devoluciones
+        valor_original = factura.get('valor', 0)
+        valor_neto_original = factura.get('valor_neto', 0)
+        base_comision_original = factura.get('base_comision', 0)
+        porcentaje = factura.get('porcentaje', 0)
+        
+        # Nuevo valor después de devoluciones
+        valor_efectivo = valor_original - total_devuelto
+        valor_neto_efectivo = valor_neto_original - (total_devuelto / 1.19)
+        
+        # Recalcular base comisión
+        if factura.get('descuento_pie_factura', False):
+            base_comision_efectiva = valor_neto_efectivo
+        else:
+            base_comision_efectiva = valor_neto_efectivo * 0.85
+        
+        # Nueva comisión
+        comision_efectiva = base_comision_efectiva * (porcentaje / 100)
+        
+        updates = {
+            "valor_devuelto": total_devuelto,
+            "comision_ajustada": comision_efectiva,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = supabase.table("comisiones").update(updates).eq("id", factura_id).execute()
+        return True if result.data else False
+        
+    except Exception as e:
+        st.error(f"Error actualizando comisión por devolución: {e}")
+        return False
+
+def obtener_facturas_para_devolucion(supabase: Client):
+    """Obtiene facturas disponibles para devoluciones"""
+    try:
+        response = supabase.table("comisiones").select(
+            "id, pedido, cliente, factura, valor, comision, fecha_factura"
+        ).order("fecha_factura", desc=True).execute()
+        
+        if response.data:
+            df = pd.DataFrame(response.data)
+            df['fecha_factura'] = pd.to_datetime(df['fecha_factura'])
+            return df
+        return pd.DataFrame()
+        
+    except Exception as e:
+        st.error(f"Error obteniendo facturas: {e}")
+        return pd.DataFrame()
+
+def mostrar_modal_nueva_devolucion(facturas_df):
+    """Modal para crear nueva devolución"""
+    with st.form("nueva_devolucion_form", clear_on_submit=False):
+        st.markdown("### Registrar Nueva Devolución")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Selector de factura
+            if not facturas_df.empty:
+                opciones_factura = [f"{row['pedido']} - {row['cliente']} - {format_currency(row['valor'])}" 
+                                   for _, row in facturas_df.iterrows()]
+                
+                factura_seleccionada = st.selectbox(
+                    "Seleccionar Factura *",
+                    options=range(len(opciones_factura)),
+                    format_func=lambda x: opciones_factura[x] if x < len(opciones_factura) else "Seleccione...",
+                    help="Factura sobre la cual se hará la devolución"
+                )
+            else:
+                st.error("No hay facturas disponibles")
+                return
+            
+            valor_devuelto = st.number_input(
+                "Valor a Devolver *",
+                min_value=0.0,
+                step=1000.0,
+                format="%.0f",
+                help="Valor total a devolver (incluye IVA si aplica)"
+            )
+        
+        with col2:
+            fecha_devolucion = st.date_input(
+                "Fecha de Devolución *",
+                value=date.today(),
+                help="Fecha en que se procesa la devolución"
+            )
+            
+            afecta_comision = st.checkbox(
+                "Afecta Comisión",
+                value=True,
+                help="Si esta devolución debe reducir la comisión calculada"
+            )
+        
+        motivo = st.text_area(
+            "Motivo de la Devolución",
+            placeholder="Ej: Producto defectuoso, Error en pedido, Cambio de especificación...",
+            help="Descripción del motivo de la devolución"
+        )
+        
+        # Mostrar información de la factura seleccionada
+        if factura_seleccionada is not None and factura_seleccionada < len(facturas_df):
+            st.markdown("---")
+            st.markdown("### Información de la Factura")
+            
+            factura_info = facturas_df.iloc[factura_seleccionada]
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Valor Factura", format_currency(factura_info['valor']))
+            with col2:
+                st.metric("Comisión Original", format_currency(factura_info['comision']))
+            with col3:
+                if valor_devuelto > 0 and afecta_comision:
+                    # Calcular impacto en comisión
+                    porcentaje_devuelto = valor_devuelto / factura_info['valor']
+                    comision_perdida = factura_info['comision'] * porcentaje_devuelto
+                    st.metric("Comisión Perdida", format_currency(comision_perdida))
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            registrar = st.form_submit_button(
+                "Registrar Devolución",
+                type="primary",
+                use_container_width=True
+            )
+        
+        with col2:
+            cancelar = st.form_submit_button(
+                "Cancelar",
+                use_container_width=True
+            )
+        
+        if cancelar:
+            if 'show_nueva_devolucion' in st.session_state:
+                del st.session_state['show_nueva_devolucion']
+            st.rerun()
+        
+        if registrar:
+            if factura_seleccionada is not None and valor_devuelto > 0:
+                try:
+                    factura_info = facturas_df.iloc[factura_seleccionada]
+                    
+                    # Validar que el valor no exceda el de la factura
+                    if valor_devuelto > factura_info['valor']:
+                        st.error("El valor a devolver no puede ser mayor al valor de la factura")
+                        return
+                    
+                    data = {
+                        "factura_id": int(factura_info['id']),
+                        "valor_devuelto": float(valor_devuelto),
+                        "motivo": motivo.strip(),
+                        "fecha_devolucion": fecha_devolucion.isoformat(),
+                        "afecta_comision": afecta_comision
+                    }
+                    
+                    if insertar_devolucion(supabase, data):
+                        st.success("Devolución registrada correctamente!")
+                        
+                        if afecta_comision:
+                            st.warning("La comisión de la factura ha sido recalculada")
+                        
+                        st.balloons()
+                        
+                        # Mostrar resumen
+                        st.markdown("### Resumen de la Devolución")
+                        st.write(f"**Cliente:** {factura_info['cliente']}")
+                        st.write(f"**Pedido:** {factura_info['pedido']}")
+                        st.write(f"**Valor devuelto:** {format_currency(valor_devuelto)}")
+                        st.write(f"**Fecha:** {fecha_devolucion.strftime('%d/%m/%Y')}")
+                        if motivo:
+                            st.write(f"**Motivo:** {motivo}")
+                        
+                        # Limpiar cache y estado
+                        st.cache_data.clear()
+                        if 'show_nueva_devolucion' in st.session_state:
+                            del st.session_state['show_nueva_devolucion']
+                        
+                        st.rerun()
+                    else:
+                        st.error("Error registrando la devolución")
+                        
+                except Exception as e:
+                    st.error(f"Error procesando devolución: {str(e)}")
+            else:
+                st.error("Por favor completa todos los campos obligatorios")
+
+def render_devolucion_card(devolucion, index):
+    """Renderiza una card de devolución"""
+    with st.container(border=True):
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            cliente = devolucion.get('factura_cliente', 'N/A')
+            pedido = devolucion.get('factura_pedido', 'N/A')
+            st.markdown(f"## 🔄 {pedido} - {cliente}")
+            st.caption(f"Factura: {devolucion.get('factura_factura', 'N/A')}")
+        
+        with col2:
+            if devolucion.get('afecta_comision', True):
+                st.error("❌ AFECTA COMISIÓN")
+            else:
+                st.success("✅ NO AFECTA")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Valor Devuelto", format_currency(devolucion.get('valor_devuelto', 0)))
+        
+        with col2:
+            valor_factura = devolucion.get('factura_valor', 0)
+            porcentaje = (devolucion.get('valor_devuelto', 0) / valor_factura * 100) if valor_factura > 0 else 0
+            st.metric("% de Factura", f"{porcentaje:.1f}%")
+        
+        with col3:
+            if devolucion.get('afecta_comision', True):
+                comision_original = devolucion.get('factura_comision', 0)
+                comision_perdida = comision_original * (porcentaje / 100)
+                st.metric("Comisión Perdida", format_currency(comision_perdida))
+            else:
+                st.metric("Comisión Perdida", format_currency(0))
+        
+        with col4:
+            fecha_dev = devolucion.get('fecha_devolucion')
+            if pd.notna(fecha_dev):
+                fecha_str = pd.to_datetime(fecha_dev).strftime('%d/%m/%Y')
+            else:
+                fecha_str = "N/A"
+            st.metric("Fecha", fecha_str)
+        
+        # Mostrar motivo si existe
+        if devolucion.get('motivo'):
+            st.markdown(f"**Motivo:** {devolucion.get('motivo')}")
+
+def render_tab_devoluciones():
+    """Tab de gestión de devoluciones"""
+    st.header("Gestión de Devoluciones")
+    
+    # Botones de acción
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
+    with col1:
+        if st.button("➕ Nueva Devolución", type="primary"):
+            st.session_state['show_nueva_devolucion'] = True
+            st.rerun()
+    
+    with col2:
+        if st.button("🔄 Actualizar", type="secondary"):
+            st.cache_data.clear()
+            st.rerun()
+    
+    # Modal nueva devolución
+    if st.session_state.get('show_nueva_devolucion', False):
+        with st.expander("➕ Nueva Devolución", expanded=True):
+            facturas_df = obtener_facturas_para_devolucion(supabase)
+            mostrar_modal_nueva_devolucion(facturas_df)
+    
+    st.markdown("---")
+    
+    # Cargar devoluciones
+    df_devoluciones = cargar_devoluciones(supabase)
+    
+    if not df_devoluciones.empty:
+        # Resumen de devoluciones
+        st.markdown("### Resumen")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Devoluciones", len(df_devoluciones))
+        
+        with col2:
+            total_devuelto = df_devoluciones['valor_devuelto'].sum()
+            st.metric("Valor Total Devuelto", format_currency(total_devuelto))
+        
+        with col3:
+            afectan_comision = len(df_devoluciones[df_devoluciones['afecta_comision'] == True])
+            st.metric("Afectan Comisión", afectan_comision)
+        
+        with col4:
+            valor_promedio = df_devoluciones['valor_devuelto'].mean()
+            st.metric("Valor Promedio", format_currency(valor_promedio))
+        
+        st.markdown("---")
+        
+        # Filtros
+        st.markdown("### Filtros")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            afecta_filter = st.selectbox("Afecta Comisión", ["Todos", "Sí", "No"])
+        
+        with col2:
+            cliente_filter = st.text_input("Buscar cliente")
+        
+        with col3:
+            fecha_desde = st.date_input("Desde", value=date.today() - timedelta(days=30))
+        
+        with col4:
+            fecha_hasta = st.date_input("Hasta", value=date.today())
+        
+        # Aplicar filtros
+        df_filtrado = df_devoluciones.copy()
+        
+        if afecta_filter == "Sí":
+            df_filtrado = df_filtrado[df_filtrado['afecta_comision'] == True]
+        elif afecta_filter == "No":
+            df_filtrado = df_filtrado[df_filtrado['afecta_comision'] == False]
+        
+        if cliente_filter:
+            df_filtrado = df_filtrado[df_filtrado['factura_cliente'].str.contains(cliente_filter, case=False, na=False)]
+        
+        # Filtro por fechas
+        df_filtrado['fecha_devolucion'] = pd.to_datetime(df_filtrado['fecha_devolucion'])
+        df_filtrado = df_filtrado[
+            (df_filtrado['fecha_devolucion'].dt.date >= fecha_desde) &
+            (df_filtrado['fecha_devolucion'].dt.date <= fecha_hasta)
+        ]
+        
+        st.markdown("---")
+        
+        # Mostrar devoluciones
+        if not df_filtrado.empty:
+            st.markdown("### Devoluciones Registradas")
+            
+            # Ordenar por fecha más reciente
+            df_filtrado = df_filtrado.sort_values('fecha_devolucion', ascending=False)
+            
+            for index, (_, devolucion) in enumerate(df_filtrado.iterrows()):
+                render_devolucion_card(devolucion, index)
+                st.markdown("---")
+        else:
+            st.info("No hay devoluciones que coincidan con los filtros aplicados")
+    
+    else:
+        st.info("No hay devoluciones registradas")
+        st.markdown("""
+        **¿Cómo registrar una devolución?**
+        1. Haz clic en "Nueva Devolución"
+        2. Selecciona la factura correspondiente
+        3. Ingresa el valor y motivo
+        4. Indica si afecta la comisión
+        5. Registra la devolución
+        """)
             st.header("Gestión de Clientes")
             st.info("Módulo en desarrollo - Próximamente funcionalidad completa de gestión de clientes")
             
