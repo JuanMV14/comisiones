@@ -142,8 +142,12 @@ def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
                     if campo in ['pedido', 'cliente', 'factura', 'referencia', 'observaciones_pago', 'razon_perdida', 'comprobante_url']:
                         safe_updates[campo] = str(valor) if valor is not None else ""
                     
-                    elif campo in ['valor', 'valor_neto', 'iva', 'base_comision', 'comision', 'porcentaje', 'comision_ajustada', 'descuento_adicional', 'dias_pago_real']:
+                    elif campo in ['valor', 'valor_neto', 'iva', 'base_comision', 'comision', 'porcentaje', 'comision_ajustada', 'descuento_adicional']:
                         safe_updates[campo] = float(valor) if valor is not None else 0
+                    
+                    elif campo in ['dias_pago_real']:
+                        # Campo INTEGER - convertir a entero
+                        safe_updates[campo] = int(float(valor)) if valor is not None else 0
                     
                     elif campo in ['pagado', 'comision_perdida', 'cliente_propio', 'condicion_especial', 'descuento_pie_factura']:
                         safe_updates[campo] = bool(valor)
@@ -247,6 +251,7 @@ def mostrar_modal_pago_simplificado(factura):
                     updates = {
                         "pagado": True,
                         "fecha_pago_real": fecha_pago.isoformat(),
+                        "dias_pago_real": dias_pago,  # Ya es int, no necesita conversión adicional
                     }
                     
                     # Agregar campos opcionales si tenemos los datos
