@@ -106,7 +106,7 @@ def insertar_venta(supabase: Client, data: dict):
         return False
 
 def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
-    """Actualiza una factura - VERSIÓN CORREGIDA"""
+    """Actualiza una factura - VERSIÓN QUE DETECTA COLUMNAS AUTOMÁTICAMENTE"""
     try:
         if not factura_id or factura_id == 0:
             st.error("ID de factura inválido")
@@ -114,58 +114,70 @@ def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
             
         factura_id = int(factura_id)
         
-        # Verificar existencia primero
+        # Verificar existencia de la factura
         check_response = supabase.table("comisiones").select("id").eq("id", factura_id).execute()
         if not check_response.data:
             st.error("Factura no encontrada")
             return False
 
-        # Preparar datos con validación mejorada
+        # OBTENER COLUMNAS EXISTENTES DE LA TABLA
+        try:
+            sample_query = supabase.table("comisiones").select("*").limit(1).execute()
+            columnas_existentes = set(sample_query.data[0].keys()) if sample_query.data else set()
+        except:
+            # Columnas mínimas que deberían existir siempre
+            columnas_existentes = {
+                'id', 'pedido', 'cliente', 'factura', 'valor', 'pagado', 
+                'fecha_factura', 'created_at', 'updated_at'
+            }
+
+        # FILTRAR SOLO UPDATES PARA COLUMNAS QUE EXISTEN
         safe_updates = {}
         
-        # Campos de texto seguros
-        campos_texto = ["pedido", "cliente", "factura", "metodo_pago", "referencia", "observaciones_pago", "razon_perdida", "comprobante_url"]
-        for campo in campos_texto:
-            if campo in updates:
-                safe_updates[campo] = str(updates[campo]) if updates[campo] is not None else ""
-        
-        # Campos numéricos seguros
-        campos_numericos = ["valor", "valor_neto", "iva", "base_comision", "comision", "porcentaje", "dias_pago_real", "comision_ajustada", "descuento_adicional"]
-        for campo in campos_numericos:
-            if campo in updates:
+        for campo, valor in updates.items():
+            # Solo procesar si la columna existe en la tabla
+            if campo in columnas_existentes:
                 try:
-                    safe_updates[campo] = float(updates[campo]) if updates[campo] is not None else 0
+                    # Validación por tipo de campo
+                    if campo in ['pedido', 'cliente', 'factura', 'referencia', 'observaciones_pago', 'razon_perdida', 'comprobante_url']:
+                        safe_updates[campo] = str(valor) if valor is not None else ""
+                    
+                    elif campo in ['valor', 'valor_neto', 'iva', 'base_comision', 'comision', 'porcentaje', 'comision_ajustada', 'descuento_adicional', 'dias_pago_real']:
+                        safe_updates[campo] = float(valor) if valor is not None else 0
+                    
+                    elif campo in ['pagado', 'comision_perdida', 'cliente_propio', 'condicion_especial', 'descuento_pie_factura']:
+                        safe_updates[campo] = bool(valor)
+                    
+                    elif campo in ['fecha_factura', 'fecha_pago_est', 'fecha_pago_max', 'fecha_pago_real']:
+                        if isinstance(valor, str):
+                            datetime.fromisoformat(valor.replace('Z', '+00:00'))
+                            safe_updates[campo] = valor
+                        elif hasattr(valor, 'isoformat'):
+                            safe_updates[campo] = valor.isoformat()
+                    
+                    else:
+                        # Para otros campos, intentar agregar como están
+                        safe_updates[campo] = valor
+                        
                 except (ValueError, TypeError):
+                    # Si hay error de conversión, omitir este campo
                     continue
         
-        # Campos booleanos seguros
-        campos_booleanos = ["pagado", "comision_perdida", "cliente_propio", "condicion_especial", "descuento_pie_factura"]
-        for campo in campos_booleanos:
-            if campo in updates:
-                safe_updates[campo] = bool(updates[campo])
+        # Siempre agregar updated_at si existe la columna
+        if 'updated_at' in columnas_existentes:
+            safe_updates["updated_at"] = datetime.now().isoformat()
         
-        # Campos de fecha seguros
-        campos_fecha = ["fecha_factura", "fecha_pago_est", "fecha_pago_max", "fecha_pago_real"]
-        for campo in campos_fecha:
-            if campo in updates:
-                try:
-                    if isinstance(updates[campo], str):
-                        # Validar formato de fecha
-                        datetime.fromisoformat(updates[campo].replace('Z', '+00:00'))
-                        safe_updates[campo] = updates[campo]
-                    elif hasattr(updates[campo], 'isoformat'):
-                        safe_updates[campo] = updates[campo].isoformat()
-                except:
-                    continue
+        if not safe_updates:
+            st.warning("No hay campos válidos para actualizar")
+            return False
         
-        # Siempre actualizar timestamp
-        safe_updates["updated_at"] = datetime.now().isoformat()
+        # Mostrar qué se va a actualizar (para debug)
+        st.info(f"Actualizando campos: {list(safe_updates.keys())}")
         
         # Ejecutar actualización
         result = supabase.table("comisiones").update(safe_updates).eq("id", factura_id).execute()
         
         if result.data:
-            # FORZAR RECARGA DE CACHE
             st.cache_data.clear()
             return True
         else:
@@ -175,6 +187,132 @@ def actualizar_factura(supabase: Client, factura_id: int, updates: dict):
     except Exception as e:
         st.error(f"Error actualizando factura: {e}")
         return False
+
+def mostrar_modal_pago_simplificado(factura):
+    """Modal de pago simplificado sin método de pago"""
+    factura_id = factura.get('id')
+    if not factura_id:
+        st.error("ERROR: Factura sin ID")
+        return
+    
+    if factura.get('pagado'):
+        st.warning("Esta factura ya está marcada como pagada")
+        return
+    
+    form_key = f"pago_simple_{factura_id}"
+    
+    with st.form(form_key, clear_on_submit=False):
+        st.markdown(f"### Procesar Pago - {factura.get('pedido', 'N/A')}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Cliente:** {factura.get('cliente', 'N/A')}")
+            st.write(f"**Valor:** {format_currency(factura.get('valor', 0))}")
+        with col2:
+            st.write(f"**Comisión:** {format_currency(factura.get('comision', 0))}")
+        
+        st.markdown("---")
+        
+        fecha_pago = st.date_input("Fecha de Pago", value=date.today())
+        
+        referencia = st.text_input("Referencia del pago (opcional)", placeholder="Ej: Transferencia #12345")
+        
+        observaciones = st.text_area("Observaciones (opcional)", placeholder="Notas adicionales sobre el pago...")
+        
+        archivo = st.file_uploader(
+            "Subir comprobante", 
+            type=['pdf', 'jpg', 'jpeg', 'png'],
+            key=f"archivo_simple_{factura_id}"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            procesar = st.form_submit_button("PROCESAR PAGO", type="primary")
+        with col2:
+            cancelar = st.form_submit_button("Cancelar")
+        
+        if cancelar:
+            if f"show_pago_{factura_id}" in st.session_state:
+                del st.session_state[f"show_pago_{factura_id}"]
+            st.rerun()
+        
+        if procesar:
+            with st.spinner("Procesando pago..."):
+                try:
+                    # Calcular días desde facturación
+                    fecha_factura = pd.to_datetime(factura.get('fecha_factura'))
+                    dias_pago = (pd.to_datetime(fecha_pago) - fecha_factura).days
+                    
+                    # Updates básicos
+                    updates = {
+                        "pagado": True,
+                        "fecha_pago_real": fecha_pago.isoformat(),
+                    }
+                    
+                    # Agregar campos opcionales si tenemos los datos
+                    if referencia:
+                        updates["referencia"] = referencia
+                    
+                    if observaciones:
+                        updates["observaciones_pago"] = observaciones
+                    
+                    if dias_pago > 80:
+                        updates["comision_perdida"] = True
+                        updates["razon_perdida"] = f"Pago tardío: {dias_pago} días"
+                    else:
+                        updates["comision_perdida"] = False
+                    
+                    # Subir archivo si existe
+                    comprobante_url = None
+                    if archivo:
+                        comprobante_url = subir_comprobante(supabase, archivo, factura_id)
+                        if comprobante_url:
+                            updates["comprobante_url"] = comprobante_url
+                            st.success("Comprobante subido correctamente")
+                    
+                    # Actualizar la factura
+                    resultado = actualizar_factura(supabase, factura_id, updates)
+                    
+                    if resultado:
+                        st.success("PAGO PROCESADO CORRECTAMENTE!")
+                        st.balloons()
+                        
+                        if dias_pago > 80:
+                            st.warning(f"Advertencia: Pago tardío ({dias_pago} días) - Comisión perdida")
+                        
+                        # Mostrar resumen
+                        st.markdown("### Resumen del pago:")
+                        st.write(f"- Fecha: {fecha_pago.strftime('%d/%m/%Y')}")
+                        st.write(f"- Días desde facturación: {dias_pago}")
+                        if referencia:
+                            st.write(f"- Referencia: {referencia}")
+                        if comprobante_url:
+                            st.write(f"- Comprobante: Subido correctamente")
+                        
+                        if f"show_pago_{factura_id}" in st.session_state:
+                            del st.session_state[f"show_pago_{factura_id}"]
+                        
+                        st.rerun()
+                    else:
+                        st.error("Error procesando el pago")
+                        
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+
+# Función para verificar estructura de tabla (usar en sidebar para debug)
+def verificar_estructura_tabla(supabase: Client):
+    """Función de debug para ver qué columnas existen"""
+    try:
+        sample = supabase.table("comisiones").select("*").limit(1).execute()
+        if sample.data:
+            columnas = list(sample.data[0].keys())
+            st.sidebar.write("**Columnas disponibles:**")
+            for col in sorted(columnas):
+                st.sidebar.write(f"- {col}")
+        else:
+            st.sidebar.write("No hay datos para verificar estructura")
+    except Exception as e:
+        st.sidebar.error(f"Error verificando estructura: {e}")
 
 def subir_comprobante(supabase: Client, file, factura_id: int):
     """Sube comprobante de pago"""
