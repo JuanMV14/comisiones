@@ -660,18 +660,20 @@ def mostrar_modal_editar(factura):
         col1, col2 = st.columns(2)
         
         with col1:
-            nuevo_pedido = st.text_input("Pedido", value=str(factura.get('pedido', '')))
-            nuevo_cliente = st.text_input("Cliente", value=str(factura.get('cliente', '')))
-            nuevo_valor = st.number_input("Valor Total", value=float(factura.get('valor', 0)), min_value=0.0)
+            # AGREGAR keys únicos basados en factura_id
+            nuevo_pedido = st.text_input("Pedido", value=str(factura.get('pedido', '')), key=f"edit_pedido_{factura_id}")
+            nuevo_cliente = st.text_input("Cliente", value=str(factura.get('cliente', '')), key=f"edit_cliente_{factura_id}")
+            nuevo_valor = st.number_input("Valor Total", value=float(factura.get('valor', 0)), min_value=0.0, key=f"edit_valor_{factura_id}")
         
         with col2:
-            nueva_factura = st.text_input("Número Factura", value=str(factura.get('factura', '')))
-            cliente_propio = st.checkbox("Cliente Propio", value=bool(factura.get('cliente_propio', False)))
-            descuento_adicional = st.number_input("Descuento %", value=float(factura.get('descuento_adicional', 0)))
+            nueva_factura = st.text_input("Número Factura", value=str(factura.get('factura', '')), key=f"edit_factura_{factura_id}")
+            cliente_propio = st.checkbox("Cliente Propio", value=bool(factura.get('cliente_propio', False)), key=f"edit_cliente_propio_{factura_id}")
+            descuento_adicional = st.number_input("Descuento %", value=float(factura.get('descuento_adicional', 0)), key=f"edit_descuento_{factura_id}")
         
         nueva_fecha = st.date_input(
             "Fecha Factura", 
-            value=pd.to_datetime(factura.get('fecha_factura', date.today())).date()
+            value=pd.to_datetime(factura.get('fecha_factura', date.today())).date(),
+            key=f"edit_fecha_{factura_id}"
         )
         
         st.markdown("#### Recálculo de Comisión")
@@ -769,24 +771,17 @@ def mostrar_modal_pago_final(factura):
     with st.form(form_key, clear_on_submit=False):
         st.markdown(f"### 💳 Procesar Pago - {factura.get('pedido', 'N/A')}")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"**Cliente:** {factura.get('cliente', 'N/A')}")
-            st.write(f"**Valor:** {format_currency(factura.get('valor', 0))}")
-        with col2:
-            st.write(f"**Comisión:** {format_currency(factura.get('comision', 0))}")
-            st.write(f"**Estado:** PENDIENTE")
-        
-        st.markdown("---")
+        # ... código anterior ...
         
         col1, col2 = st.columns(2)
         with col1:
-            fecha_pago = st.date_input("Fecha de Pago", value=date.today())
-            metodo = st.selectbox("Método", ["Transferencia", "Efectivo", "Cheque", "Tarjeta"])
+            fecha_pago = st.date_input("Fecha de Pago", value=date.today(), key=f"pago_fecha_{factura_id}")
+            metodo = st.selectbox("Método", ["Transferencia", "Efectivo", "Cheque", "Tarjeta"], key=f"pago_metodo_{factura_id}")
         with col2:
-            referencia = st.text_input("Referencia", placeholder="Número de transacción")
-            observaciones = st.text_area("Observaciones", placeholder="Notas del pago")
+            referencia = st.text_input("Referencia", placeholder="Número de transacción", key=f"pago_referencia_{factura_id}")
+            observaciones = st.text_area("Observaciones", placeholder="Notas del pago", key=f"pago_observaciones_{factura_id}")
         
+        # archivo ya tiene key único
         archivo = st.file_uploader(
             "Subir comprobante", 
             type=['pdf', 'jpg', 'jpeg', 'png'],
@@ -949,7 +944,8 @@ def mostrar_modal_nueva_devolucion(facturas_df):
                     "Seleccionar Factura *",
                     options=range(len(opciones_factura)),
                     format_func=lambda x: opciones_factura[x] if x < len(opciones_factura) else "Seleccione...",
-                    help="Factura sobre la cual se hará la devolución"
+                    help="Factura sobre la cual se hará la devolución",
+                    key="devolucion_factura_select"  # AGREGAR key único
                 )
             else:
                 st.error("No hay facturas disponibles")
@@ -960,26 +956,30 @@ def mostrar_modal_nueva_devolucion(facturas_df):
                 min_value=0.0,
                 step=1000.0,
                 format="%.0f",
-                help="Valor total a devolver (incluye IVA si aplica)"
+                help="Valor total a devolver (incluye IVA si aplica)",
+                key="devolucion_valor"  # AGREGAR key único
             )
         
         with col2:
             fecha_devolucion = st.date_input(
                 "Fecha de Devolución *",
                 value=date.today(),
-                help="Fecha en que se procesa la devolución"
+                help="Fecha en que se procesa la devolución",
+                key="devolucion_fecha"  # AGREGAR key único
             )
             
             afecta_comision = st.checkbox(
                 "Afecta Comisión",
                 value=True,
-                help="Si esta devolución debe reducir la comisión calculada"
+                help="Si esta devolución debe reducir la comisión calculada",
+                key="devolucion_afecta"  # AGREGAR key único
             )
         
         motivo = st.text_area(
             "Motivo de la Devolución",
             placeholder="Ej: Producto defectuoso, Error en pedido, Cambio de especificación...",
-            help="Descripción del motivo de la devolución"
+            help="Descripción del motivo de la devolución",
+            key="devolucion_motivo"  # AGREGAR key único
         )
         
         # Mostrar información de la factura seleccionada
@@ -1149,7 +1149,7 @@ def render_tab_comisiones():
         with col1:
             estado_filter = st.selectbox("Estado", ["Todos", "Pendientes", "Pagadas", "Vencidas"])
         with col2:
-            cliente_filter = st.text_input("Buscar cliente")
+            cliente_filter = st.text_input("Buscar cliente", key="comisiones_cliente_filter")
         with col3:
             monto_min = st.number_input("Valor mínimo", min_value=0, value=0, step=100000)
         with col4:
@@ -1394,7 +1394,7 @@ def render_tab_devoluciones():
             afecta_filter = st.selectbox("Afecta Comisión", ["Todos", "Sí", "No"])
         
         with col2:
-            cliente_filter = st.text_input("Buscar cliente")
+            cliente_filter = st.text_input("Buscar cliente", key="devoluciones_cliente_filter")
         
         with col3:
             fecha_desde = st.date_input("Desde", value=date.today() - timedelta(days=30))
@@ -1697,7 +1697,8 @@ def main():
                     "Meta de Ventas (COP)", 
                     value=float(meta_actual["meta_ventas"]),
                     min_value=0,
-                    step=100000
+                    step=100000,
+                    key="config_meta_ventas"  # AGREGAR key único
                 )
             
             with col2:
@@ -1705,8 +1706,10 @@ def main():
                     "Meta Clientes Nuevos", 
                     value=meta_actual["meta_clientes_nuevos"],
                     min_value=0,
-                    step=1
+                    step=1,
+                    key="config_meta_clientes"  # AGREGAR key único
                 )
+
             
             bono_potencial = nueva_meta * 0.005
             st.info(f"**Bono potencial:** {format_currency(bono_potencial)} (0.5% de la meta)")
@@ -1851,38 +1854,45 @@ def main():
                 col1, col2 = st.columns(2)
                 
                 with col1:
+                with col1:
                     pedido = st.text_input(
                         "Número de Pedido *", 
                         placeholder="Ej: PED-001",
-                        help="Número único del pedido"
+                        help="Número único del pedido",
+                        key="nueva_venta_pedido"  # AGREGAR key único
                     )
                     cliente = st.text_input(
                         "Cliente *",
                         placeholder="Ej: DISTRIBUIDORA CENTRAL",
-                        help="Nombre completo del cliente"
+                        help="Nombre completo del cliente",
+                        key="nueva_venta_cliente"  # AGREGAR key único
                     )
                     factura = st.text_input(
                         "Número de Factura",
                         placeholder="Ej: FAC-1001",
-                        help="Número de la factura generada"
+                        help="Número de la factura generada",
+                        key="nueva_venta_factura"  # AGREGAR key único
                     )
                 
                 with col2:
                     fecha_factura = st.date_input(
                         "Fecha de Factura *", 
                         value=date.today(),
-                        help="Fecha de emisión de la factura"
+                        help="Fecha de emisión de la factura",
+                        key="nueva_venta_fecha"  # AGREGAR key único
                     )
                     valor_total = st.number_input(
                         "Valor Total (con IVA) *", 
                         min_value=0.0, 
                         step=10000.0,
                         format="%.0f",
-                        help="Valor total de la venta incluyendo IVA"
+                        help="Valor total de la venta incluyendo IVA",
+                        key="nueva_venta_valor"  # AGREGAR key único
                     )
                     condicion_especial = st.checkbox(
                         "Condición Especial (60 días de pago)",
-                        help="Marcar si el cliente tiene condiciones especiales de pago"
+                        help="Marcar si el cliente tiene condiciones especiales de pago",
+                        key="nueva_venta_condicion"  # AGREGAR key único
                     )
                 
                 st.markdown("### Configuración de Comisión")
@@ -1892,13 +1902,15 @@ def main():
                 with col1:
                     cliente_propio = st.checkbox(
                         "Cliente Propio", 
-                        help="Cliente directo (2.5% comisión vs 1% externo)"
+                        help="Cliente directo (2.5% comisión vs 1% externo)",
+                        key="nueva_venta_cliente_propio"  # AGREGAR key único
                     )
                 
                 with col2:
                     descuento_pie_factura = st.checkbox(
                         "Descuento a Pie de Factura",
-                        help="Si el descuento aparece directamente en la factura"
+                        help="Si el descuento aparece directamente en la factura",
+                        key="nueva_venta_descuento_pie"  # AGREGAR key único
                     )
                 
                 with col3:
@@ -1907,8 +1919,10 @@ def main():
                         min_value=0.0, 
                         max_value=100.0, 
                         step=0.5,
-                        help="Porcentaje de descuento adicional aplicado"
+                        help="Porcentaje de descuento adicional aplicado",
+                        key="nueva_venta_descuento_adicional"  # AGREGAR key único
                     )
+
                 
                 # Preview de cálculos
                 if valor_total > 0:
