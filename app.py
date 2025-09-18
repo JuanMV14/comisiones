@@ -2324,68 +2324,6 @@ def identificar_clientes_riesgo(df):
     }
 
 # ========================
-# IMPLEMENTACIÓN EN EL TAB 6 - IA & ALERTAS
-# ========================
-
-# Reemplaza la sección "Análisis Predictivo" actual con esto:
-
-def render_analisis_predictivo_real(df, meta_actual):
-    """Renderiza análisis predictivo con datos reales"""
-    st.markdown("### Análisis Predictivo")
-    
-    # Calcular métricas reales
-    prediccion_meta = calcular_prediccion_meta(df, meta_actual)
-    tendencia_comisiones = calcular_tendencia_comisiones(df)
-    clientes_riesgo = identificar_clientes_riesgo(df)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric(
-            label="Predicción Meta",
-            value=f"{prediccion_meta['probabilidad']}%",
-            delta=f"Proyección: {prediccion_meta['tendencia']}",
-            help=f"Basado en velocidad actual vs necesaria. Quedan {prediccion_meta['dias_necesarios']} días"
-        )
-        st.caption("Probabilidad de cumplir meta mensual")
-        
-        # Mostrar detalles adicionales
-        if prediccion_meta['probabilidad'] < 50:
-            st.error(f"⚠️ Necesitas aumentar ventas {format_currency(prediccion_meta.get('velocidad_necesaria', 0))}/día")
-        elif prediccion_meta['probabilidad'] > 80:
-            st.success("🎯 Muy probable cumplir meta")
-        else:
-            st.warning("📈 Mantén el ritmo actual")
-    
-    with col2:
-        st.metric(
-            label="Tendencia Comisiones",
-            value=tendencia_comisiones['crecimiento'],
-            delta=tendencia_comisiones['delta'],
-            delta_color=tendencia_comisiones.get('direccion', 'normal'),
-            help="Crecimiento vs mes anterior"
-        )
-        st.caption("Crecimiento vs mes anterior")
-    
-    with col3:
-        st.metric(
-            label="Clientes en Riesgo",
-            value=str(clientes_riesgo['cantidad']),
-            delta=clientes_riesgo['delta'],
-            delta_color="inverse",
-            help="Clientes que requieren atención inmediata"
-        )
-        st.caption("Requieren atención inmediata")
-        
-        # Mostrar lista de clientes en riesgo
-        if clientes_riesgo['clientes']:
-            with st.expander("Ver Detalles", expanded=False):
-                for cliente in clientes_riesgo['clientes']:
-                    color = "🚨" if cliente['tipo'] == 'critico' else "⚠️"
-                    st.write(f"{color} **{cliente['cliente']}**: {cliente['razon']} (Riesgo: {format_currency(cliente['impacto'])})")
-
-
-# ========================
 # EJECUTAR APLICACIÓN
 # ========================
 if __name__ == "__main__":
