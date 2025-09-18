@@ -1651,7 +1651,7 @@ def main():
         
         df_tmp = cargar_datos(supabase)
         mes_actual_str = date.today().strftime("%Y-%m")
-        ventas_mes = df_tmp[df_tmp["mes_factura"] == mes_actual_str]["valor"].sum() if not df_tmp.empty else 0
+        ventas_mes = df_tmp[df_tmp["mes_factura"] == mes_actual_str]["valor_neto"].sum() if not df_tmp.empty else 0
         
         progreso = (ventas_mes / meta_actual["meta_ventas"] * 100) if meta_actual["meta_ventas"] > 0 else 0
         
