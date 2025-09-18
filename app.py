@@ -2323,9 +2323,6 @@ def identificar_clientes_riesgo(df):
         "clientes": clientes_riesgo[:5]  # Top 5
     }
 
-st.write(f"Número de tabs creados: {len(tabs)}")
-st.write(f"Tipo de tabs: {type(tabs)}")
-
 # ========================
 # EJECUTAR APLICACIÓN
 # ========================
