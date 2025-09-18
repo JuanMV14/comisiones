@@ -2066,87 +2066,87 @@ def main():
                 st.warning("No hay datos de clientes disponibles")
 
         # TAB 6 - IA & ALERTAS
-with tabs[5]:
-    st.header("Inteligencia Artificial & Alertas")
-    
-    # AGREGAR ANÁLISIS PREDICTIVO AQUÍ
-    df = cargar_datos(supabase)
-    render_analisis_predictivo_real(df, meta_actual)
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.markdown("### Alertas Críticas")
-        
-        alertas_encontradas = False
-        
-        if not df.empty:
-            # Facturas vencidas (solo no pagadas)
-            vencidas = df[
-                (df["dias_vencimiento"].notna()) & 
-                (df["dias_vencimiento"] < 0) & 
-                (df["pagado"] == False)
-            ]
-            for _, factura in vencidas.head(3).iterrows():
-                st.error(f"**Factura Vencida:** {factura.get('cliente', 'N/A')} - {factura.get('pedido', 'N/A')} ({format_currency(factura.get('valor_neto', 0))})")
-                alertas_encontradas = True
+        with tabs[5]:
+            st.header("Inteligencia Artificial & Alertas")
             
-            # Próximas a vencer (solo no pagadas)
-            prox_vencer = df[
-                (df["dias_vencimiento"].notna()) & 
-                (df["dias_vencimiento"] >= 0) & 
-                (df["dias_vencimiento"] <= 5) & 
-                (df["pagado"] == False)
-            ]
-            for _, factura in prox_vencer.head(3).iterrows():
-                st.warning(f"**Próximo Vencimiento:** {factura.get('cliente', 'N/A')} vence en {factura.get('dias_vencimiento', 0)} días")
-                alertas_encontradas = True
+            # AGREGAR ANÁLISIS PREDICTIVO AQUÍ
+            df = cargar_datos(supabase)
+            render_analisis_predictivo_real(df, meta_actual)
             
-            # Altas comisiones pendientes
-            if not df.empty:
-                alto_valor = df[df["comision"] > df["comision"].quantile(0.8)]
-                for _, factura in alto_valor.head(2).iterrows():
-                    if not factura.get("pagado"):
-                        st.info(f"**Alta Comisión Pendiente:** {format_currency(factura.get('comision', 0))} esperando pago")
+            st.markdown("---")
+            
+            col1, col2 = st.columns([1, 1])
+            
+            with col1:
+                st.markdown("### Alertas Críticas")
+                
+                alertas_encontradas = False
+                
+                if not df.empty:
+                    # Facturas vencidas (solo no pagadas)
+                    vencidas = df[
+                        (df["dias_vencimiento"].notna()) & 
+                        (df["dias_vencimiento"] < 0) & 
+                        (df["pagado"] == False)
+                    ]
+                    for _, factura in vencidas.head(3).iterrows():
+                        st.error(f"**Factura Vencida:** {factura.get('cliente', 'N/A')} - {factura.get('pedido', 'N/A')} ({format_currency(factura.get('valor_neto', 0))})")
                         alertas_encontradas = True
-        
-        if not alertas_encontradas:
-            st.success("No hay alertas críticas en este momento")
-    
-    with col2:
-        st.markdown("### Recomendaciones Estratégicas")
-        
-        recomendaciones = generar_recomendaciones_reales(supabase)
-        
-        for i, rec in enumerate(recomendaciones):
-            with st.container(border=True):
-                with st.expander(f"#{i+1} {rec['cliente']} - {rec['probabilidad']}% probabilidad", expanded=True):
-                    col_a, col_b = st.columns([3, 1])
                     
-                    with col_a:
-                        st.markdown(f"**Acción:** {rec['accion']}")
-                        st.markdown(f"**Producto:** {rec['producto']}")
-                        st.markdown(f"**Razón:** {rec['razon']}")
-                        
-                        prioridad_color = "🔴" if rec['prioridad'] == 'alta' else "🟡"
-                        st.markdown(f"**Prioridad:** {prioridad_color} {rec['prioridad'].title()}")
+                    # Próximas a vencer (solo no pagadas)
+                    prox_vencer = df[
+                        (df["dias_vencimiento"].notna()) & 
+                        (df["dias_vencimiento"] >= 0) & 
+                        (df["dias_vencimiento"] <= 5) & 
+                        (df["pagado"] == False)
+                    ]
+                    for _, factura in prox_vencer.head(3).iterrows():
+                        st.warning(f"**Próximo Vencimiento:** {factura.get('cliente', 'N/A')} vence en {factura.get('dias_vencimiento', 0)} días")
+                        alertas_encontradas = True
                     
-                    with col_b:
-                        st.metric(
-                            label="Impacto Comisión",
-                            value=format_currency(rec['impacto_comision']),
-                            delta=f"+{rec['probabilidad']}%"
-                        )
-                    
-                    if st.button(f"Ejecutar Acción", key=f"action_rec_{i}"):
-                        st.success(f"Acción programada para {rec['cliente']}")
-        
-        if st.button("Generar Nuevas Recomendaciones"):
-            st.rerun()
-    
-    st.markdown("---")
+                    # Altas comisiones pendientes
+                    if not df.empty:
+                        alto_valor = df[df["comision"] > df["comision"].quantile(0.8)]
+                        for _, factura in alto_valor.head(2).iterrows():
+                            if not factura.get("pagado"):
+                                st.info(f"**Alta Comisión Pendiente:** {format_currency(factura.get('comision', 0))} esperando pago")
+                                alertas_encontradas = True
+                
+                if not alertas_encontradas:
+                    st.success("No hay alertas críticas en este momento")
+            
+            with col2:
+                st.markdown("### Recomendaciones Estratégicas")
+                
+                recomendaciones = generar_recomendaciones_reales(supabase)
+                
+                for i, rec in enumerate(recomendaciones):
+                    with st.container(border=True):
+                        with st.expander(f"#{i+1} {rec['cliente']} - {rec['probabilidad']}% probabilidad", expanded=True):
+                            col_a, col_b = st.columns([3, 1])
+                            
+                            with col_a:
+                                st.markdown(f"**Acción:** {rec['accion']}")
+                                st.markdown(f"**Producto:** {rec['producto']}")
+                                st.markdown(f"**Razón:** {rec['razon']}")
+                                
+                                prioridad_color = "🔴" if rec['prioridad'] == 'alta' else "🟡"
+                                st.markdown(f"**Prioridad:** {prioridad_color} {rec['prioridad'].title()}")
+                            
+                            with col_b:
+                                st.metric(
+                                    label="Impacto Comisión",
+                                    value=format_currency(rec['impacto_comision']),
+                                    delta=f"+{rec['probabilidad']}%"
+                                )
+                            
+                            if st.button(f"Ejecutar Acción", key=f"action_rec_{i}"):
+                                st.success(f"Acción programada para {rec['cliente']}")
+                
+                if st.button("Generar Nuevas Recomendaciones"):
+                    st.rerun()
+            
+            st.markdown("---")
             
 def calcular_prediccion_meta(df, meta_actual):
     """Calcula predicción real de cumplimiento de meta"""
