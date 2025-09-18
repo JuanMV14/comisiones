@@ -2143,39 +2143,242 @@ def main():
             
             st.markdown("---")
             
-            # Análisis predictivo
-            st.markdown("### Análisis Predictivo")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric(
-                    label="Predicción Meta",
-                    value="75%",
-                    delta="5%",
-                    help="Probabilidad de cumplir meta mensual basada en tendencias actuales"
-                )
-                st.caption("Probabilidad de cumplir meta mensual")
-            
-            with col2:
-                st.metric(
-                    label="Tendencia Comisiones",
-                    value="+15%",
-                    delta="3%",
-                    delta_color="normal",
-                    help="Crecimiento estimado para el próximo mes"
-                )
-                st.caption("Crecimiento estimado próximo mes")
-            
-            with col3:
-                st.metric(
-                    label="Clientes en Riesgo",
-                    value="3",
-                    delta="-1",
-                    delta_color="inverse",
-                    help="Clientes que requieren atención inmediata"
-                )
-                st.caption("Requieren atención inmediata")
+def calcular_prediccion_meta(df, meta_actual):
+    """Calcula predicción real de cumplimiento de meta"""
+    if df.empty:
+        return {"probabilidad": 0, "tendencia": "Sin datos", "dias_necesarios": 0}
+    
+    # Obtener datos del mes actual
+    mes_actual = date.today().strftime("%Y-%m")
+    df_mes = df[df["mes_factura"] == mes_actual]
+    
+    if df_mes.empty:
+        return {"probabilidad": 0, "tendencia": "Sin ventas este mes", "dias_necesarios": 0}
+    
+    # Calcular progreso actual
+    ventas_actuales = df_mes["valor"].sum()
+    meta_ventas = meta_actual.get("meta_ventas", 0)
+    
+    if meta_ventas == 0:
+        return {"probabilidad": 0, "tendencia": "Meta no definida", "dias_necesarios": 0}
+    
+    # Calcular días transcurridos y restantes del mes
+    hoy = date.today()
+    primer_dia_mes = hoy.replace(day=1)
+    dias_transcurridos = (hoy - primer_dia_mes).days + 1
+    
+    # Calcular último día del mes
+    if hoy.month == 12:
+        ultimo_dia_mes = hoy.replace(year=hoy.year + 1, month=1, day=1) - timedelta(days=1)
+    else:
+        ultimo_dia_mes = hoy.replace(month=hoy.month + 1, day=1) - timedelta(days=1)
+    
+    dias_restantes = (ultimo_dia_mes - hoy).days + 1
+    dias_totales_mes = dias_transcurridos + dias_restantes
+    
+    # Calcular velocidad actual y necesaria
+    velocidad_actual = ventas_actuales / dias_transcurridos if dias_transcurridos > 0 else 0
+    faltante = max(0, meta_ventas - ventas_actuales)
+    velocidad_necesaria = faltante / dias_restantes if dias_restantes > 0 else float('inf')
+    
+    # Calcular probabilidad basada en velocidad
+    if velocidad_actual == 0:
+        probabilidad = 0
+    elif velocidad_necesaria == 0:  # Ya cumplió la meta
+        probabilidad = 100
+    else:
+        ratio_velocidad = velocidad_actual / velocidad_necesaria
+        # Probabilidad basada en qué tan cerca está la velocidad actual de la necesaria
+        if ratio_velocidad >= 1:
+            probabilidad = min(95, 70 + (ratio_velocidad - 1) * 25)
+        else:
+            probabilidad = max(5, ratio_velocidad * 70)
+    
+    # Proyección lineal
+    proyeccion_mes = velocidad_actual * dias_totales_mes
+    porcentaje_meta = (proyeccion_mes / meta_ventas) * 100 if meta_ventas > 0 else 0
+    
+    return {
+        "probabilidad": int(probabilidad),
+        "tendencia": f"{porcentaje_meta:.0f}%",
+        "dias_necesarios": dias_restantes,
+        "velocidad_actual": velocidad_actual,
+        "velocidad_necesaria": velocidad_necesaria,
+        "proyeccion": proyeccion_mes
+    }
+
+def calcular_tendencia_comisiones(df):
+    """Calcula tendencia real de comisiones"""
+    if df.empty:
+        return {"crecimiento": "0%", "delta": "Sin datos"}
+    
+    # Obtener datos de los últimos 2 meses
+    hoy = date.today()
+    mes_actual = hoy.strftime("%Y-%m")
+    
+    # Mes anterior
+    if hoy.month == 1:
+        mes_anterior = f"{hoy.year - 1}-12"
+    else:
+        mes_anterior = f"{hoy.year}-{hoy.month - 1:02d}"
+    
+    comisiones_actual = df[df["mes_factura"] == mes_actual]["comision"].sum()
+    comisiones_anterior = df[df["mes_factura"] == mes_anterior]["comision"].sum()
+    
+    if comisiones_anterior == 0:
+        if comisiones_actual > 0:
+            return {"crecimiento": "+100%", "delta": "Primer mes"}
+        else:
+            return {"crecimiento": "0%", "delta": "Sin datos"}
+    
+    crecimiento = ((comisiones_actual - comisiones_anterior) / comisiones_anterior) * 100
+    
+    return {
+        "crecimiento": f"{crecimiento:+.1f}%",
+        "delta": f"{abs(crecimiento):.1f}%",
+        "direccion": "normal" if crecimiento >= 0 else "inverse"
+    }
+
+def identificar_clientes_riesgo(df):
+    """Identifica clientes que requieren atención"""
+    if df.empty:
+        return {"cantidad": 0, "delta": "Sin datos", "clientes": []}
+    
+    hoy = pd.Timestamp.now()
+    clientes_riesgo = []
+    
+    # 1. Facturas vencidas (alto riesgo)
+    vencidas = df[
+        (df['dias_vencimiento'].notna()) & 
+        (df['dias_vencimiento'] < -5) & 
+        (df['pagado'] == False)
+    ]
+    
+    for cliente in vencidas['cliente'].unique():
+        cliente_vencidas = vencidas[vencidas['cliente'] == cliente]
+        total_riesgo = cliente_vencidas['comision'].sum()
+        if total_riesgo > 0:
+            clientes_riesgo.append({
+                'cliente': cliente,
+                'razon': f"Facturas vencidas",
+                'impacto': total_riesgo,
+                'tipo': 'critico'
+            })
+    
+    # 2. Clientes sin actividad reciente (riesgo medio)
+    df['dias_ultima_factura'] = (hoy - df['fecha_factura']).dt.days
+    
+    clientes_inactivos = df.groupby('cliente').agg({
+        'dias_ultima_factura': 'min',
+        'comision': 'mean',
+        'valor': 'sum'
+    }).reset_index()
+    
+    # Clientes inactivos por más de 60 días pero que han comprado antes
+    inactivos_riesgo = clientes_inactivos[
+        (clientes_inactivos['dias_ultima_factura'] >= 60) & 
+        (clientes_inactivos['valor'] > 0)
+    ].nlargest(3, 'comision')
+    
+    for _, cliente in inactivos_riesgo.iterrows():
+        if cliente['cliente'] not in [c['cliente'] for c in clientes_riesgo]:
+            clientes_riesgo.append({
+                'cliente': cliente['cliente'],
+                'razon': f"Sin actividad {cliente['dias_ultima_factura']} días",
+                'impacto': cliente['comision'],
+                'tipo': 'medio'
+            })
+    
+    # Calcular tendencia (comparar con mes anterior si hay datos)
+    mes_actual = date.today().strftime("%Y-%m")
+    if date.today().month == 1:
+        mes_anterior = f"{date.today().year - 1}-12"
+    else:
+        mes_anterior = f"{date.today().year}-{date.today().month - 1:02d}"
+    
+    riesgo_actual = len([c for c in clientes_riesgo if c['tipo'] == 'critico'])
+    
+    # Buscar clientes en riesgo del mes anterior para comparar
+    df_anterior = df[df["mes_factura"] == mes_anterior]
+    if not df_anterior.empty:
+        vencidas_anterior = df_anterior[
+            (df_anterior['dias_vencimiento'].notna()) & 
+            (df_anterior['dias_vencimiento'] < -5) & 
+            (df_anterior['pagado'] == False)
+        ]
+        riesgo_anterior = len(vencidas_anterior['cliente'].unique())
+        delta_riesgo = riesgo_actual - riesgo_anterior
+        delta_str = f"{delta_riesgo:+d}" if riesgo_anterior > 0 else "Sin comparación"
+    else:
+        delta_str = "Sin datos previos"
+    
+    return {
+        "cantidad": len(clientes_riesgo),
+        "delta": delta_str,
+        "clientes": clientes_riesgo[:5]  # Top 5
+    }
+
+# ========================
+# IMPLEMENTACIÓN EN EL TAB 6 - IA & ALERTAS
+# ========================
+
+# Reemplaza la sección "Análisis Predictivo" actual con esto:
+
+def render_analisis_predictivo_real(df, meta_actual):
+    """Renderiza análisis predictivo con datos reales"""
+    st.markdown("### Análisis Predictivo")
+    
+    # Calcular métricas reales
+    prediccion_meta = calcular_prediccion_meta(df, meta_actual)
+    tendencia_comisiones = calcular_tendencia_comisiones(df)
+    clientes_riesgo = identificar_clientes_riesgo(df)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            label="Predicción Meta",
+            value=f"{prediccion_meta['probabilidad']}%",
+            delta=f"Proyección: {prediccion_meta['tendencia']}",
+            help=f"Basado en velocidad actual vs necesaria. Quedan {prediccion_meta['dias_necesarios']} días"
+        )
+        st.caption("Probabilidad de cumplir meta mensual")
+        
+        # Mostrar detalles adicionales
+        if prediccion_meta['probabilidad'] < 50:
+            st.error(f"⚠️ Necesitas aumentar ventas {format_currency(prediccion_meta.get('velocidad_necesaria', 0))}/día")
+        elif prediccion_meta['probabilidad'] > 80:
+            st.success("🎯 Muy probable cumplir meta")
+        else:
+            st.warning("📈 Mantén el ritmo actual")
+    
+    with col2:
+        st.metric(
+            label="Tendencia Comisiones",
+            value=tendencia_comisiones['crecimiento'],
+            delta=tendencia_comisiones['delta'],
+            delta_color=tendencia_comisiones.get('direccion', 'normal'),
+            help="Crecimiento vs mes anterior"
+        )
+        st.caption("Crecimiento vs mes anterior")
+    
+    with col3:
+        st.metric(
+            label="Clientes en Riesgo",
+            value=str(clientes_riesgo['cantidad']),
+            delta=clientes_riesgo['delta'],
+            delta_color="inverse",
+            help="Clientes que requieren atención inmediata"
+        )
+        st.caption("Requieren atención inmediata")
+        
+        # Mostrar lista de clientes en riesgo
+        if clientes_riesgo['clientes']:
+            with st.expander("Ver Detalles", expanded=False):
+                for cliente in clientes_riesgo['clientes']:
+                    color = "🚨" if cliente['tipo'] == 'critico' else "⚠️"
+                    st.write(f"{color} **{cliente['cliente']}**: {cliente['razon']} (Riesgo: {format_currency(cliente['impacto'])})")
+
 
 # ========================
 # EJECUTAR APLICACIÓN
