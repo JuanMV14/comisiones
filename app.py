@@ -415,7 +415,7 @@ def format_currency(value):
         return "$0"
     return f"${value:,.0f}".replace(",", ".")
 
-def calcular_comision_inteligente_v2(valor_total, cliente_propio=False, tiene_descuento=False, descuento_pie=False):
+def calcular_comision_inteligente(valor_total, cliente_propio=False, tiene_descuento=False, descuento_pie=False):
     """
     Versión simplificada: solo importa SI tiene descuento, no CUÁNTO
     
