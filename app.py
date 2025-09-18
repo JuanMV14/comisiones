@@ -415,8 +415,16 @@ def format_currency(value):
         return "$0"
     return f"${value:,.0f}".replace(",", ".")
 
-def calcular_comision_inteligente(valor_total, cliente_propio=False, descuento_adicional=0, descuento_pie=False):
-    """Calcula comisión según lógica real"""
+def calcular_comision_inteligente_v2(valor_total, cliente_propio=False, tiene_descuento=False, descuento_pie=False):
+    """
+    Versión simplificada: solo importa SI tiene descuento, no CUÁNTO
+    
+    Args:
+        valor_total: Valor total de la venta
+        cliente_propio: Si es cliente propio o externo  
+        tiene_descuento: Boolean - True si hay cualquier descuento adicional
+        descuento_pie: Si el descuento aparece en factura
+    """
     valor_neto = valor_total / 1.19
     
     if descuento_pie:
@@ -424,10 +432,11 @@ def calcular_comision_inteligente(valor_total, cliente_propio=False, descuento_a
     else:
         base = valor_neto * 0.85
     
+    # LÓGICA SIMPLIFICADA: solo importa SI hay descuento
     if cliente_propio:
-        porcentaje = 1.5 if descuento_adicional > 15 else 2.5
+        porcentaje = 1.5 if tiene_descuento else 2.5
     else:
-        porcentaje = 0.5 if descuento_adicional > 15 else 1.0
+        porcentaje = 0.5 if tiene_descuento else 1.0
     
     comision = base * (porcentaje / 100)
     
@@ -438,6 +447,28 @@ def calcular_comision_inteligente(valor_total, cliente_propio=False, descuento_a
         'comision': comision,
         'porcentaje': porcentaje
     }
+
+# PRUEBAS PARA VALIDAR LA LÓGICA:
+
+# Ejemplo 1: Cliente propio SIN descuento
+resultado1 = calcular_comision_inteligente(119000, cliente_propio=True, descuento_adicional=0)
+print(f"Cliente propio sin descuento: {resultado1['porcentaje']}% = {resultado1['comision']:,.0f}")
+# Esperado: 2.5%
+
+# Ejemplo 2: Cliente propio CON descuento
+resultado2 = calcular_comision_inteligente(119000, cliente_propio=True, descuento_adicional=5)
+print(f"Cliente propio con descuento 5%: {resultado2['porcentaje']}% = {resultado2['comision']:,.0f}")
+# Esperado: 1.5%
+
+# Ejemplo 3: Cliente externo SIN descuento
+resultado3 = calcular_comision_inteligente(119000, cliente_propio=False, descuento_adicional=0)
+print(f"Cliente externo sin descuento: {resultado3['porcentaje']}% = {resultado3['comision']:,.0f}")
+# Esperado: 1.0%
+
+# Ejemplo 4: Cliente externo CON descuento
+resultado4 = calcular_comision_inteligente(119000, cliente_propio=False, descuento_adicional=10)
+print(f"Cliente externo con descuento 10%: {resultado4['porcentaje']}% = {resultado4['comision']:,.0f}")
+# Esperado: 0.5%
 
 def agregar_campos_faltantes(df):
     """Agrega campos que podrían no existir"""
