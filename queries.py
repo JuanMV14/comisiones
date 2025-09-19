@@ -1,441 +1,462 @@
-# queries_organizadas.py
 import pandas as pd
+from datetime import datetime, date, timedelta
 from supabase import Client
-from datetime import datetime
+import streamlit as st
+from typing import Optional, Dict, List, Any
 
-def cargar_datos(supabase: Client):
-    """Carga todas las ventas desde la tabla pedidos y relacionadas"""
-    try:
-        # Traer todos los pedidos con joins a las tablas relacionadas
-        response = supabase.table("pedidos").select("""
-            *,
-            clientes:cliente_id(
-                cliente_id,
-                nombre_cliente,
-                email_cliente,
-                telefono_cliente,
-                direccion_cliente,
-                ciudad_cliente,
-                pais_cliente,
-                fecha_registro
-            ),
-            comercializadoras:comercializadora_id(
-                comercializadora_id,
-                nombre_comercializadora,
-                email_comercializadora,
-                telefono_comercializadora
-            ),
-            productos:producto_id(
-                producto_id,
-                nombre_producto,
-                categoria_producto,
-                precio_producto,
-                stock_producto,
-                descripcion_producto
-            )
-        """).execute()
-        
-        if not response.data:
+class DatabaseManager:
+    """Gestor centralizado de todas las operaciones de base de datos"""
+    
+    def __init__(self, supabase: Client):
+        self.supabase = supabase
+    
+    # ========================
+    # OPERACIONES DE COMISIONES
+    # ========================
+    
+    @st.cache_data(ttl=300)
+    def cargar_datos(_self):
+        """Carga datos de la tabla comisiones con cache"""
+        return _self._cargar_datos_raw()
+    
+    def _cargar_datos_raw(self):
+        """Carga datos sin cache - método interno"""
+        try:
+            response = self.supabase.table("comisiones").select("*").execute()
+            if not response.data:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(response.data)
+            
+            # Procesar datos
+            df = self._procesar_datos_comisiones(df)
+            
+            return df
+
+        except Exception as e:
+            st.error(f"Error cargando datos: {str(e)}")
             return pd.DataFrame()
+    
+    def _procesar_datos_comisiones(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Procesa y limpia los datos de comisiones"""
+        if df.empty:
+            return df
+        
+        # Conversión de tipos numéricos
+        columnas_numericas_str = ['valor_base', 'valor_neto', 'iva', 'base_comision', 'comision_ajustada']
+        for col in columnas_numericas_str:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: 0 if x in [None, "NULL", "null", ""] else float(x) if str(x).replace('.','').replace('-','').isdigit() else 0)
 
-        df = pd.DataFrame(response.data)
-
-        # Mapear columnas de tu base de datos
-        columnas_requeridas = {
-            "pedido_id": None,
-            "cliente_id": None,
-            "comercializadora_id": None, 
-            "producto_id": None,
-            "cantidad_pedido": 0,
-            "precio_unitario": 0,
-            "total_pedido": 0,
-            "fecha_pedido": None,
-            "estado_pedido": "",
-            "fecha_entrega": None,
-            "direccion_entrega": "",
-            "ciudad_entrega": "",
-            "pais_entrega": "",
-            "metodo_pago": "",
-            "descuento_aplicado": 0,
-            "iva_pedido": 0,
-            "total_con_iva": 0,
-            "observaciones_pedido": "",
-            "created_at": None,
-            "updated_at": None,
-            # Campos calculados para comisiones
-            "valor_neto": 0,
-            "cliente_propio": False,
-            "descuento_pie_factura": False,
-            "condicion_especial": False,
-            "dias_pago_real": None,
-            "valor_devuelto": 0,
-            "base_comision": 0,
-            "comision": 0,
-            "porcentaje": 0,
-            "comision_ajustada": 0,
-            "comision_perdida": False,
-            "razon_perdida": "",
-            "pagado": False,
-            "fecha_pago_est": None,
-            "fecha_pago_max": None,
-            "fecha_pago_real": None,
-            "comprobante_url": "",
-            "referencia": ""
-        }
-
-        for col, default in columnas_requeridas.items():
-            if col not in df.columns:
-                df[col] = default
+        columnas_numericas_existentes = ['valor', 'porcentaje', 'comision', 'porcentaje_descuento', 'descuento_adicional', 'valor_devuelto']
+        for col in columnas_numericas_existentes:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
         # Calcular campos derivados
-        df["valor_neto"] = df["total_pedido"] / 1.19  # Assuming IVA 19%
-        df["total_con_iva"] = df.get("total_con_iva", df["total_pedido"])
+        self._calcular_campos_derivados(df)
         
-        # Procesar fechas
-        fecha_cols = ["fecha_pedido", "fecha_entrega", "fecha_pago_est", "fecha_pago_max", 
-                     "fecha_pago_real", "created_at", "updated_at"]
-        for col in fecha_cols:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors="coerce")
+        # Convertir fechas
+        self._procesar_fechas(df)
+        
+        # Crear columnas derivadas
+        df['mes_factura'] = df['fecha_factura'].dt.to_period('M').astype(str)
+        self._calcular_dias_vencimiento(df)
 
-        # Calcular mes del pedido y días de vencimiento
-        df["mes_pedido"] = df["fecha_pedido"].dt.to_period("M").astype(str)
-        hoy = pd.Timestamp.now()
-        df["dias_vencimiento"] = (df["fecha_pago_max"] - hoy).dt.days
-
-        # Determinar si cliente es propio (basado en comercializadora)
-        # Esto lo puedes ajustar según tu lógica de negocio
-        df["cliente_propio"] = df["comercializadora_id"].notna()
-
-        # Calcular comisión automáticamente
-        comisiones = df.apply(calcular_comision_automatica, axis=1)
-        df["base_comision"] = [c["base_final"] for c in comisiones]
-        df["comision"] = [c["comision"] for c in comisiones]
-        df["porcentaje"] = [c["porcentaje"] for c in comisiones]
-        df["comision_perdida"] = [c["perdida"] for c in comisiones]
-        df["comision_ajustada"] = df["comision"]
+        # Asegurar tipos de columnas
+        self._asegurar_tipos_columnas(df)
 
         return df
-
-    except Exception as e:
-        print(f"Error cargando datos desde Supabase: {e}")
-        return pd.DataFrame()
-
-
-def calcular_comision_automatica(row):
-    """Calcula comisión automáticamente basado en los datos de la fila"""
-    valor_neto = row.get('valor_neto', row.get('total_pedido', 0) / 1.19 if row.get('total_pedido') else 0)
-    cliente_propio = row.get('cliente_propio', False)
-    descuento_pie_factura = row.get('descuento_pie_factura', False)
-    descuento_aplicado = row.get('descuento_aplicado', 0)
-    dias_pago = row.get('dias_pago_real')
-    condicion_especial = row.get('condicion_especial', False)
-    valor_devuelto = row.get('valor_devuelto', 0)
     
-    # 1. Calcular base inicial
-    if descuento_pie_factura:
-        base = valor_neto
-    else:
-        limite_dias = 60 if condicion_especial else 45
-        if not dias_pago or dias_pago <= limite_dias:
-            base = valor_neto * 0.85
-        else:
-            base = valor_neto
-    
-    # 2. Restar devoluciones
-    base_final = base - valor_devuelto
-    
-    # 3. Determinar porcentaje
-    tiene_descuento_alto = descuento_aplicado > 15
-    if cliente_propio:
-        porcentaje = 1.5 if tiene_descuento_alto else 2.5
-    else:
-        porcentaje = 0.5 if tiene_descuento_alto else 1.0
-    
-    # 4. Verificar pérdida por +80 días
-    if dias_pago and dias_pago > 80:
-        return {
-            'comision': 0,
-            'base_final': 0,
-            'porcentaje': 0,
-            'perdida': True
-        }
-    
-    comision = base_final * (porcentaje / 100)
-    
-    return {
-        'comision': comision,
-        'base_final': base_final,
-        'porcentaje': porcentaje,
-        'perdida': False
-    }
-
-
-def insertar_pedido(supabase: Client, data: dict):
-    """Inserta un nuevo pedido con todos los campos"""
-    try:
-        # Mapear datos al esquema de pedidos
-        pedido_data = {
-            "cliente_id": data.get("cliente_id"),
-            "comercializadora_id": data.get("comercializadora_id"),
-            "producto_id": data.get("producto_id"),
-            "cantidad_pedido": data.get("cantidad_pedido", 1),
-            "precio_unitario": data.get("precio_unitario", 0),
-            "total_pedido": data.get("total_pedido", 0),
-            "fecha_pedido": data.get("fecha_pedido", datetime.now().date().isoformat()),
-            "estado_pedido": data.get("estado_pedido", "pendiente"),
-            "fecha_entrega": data.get("fecha_entrega"),
-            "direccion_entrega": data.get("direccion_entrega", ""),
-            "ciudad_entrega": data.get("ciudad_entrega", ""),
-            "pais_entrega": data.get("pais_entrega", ""),
-            "metodo_pago": data.get("metodo_pago", ""),
-            "descuento_aplicado": data.get("descuento_aplicado", 0),
-            "iva_pedido": data.get("iva_pedido", 0),
-            "total_con_iva": data.get("total_con_iva", 0),
-            "observaciones_pedido": data.get("observaciones_pedido", ""),
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }
+    def _calcular_campos_derivados(self, df: pd.DataFrame):
+        """Calcula campos derivados como valor_neto, iva, base_comision"""
+        if df['valor_neto'].sum() == 0 and df['valor'].sum() > 0:
+            df['valor_neto'] = df['valor'] / 1.19
         
-        result = supabase.table("pedidos").insert(pedido_data).execute()
-        return result.data[0] if result.data else None
-        
-    except Exception as e:
-        print(f"Error insertando pedido: {e}")
-        return None
+        if df['iva'].sum() == 0 and df['valor'].sum() > 0:
+            df['iva'] = df['valor'] - df['valor_neto']
 
+        if df['base_comision'].sum() == 0:
+            df['base_comision'] = df.apply(lambda row: 
+                row['valor_neto'] if row.get('descuento_pie_factura', False)
+                else row['valor_neto'] * 0.85, axis=1)
+    
+    def _procesar_fechas(self, df: pd.DataFrame):
+        """Procesa todas las columnas de fecha"""
+        columnas_fecha = ['fecha_factura', 'fecha_pago_est', 'fecha_pago_max', 'fecha_pago_real', 'created_at', 'updated_at']
+        for col in columnas_fecha:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+    
+    def _calcular_dias_vencimiento(self, df: pd.DataFrame):
+        """Calcula días de vencimiento solo para facturas NO PAGADAS"""
+        hoy = pd.Timestamp.now()
+        df['dias_vencimiento'] = df.apply(lambda row: 
+            (row['fecha_pago_max'] - hoy).days if not row.get('pagado', False) and pd.notna(row['fecha_pago_max']) 
+            else None, axis=1)
+    
+    def _asegurar_tipos_columnas(self, df: pd.DataFrame):
+        """Asegura tipos correctos para columnas boolean y string"""
+        columnas_boolean = ['pagado', 'condicion_especial', 'cliente_propio', 'descuento_pie_factura', 'comision_perdida']
+        for col in columnas_boolean:
+            if col in df.columns:
+                df[col] = df[col].fillna(False).astype(bool)
 
-def actualizar_pedido(supabase: Client, pedido_id: int, updates: dict):
-    """Actualiza un pedido existente"""
-    try:
-        updates["updated_at"] = datetime.now().isoformat()
-        result = supabase.table("pedidos").update(updates).eq("pedido_id", pedido_id).execute()
-        return result.data[0] if result.data else None
-    except Exception as e:
-        print(f"Error actualizando pedido: {e}")
-        return None
+        columnas_string = ['pedido', 'cliente', 'factura', 'comprobante_url', 'razon_perdida']
+        for col in columnas_string:
+            if col in df.columns:
+                df[col] = df[col].fillna('').astype(str)
+    
+    def insertar_venta(self, data: Dict[str, Any]) -> bool:
+        """Inserta una nueva venta"""
+        try:
+            data["created_at"] = datetime.now().isoformat()
+            data["updated_at"] = datetime.now().isoformat()
+            result = self.supabase.table("comisiones").insert(data).execute()
+            
+            # Limpiar cache después de insertar
+            st.cache_data.clear()
+            
+            return True if result.data else False
+        except Exception as e:
+            st.error(f"Error insertando venta: {e}")
+            return False
+    
+    def actualizar_factura(self, factura_id: int, updates: Dict[str, Any]) -> bool:
+        """Actualiza una factura con detección automática de columnas"""
+        try:
+            if not factura_id or factura_id == 0:
+                st.error("ID de factura inválido")
+                return False
+                
+            factura_id = int(factura_id)
+            
+            # Verificar existencia
+            check_response = self.supabase.table("comisiones").select("id").eq("id", factura_id).execute()
+            if not check_response.data:
+                st.error("Factura no encontrada")
+                return False
 
-
-def cargar_clientes(supabase: Client):
-    """Carga todos los clientes con sus datos completos"""
-    try:
-        response = supabase.table("clientes").select("""
-            cliente_id,
-            nombre_cliente,
-            email_cliente,
-            telefono_cliente,
-            direccion_cliente,
-            ciudad_cliente,
-            pais_cliente,
-            fecha_registro,
-            created_at,
-            updated_at
-        """).execute()
-        return response.data if response.data else []
-    except Exception as e:
-        print(f"Error cargando clientes: {e}")
-        return []
-
-
-def insertar_cliente(supabase: Client, cliente_data: dict):
-    """Inserta un nuevo cliente"""
-    try:
-        data = {
-            "nombre_cliente": cliente_data.get("nombre_cliente"),
-            "email_cliente": cliente_data.get("email_cliente"),
-            "telefono_cliente": cliente_data.get("telefono_cliente"),
-            "direccion_cliente": cliente_data.get("direccion_cliente"),
-            "ciudad_cliente": cliente_data.get("ciudad_cliente"),
-            "pais_cliente": cliente_data.get("pais_cliente"),
-            "fecha_registro": cliente_data.get("fecha_registro", datetime.now().date().isoformat()),
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }
-        
-        result = supabase.table("clientes").insert(data).execute()
-        return result.data[0] if result.data else None
-    except Exception as e:
-        print(f"Error insertando cliente: {e}")
-        return None
-
-
-def actualizar_cliente(supabase: Client, cliente_id: int, updates: dict):
-    """Actualiza un cliente existente"""
-    try:
-        updates["updated_at"] = datetime.now().isoformat()
-        result = supabase.table("clientes").update(updates).eq("cliente_id", cliente_id).execute()
-        return result.data[0] if result.data else None
-    except Exception as e:
-        print(f"Error actualizando cliente: {e}")
-        return None
-
-
-def cargar_productos(supabase: Client):
-    """Carga todos los productos"""
-    try:
-        response = supabase.table("productos").select("""
-            producto_id,
-            nombre_producto,
-            categoria_producto,
-            precio_producto,
-            stock_producto,
-            descripcion_producto,
-            created_at,
-            updated_at
-        """).execute()
-        return response.data if response.data else []
-    except Exception as e:
-        print(f"Error cargando productos: {e}")
-        return []
-
-
-def insertar_producto(supabase: Client, producto_data: dict):
-    """Inserta un nuevo producto"""
-    try:
-        data = {
-            "nombre_producto": producto_data.get("nombre_producto"),
-            "categoria_producto": producto_data.get("categoria_producto"),
-            "precio_producto": producto_data.get("precio_producto", 0),
-            "stock_producto": producto_data.get("stock_producto", 0),
-            "descripcion_producto": producto_data.get("descripcion_producto", ""),
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }
-        
-        result = supabase.table("productos").insert(data).execute()
-        return result.data[0] if result.data else None
-    except Exception as e:
-        print(f"Error insertando producto: {e}")
-        return None
-
-
-def cargar_comercializadoras(supabase: Client):
-    """Carga todas las comercializadoras"""
-    try:
-        response = supabase.table("comercializadoras").select("""
-            comercializadora_id,
-            nombre_comercializadora,
-            email_comercializadora,
-            telefono_comercializadora,
-            direccion_comercializadora,
-            ciudad_comercializadora,
-            pais_comercializadora,
-            created_at,
-            updated_at
-        """).execute()
-        return response.data if response.data else []
-    except Exception as e:
-        print(f"Error cargando comercializadoras: {e}")
-        return []
-
-
-def obtener_ventas_por_mes(supabase: Client, mes: str):
-    """Obtiene todas las ventas de un mes específico"""
-    try:
-        # Convertir mes string a rango de fechas
-        año, mes_num = mes.split('-')
-        fecha_inicio = f"{año}-{mes_num}-01"
-        
-        # Calcular último día del mes
-        if mes_num == '02':
-            if int(año) % 4 == 0:
-                fecha_fin = f"{año}-{mes_num}-29"
+            # Obtener columnas existentes
+            columnas_existentes = self._obtener_columnas_tabla()
+            
+            # Filtrar y validar updates
+            safe_updates = self._validar_updates(updates, columnas_existentes)
+            
+            if not safe_updates:
+                st.warning("No hay campos válidos para actualizar")
+                return False
+            
+            # Siempre agregar updated_at si existe
+            if 'updated_at' in columnas_existentes:
+                safe_updates["updated_at"] = datetime.now().isoformat()
+            
+            # Ejecutar actualización
+            result = self.supabase.table("comisiones").update(safe_updates).eq("id", factura_id).execute()
+            
+            if result.data:
+                st.cache_data.clear()
+                return True
             else:
-                fecha_fin = f"{año}-{mes_num}-28"
-        elif mes_num in ['04', '06', '09', '11']:
-            fecha_fin = f"{año}-{mes_num}-30"
-        else:
-            fecha_fin = f"{año}-{mes_num}-31"
-        
-        response = supabase.table("pedidos").select("*").gte("fecha_pedido", fecha_inicio).lte("fecha_pedido", fecha_fin).execute()
-        
-        return response.data if response.data else []
-    except Exception as e:
-        print(f"Error obteniendo ventas del mes: {e}")
-        return []
-
-
-def registrar_devolucion(supabase: Client, pedido_id: int, valor_devuelto: float, motivo: str):
-    """Registra una devolución para un pedido"""
-    try:
-        # Si tienes tabla de devoluciones
-        devolucion_data = {
-            "pedido_id": pedido_id,
-            "valor_devuelto": valor_devuelto,
-            "motivo_devolucion": motivo,
-            "fecha_devolucion": datetime.now().date().isoformat(),
-            "created_at": datetime.now().isoformat()
-        }
-        
-        result = supabase.table("devoluciones").insert(devolucion_data).execute()
-        
-        # Actualizar el pedido para recalcular comisión si es necesario
-        return actualizar_pedido(supabase, pedido_id, {"valor_devuelto": valor_devuelto})
-        
-    except Exception as e:
-        print(f"Error registrando devolución: {e}")
-        return False
-
-
-# Funciones auxiliares para reportes
-def obtener_resumen_ventas_mes(supabase: Client, mes: str):
-    """Obtiene un resumen de ventas del mes"""
-    ventas = obtener_ventas_por_mes(supabase, mes)
-    df = pd.DataFrame(ventas)
+                st.error("No se pudo actualizar la factura")
+                return False
+                
+        except Exception as e:
+            st.error(f"Error actualizando factura: {e}")
+            return False
     
-    if df.empty:
-        return {
-            "total_ventas": 0,
-            "total_pedidos": 0,
-            "ticket_promedio": 0,
-            "clientes_unicos": 0
-        }
+    def _obtener_columnas_tabla(self) -> set:
+        """Obtiene las columnas existentes en la tabla comisiones"""
+        try:
+            sample_query = self.supabase.table("comisiones").select("*").limit(1).execute()
+            return set(sample_query.data[0].keys()) if sample_query.data else set()
+        except:
+            # Columnas mínimas que deberían existir
+            return {
+                'id', 'pedido', 'cliente', 'factura', 'valor', 'pagado', 
+                'fecha_factura', 'created_at', 'updated_at'
+            }
     
-    return {
-        "total_ventas": df["total_pedido"].sum(),
-        "total_pedidos": len(df),
-        "ticket_promedio": df["total_pedido"].mean(),
-        "clientes_unicos": df["cliente_id"].nunique()
-    }
-
-
-def obtener_top_productos(supabase: Client, mes: str = None, limit: int = 10):
-    """Obtiene los productos más vendidos"""
-    try:
-        query = supabase.table("pedidos").select("""
-            producto_id,
-            productos:producto_id(nombre_producto),
-            cantidad_pedido,
-            total_pedido
-        """)
+    def _validar_updates(self, updates: Dict[str, Any], columnas_existentes: set) -> Dict[str, Any]:
+        """Valida y filtra los updates según las columnas existentes"""
+        safe_updates = {}
         
-        if mes:
-            año, mes_num = mes.split('-')
-            fecha_inicio = f"{año}-{mes_num}-01"
-            query = query.gte("fecha_pedido", fecha_inicio)
+        for campo, valor in updates.items():
+            if campo not in columnas_existentes:
+                continue
+                
+            try:
+                # Validación por tipo de campo
+                if campo in ['pedido', 'cliente', 'factura', 'referencia', 'observaciones_pago', 'razon_perdida', 'comprobante_url']:
+                    safe_updates[campo] = str(valor) if valor is not None else ""
+                
+                elif campo in ['valor', 'valor_neto', 'iva', 'base_comision', 'comision', 'porcentaje', 'comision_ajustada', 'descuento_adicional']:
+                    safe_updates[campo] = float(valor) if valor is not None else 0
+                
+                elif campo in ['dias_pago_real']:
+                    safe_updates[campo] = int(float(valor)) if valor is not None else 0
+                
+                elif campo in ['pagado', 'comision_perdida', 'cliente_propio', 'condicion_especial', 'descuento_pie_factura']:
+                    safe_updates[campo] = bool(valor)
+                
+                elif campo in ['fecha_factura', 'fecha_pago_est', 'fecha_pago_max', 'fecha_pago_real']:
+                    if isinstance(valor, str):
+                        datetime.fromisoformat(valor.replace('Z', '+00:00'))
+                        safe_updates[campo] = valor
+                    elif hasattr(valor, 'isoformat'):
+                        safe_updates[campo] = valor.isoformat()
+                
+                else:
+                    safe_updates[campo] = valor
+                    
+            except (ValueError, TypeError):
+                continue
         
-        response = query.execute()
-        df = pd.DataFrame(response.data)
-        
+        return safe_updates
+    
+    # ========================
+    # OPERACIONES DE DEVOLUCIONES
+    # ========================
+    
+    def cargar_devoluciones(self) -> pd.DataFrame:
+        """Carga datos de devoluciones con información de factura"""
+        try:
+            response = self.supabase.table("devoluciones").select("""
+                *,
+                comisiones!devoluciones_factura_id_fkey(
+                    pedido,
+                    cliente,
+                    factura,
+                    valor,
+                    comision
+                )
+            """).execute()
+            
+            if not response.data:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(response.data)
+            
+            # Expandir datos de la factura relacionada
+            if 'comisiones' in df.columns:
+                factura_data = pd.json_normalize(df['comisiones'])
+                factura_data.columns = ['factura_' + col for col in factura_data.columns]
+                df = pd.concat([df.drop('comisiones', axis=1), factura_data], axis=1)
+            
+            # Procesar tipos de datos
+            df['valor_devuelto'] = pd.to_numeric(df['valor_devuelto'], errors='coerce').fillna(0)
+            df['afecta_comision'] = df['afecta_comision'].fillna(True).astype(bool)
+            
+            # Convertir fechas
+            for col in ['fecha_devolucion', 'created_at']:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+            
+            # Campos string
+            for col in ['motivo']:
+                if col in df.columns:
+                    df[col] = df[col].fillna('').astype(str)
+            
+            return df
+            
+        except Exception as e:
+            st.error(f"Error cargando devoluciones: {str(e)}")
+            return pd.DataFrame()
+    
+    def insertar_devolucion(self, data: Dict[str, Any]) -> bool:
+        """Inserta una nueva devolución"""
+        try:
+            data["created_at"] = datetime.now().isoformat()
+            result = self.supabase.table("devoluciones").insert(data).execute()
+            
+            if result.data:
+                # Si la devolución afecta la comisión, actualizar la factura
+                if data.get("afecta_comision", True):
+                    self._actualizar_comision_por_devolucion(data["factura_id"], data["valor_devuelto"])
+                
+                return True
+            return False
+            
+        except Exception as e:
+            st.error(f"Error insertando devolución: {e}")
+            return False
+    
+    def _actualizar_comision_por_devolucion(self, factura_id: int, valor_devuelto: float) -> bool:
+        """Actualiza la comisión de una factura considerando devoluciones"""
+        try:
+            # Obtener datos actuales de la factura
+            factura_response = self.supabase.table("comisiones").select("*").eq("id", factura_id).execute()
+            if not factura_response.data:
+                return False
+            
+            factura = factura_response.data[0]
+            
+            # Obtener total de devoluciones que afectan comisión
+            devoluciones_response = self.supabase.table("devoluciones").select("valor_devuelto").eq("factura_id", factura_id).eq("afecta_comision", True).execute()
+            
+            total_devuelto = sum([d['valor_devuelto'] for d in devoluciones_response.data]) if devoluciones_response.data else 0
+            
+            # Recalcular valores
+            valor_original = factura.get('valor', 0)
+            valor_neto_original = factura.get('valor_neto', 0)
+            porcentaje = factura.get('porcentaje', 0)
+            
+            # Nuevo valor después de devoluciones
+            valor_neto_efectivo = valor_neto_original - (total_devuelto / 1.19)
+            
+            # Recalcular base comisión
+            if factura.get('descuento_pie_factura', False):
+                base_comision_efectiva = valor_neto_efectivo
+            else:
+                base_comision_efectiva = valor_neto_efectivo * 0.85
+            
+            # Nueva comisión
+            comision_efectiva = base_comision_efectiva * (porcentaje / 100)
+            
+            updates = {
+                "valor_devuelto": total_devuelto,
+                "comision_ajustada": comision_efectiva,
+                "updated_at": datetime.now().isoformat()
+            }
+            
+            result = self.supabase.table("comisiones").update(updates).eq("id", factura_id).execute()
+            return True if result.data else False
+            
+        except Exception as e:
+            st.error(f"Error actualizando comisión por devolución: {e}")
+            return False
+    
+    def obtener_facturas_para_devolucion(self) -> pd.DataFrame:
+        """Obtiene facturas disponibles para devoluciones"""
+        try:
+            response = self.supabase.table("comisiones").select(
+                "id, pedido, cliente, factura, valor, comision, fecha_factura"
+            ).order("fecha_factura", desc=True).execute()
+            
+            if response.data:
+                df = pd.DataFrame(response.data)
+                df['fecha_factura'] = pd.to_datetime(df['fecha_factura'])
+                return df
+            return pd.DataFrame()
+            
+        except Exception as e:
+            st.error(f"Error obteniendo facturas: {e}")
+            return pd.DataFrame()
+    
+    # ========================
+    # OPERACIONES DE METAS
+    # ========================
+    
+    def obtener_meta_mes_actual(self) -> Dict[str, Any]:
+        """Obtiene la meta del mes actual"""
+        try:
+            mes_actual = date.today().strftime("%Y-%m")
+            response = self.supabase.table("metas_mensuales").select("*").eq("mes", mes_actual).execute()
+            
+            if response.data:
+                return response.data[0]
+            else:
+                # Crear meta por defecto
+                meta_default = {
+                    "mes": mes_actual,
+                    "meta_ventas": 10000000,
+                    "meta_clientes_nuevos": 5,
+                    "ventas_actuales": 0,
+                    "clientes_nuevos_actuales": 0,
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat()
+                }
+                result = self.supabase.table("metas_mensuales").insert(meta_default).execute()
+                return result.data[0] if result.data else meta_default
+                
+        except Exception as e:
+            return {
+                "mes": date.today().strftime("%Y-%m"), 
+                "meta_ventas": 10000000, 
+                "meta_clientes_nuevos": 5
+            }
+    
+    def actualizar_meta(self, mes: str, meta_ventas: float, meta_clientes: int) -> bool:
+        """Actualiza meta mensual"""
+        try:
+            response = self.supabase.table("metas_mensuales").select("*").eq("mes", mes).execute()
+            
+            data = {
+                "meta_ventas": meta_ventas,
+                "meta_clientes_nuevos": meta_clientes,
+                "updated_at": datetime.now().isoformat()
+            }
+            
+            if response.data:
+                result = self.supabase.table("metas_mensuales").update(data).eq("mes", mes).execute()
+            else:
+                data["mes"] = mes
+                data["created_at"] = datetime.now().isoformat()
+                result = self.supabase.table("metas_mensuales").insert(data).execute()
+            
+            return True if result.data else False
+            
+        except Exception as e:
+            st.error(f"Error actualizando meta: {e}")
+            return False
+    
+    # ========================
+    # OPERACIONES DE ARCHIVOS
+    # ========================
+    
+    def subir_comprobante(self, file, factura_id: int) -> Optional[str]:
+        """Sube comprobante de pago"""
+        try:
+            if file is None:
+                return None
+                
+            file_content = file.getvalue()
+            original_extension = file.name.split('.')[-1].lower()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            new_filename = f"comprobante_{factura_id}_{timestamp}.{original_extension}"
+            
+            result = self.supabase.storage.from_("comprobantes").upload(
+                new_filename,
+                file_content,
+                file_options={
+                    "content-type": f"application/{original_extension}",
+                    "upsert": "true"
+                }
+            )
+            
+            if result:
+                public_url = self.supabase.storage.from_("comprobantes").get_public_url(new_filename)
+                return public_url
+            return None
+            
+        except Exception as e:
+            st.error(f"Error subiendo comprobante: {e}")
+            return None
+    
+    # ========================
+    # UTILIDADES Y HELPERS
+    # ========================
+    
+    def agregar_campos_faltantes(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Agrega campos que podrían no existir en el DataFrame"""
         if df.empty:
-            return []
+            return df
+            
+        campos_nuevos = {
+            'valor_neto': lambda row: row.get('valor', 0) / 1.19 if row.get('valor') else 0,
+            'iva': lambda row: row.get('valor', 0) - (row.get('valor', 0) / 1.19) if row.get('valor') else 0,
+            'base_comision': lambda row: (row.get('valor', 0) / 1.19) * 0.85 if row.get('valor') else 0,
+        }
         
-        # Agrupar por producto
-        top = df.groupby(['producto_id']).agg({
-            'cantidad_pedido': 'sum',
-            'total_pedido': 'sum'
-        }).reset_index()
+        for campo, default in campos_nuevos.items():
+            if campo not in df.columns:
+                if callable(default):
+                    df[campo] = df.apply(default, axis=1)
+                else:
+                    df[campo] = default
         
-        return top.head(limit).to_dict('records')
-        
-    except Exception as e:
-        print(f"Error obteniendo top productos: {e}")
-        return []
-
-
-# Aliases para compatibilidad con el código anterior
-cargar_datos_completos = cargar_datos
-insertar_venta = insertar_pedido
-insertar_venta_completa = insertar_pedido
-actualizar_factura = actualizar_pedido
-actualizar_factura_completa = actualizar_pedido
+        return df
+    
+    def limpiar_cache(self):
+        """Limpia todos los caches de datos"""
+        st.cache_data.clear()
