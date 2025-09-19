@@ -6,7 +6,7 @@ from supabase import create_client, Client
 
 # Importar módulos organizados
 from queries import DatabaseManager
-from ui.components import UIComponents
+from ui.componentes import UIComponents
 from ui.tabs import TabRenderer
 from business.calculations import ComisionCalculator
 from business.ai_recommendations import AIRecommendations
