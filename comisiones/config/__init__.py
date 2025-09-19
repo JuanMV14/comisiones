@@ -1,1 +1,1 @@
-# utils package
+"""Módulo de configuración"""
