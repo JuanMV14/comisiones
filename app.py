@@ -1743,14 +1743,14 @@ def main():
                     st.rerun()
 
     def calcular_progreso_meta_sidebar(df_tmp, meta_actual):
-    """Calcula progreso considerando solo clientes propios"""
-    mes_actual_str = date.today().strftime("%Y-%m")
-    
-    # FILTRAR SOLO CLIENTES PROPIOS
-    ventas_mes = df_tmp[
-        (df_tmp["mes_factura"] == mes_actual_str) & 
-        (df_tmp["cliente_propio"] == True)
-    ]["valor_neto"].sum() if not df_tmp.empty else 0
+        """Calcula progreso considerando solo clientes propios"""
+        mes_actual_str = date.today().strftime("%Y-%m")
+        
+        # FILTRAR SOLO CLIENTES PROPIOS
+        ventas_mes = df_tmp[
+            (df_tmp["mes_factura"] == mes_actual_str) & 
+            (df_tmp["cliente_propio"] == True)
+        ]["valor_neto"].sum() if not df_tmp.empty else 0
     
     progreso = (ventas_mes / meta_actual["meta_ventas"] * 100) if meta_actual["meta_ventas"] > 0 else 0
     
