@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 
 # Importar módulos organizados
-from database.queries import DatabaseManager
+from queries import DatabaseManager
 from ui.components import UIComponents
 from ui.tabs import TabRenderer
 from business.calculations import ComisionCalculator
