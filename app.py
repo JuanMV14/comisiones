@@ -7,10 +7,10 @@ from supabase import create_client, Client
 # Importar módulos organizados
 from queries import DatabaseManager
 from ui.componentes import UIComponents
-from ui.tabs import TabRenderer
+from comisiones.ui.tabs import TabRenderer
 from business.calculations import ComisionCalculator
 from business.ai_recommendations import AIRecommendations
-from utils.formatting import format_currency
+from comisiones.utils.formatting import format_currency
 from config.settings import AppConfig
 
 # ========================
