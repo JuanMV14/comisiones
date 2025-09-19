@@ -5,23 +5,56 @@ from datetime import date
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-# Agregar el directorio actual al path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Agregar el directorio raíz al Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
 
-# Importar módulos organizados
+# Importar módulos con manejo de errores
 try:
     from database.queries import DatabaseManager
-    from ui.components import UIComponents
-    from ui.tabs import TabRenderer
-    from business.calculations import ComisionCalculator
-    from business.ai_recommendations import AIRecommendations
-    from utils.formatting import format_currency
-    from config.settings import AppConfig
-except ImportError as e:
-    st.error(f"Error importando módulos: {e}")
-    st.info("Verifica que todos los archivos __init__.py estén presentes")
-    st.stop()
+except ImportError:
+    st.error("No se pudo importar DatabaseManager")
     
+try:
+    from ui.components import UIComponents
+except ImportError:
+    st.error("No se pudo importar UIComponents")
+    
+try:
+    from ui.tabs import TabRenderer
+except ImportError:
+    st.error("No se pudo importar TabRenderer")
+    
+try:
+    from business.calculations import ComisionCalculator
+except ImportError:
+    st.error("No se pudo importar ComisionCalculator")
+    
+try:
+    from business.ai_recommendations import AIRecommendations
+except ImportError:
+    st.error("No se pudo importar AIRecommendations")
+    
+try:
+    from utils.formatting import format_currency
+except ImportError:
+    st.error("No se pudo importar format_currency")
+    # Función de respaldo
+    def format_currency(value):
+        if value == 0 or value is None:
+            return "$0"
+        return f"${value:,.0f}".replace(",", ".")
+    
+try:
+    from config.settings import AppConfig
+except ImportError:
+    st.error("No se pudo importar AppConfig")
+    # Configuración de respaldo
+    class AppConfig:
+        APP_TITLE = "CRM Inteligente"
+        APP_ICON = "🧠"
+        PAGE_LAYOUT = "wide"
+        
 # ========================
 # CONFIGURACIÓN INICIAL
 # ========================
