@@ -1774,21 +1774,21 @@ def main():
             st.header("Dashboard Ejecutivo")
 
             def render_metricas_separadas(df):
-    """Muestra métricas separadas para clientes propios y externos"""
+            """Muestra métricas separadas para clientes propios y externos"""
     
-    if not df.empty:
-        # Separar por tipo de cliente
-        clientes_propios = df[df["cliente_propio"] == True]
-        clientes_externos = df[df["cliente_propio"] == False]
-        
-        # Calcular métricas
-        ventas_propios = clientes_propios["valor_neto"].sum()
-        ventas_externos = clientes_externos["valor_neto"].sum()
-        comision_propios = clientes_propios["comision"].sum()
-        comision_externos = clientes_externos["comision"].sum()
-        
-        # Mostrar métricas principales (solo clientes propios)
-        col1, col2, col3, col4 = st.columns(4)
+                if not df.empty:
+                    # Separar por tipo de cliente
+                    clientes_propios = df[df["cliente_propio"] == True]
+                    clientes_externos = df[df["cliente_propio"] == False]
+                    
+                    # Calcular métricas
+                    ventas_propios = clientes_propios["valor_neto"].sum()
+                    ventas_externos = clientes_externos["valor_neto"].sum()
+                    comision_propios = clientes_propios["comision"].sum()
+                    comision_externos = clientes_externos["comision"].sum()
+                    
+                    # Mostrar métricas principales (solo clientes propios)
+                    col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
