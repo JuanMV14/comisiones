@@ -1660,7 +1660,10 @@ def main():
         
         df_tmp = cargar_datos(supabase)
         mes_actual_str = date.today().strftime("%Y-%m")
-        ventas_mes = df_tmp[df_tmp["mes_factura"] == mes_actual_str]["valor_neto"].sum() if not df_tmp.empty else 0
+        ventas_mes = df_tmp[
+            (df_tmp["mes_factura"] == mes_actual_str) & 
+            (df_tmp["cliente_propio"] == True)  # Solo clientes propios
+        ]["valor_neto"].sum() if not df_tmp.empty else 0
         
         progreso = (ventas_mes / meta_actual["meta_ventas"] * 100) if meta_actual["meta_ventas"] > 0 else 0
         
@@ -1739,6 +1742,20 @@ def main():
                     st.session_state.show_meta_config = False
                     st.rerun()
 
+    def calcular_progreso_meta_sidebar(df_tmp, meta_actual):
+    """Calcula progreso considerando solo clientes propios"""
+    mes_actual_str = date.today().strftime("%Y-%m")
+    
+    # FILTRAR SOLO CLIENTES PROPIOS
+    ventas_mes = df_tmp[
+        (df_tmp["mes_factura"] == mes_actual_str) & 
+        (df_tmp["cliente_propio"] == True)
+    ]["valor_neto"].sum() if not df_tmp.empty else 0
+    
+    progreso = (ventas_mes / meta_actual["meta_ventas"] * 100) if meta_actual["meta_ventas"] > 0 else 0
+    
+    return ventas_mes, progreso
+
     # LAYOUT PRINCIPAL
     if not st.session_state.show_meta_config:
         st.title("🧠 CRM Inteligente")
@@ -1755,6 +1772,64 @@ def main():
         # TAB 1 - DASHBOARD
         with tabs[0]:
             st.header("Dashboard Ejecutivo")
+
+            def render_metricas_separadas(df):
+    """Muestra métricas separadas para clientes propios y externos"""
+    
+    if not df.empty:
+        # Separar por tipo de cliente
+        clientes_propios = df[df["cliente_propio"] == True]
+        clientes_externos = df[df["cliente_propio"] == False]
+        
+        # Calcular métricas
+        ventas_propios = clientes_propios["valor_neto"].sum()
+        ventas_externos = clientes_externos["valor_neto"].sum()
+        comision_propios = clientes_propios["comision"].sum()
+        comision_externos = clientes_externos["comision"].sum()
+        
+        # Mostrar métricas principales (solo clientes propios)
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Ventas Meta (Propios)",
+                format_currency(ventas_propios),
+                help="Solo clientes propios cuentan para la meta"
+            )
+        
+        with col2:
+            st.metric(
+                "Comisión Total", 
+                format_currency(comision_propios + comision_externos),
+                help="Comisiones de todos los clientes"
+            )
+        
+        with col3:
+            facturas_pendientes = len(df[df["pagado"] == False])
+            st.metric("Facturas Pendientes", facturas_pendientes)
+        
+        with col4:
+            total_general = ventas_propios + ventas_externos
+            porcentaje_propios = (ventas_propios / total_general * 100) if total_general > 0 else 0
+            st.metric("% Clientes Propios", f"{porcentaje_propios:.1f}%")
+        
+        # Mostrar desglose adicional
+        st.markdown("---")
+        st.markdown("### Desglose por Tipo de Cliente")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### 🏢 Clientes Propios (Para Meta)")
+            st.metric("Ventas", format_currency(ventas_propios))
+            st.metric("Comisión", format_currency(comision_propios))
+            st.metric("Facturas", len(clientes_propios))
+        
+        with col2:
+            st.markdown("#### 🤝 Clientes Externos (Solo Comisión)")
+            st.metric("Ventas", format_currency(ventas_externos))
+            st.metric("Comisión", format_currency(comision_externos))
+            st.metric("Facturas", len(clientes_externos))
             
             df = cargar_datos(supabase)
             if not df.empty:
@@ -1767,7 +1842,7 @@ def main():
             col1, col2, col3, col4 = st.columns(4)
             
             if not df.empty:
-                total_facturado = df["valor_neto"].sum()
+                total_facturado = df[df["cliente_propio"] == True]["valor_neto"].sum() if not df.empty else 0
                 total_comisiones = df["comision"].sum()
                 facturas_pendientes = len(df[df["pagado"] == False])
                 promedio_comision = (total_comisiones / total_facturado * 100) if total_facturado > 0 else 0
@@ -2158,16 +2233,19 @@ def main():
             st.markdown("---")
             
 def calcular_prediccion_meta(df, meta_actual):
-    """Calcula predicción real de cumplimiento de meta"""
+    """Calcula predicción considerando solo clientes propios"""
     if df.empty:
         return {"probabilidad": 0, "tendencia": "Sin datos", "dias_necesarios": 0}
     
-    # Obtener datos del mes actual
+    # Obtener datos del mes actual - SOLO CLIENTES PROPIOS
     mes_actual = date.today().strftime("%Y-%m")
-    df_mes = df[df["mes_factura"] == mes_actual]
+    df_mes = df[
+        (df["mes_factura"] == mes_actual) & 
+        (df["cliente_propio"] == True)  # FILTRO CLAVE
+    ]
     
     if df_mes.empty:
-        return {"probabilidad": 0, "tendencia": "Sin ventas este mes", "dias_necesarios": 0}
+        return {"probabilidad": 0, "tendencia": "Sin ventas de clientes propios", "dias_necesarios": 0}
     
     # Calcular progreso actual
     ventas_actuales = df_mes["valor"].sum()
