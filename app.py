@@ -1,18 +1,27 @@
 import os
+import sys
 import streamlit as st
 from datetime import date
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-# Importar módulos organizados
-from database.queries import DatabaseManager
-from ui.components import UIComponents
-from ui.tabs import TabRenderer
-from business.calculations import ComisionCalculator
-from business.ai_recommendations import AIRecommendations
-from utils.formatting import format_currency
-from config.settings import AppConfig
+# Agregar el directorio actual al path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+# Importar módulos organizados
+try:
+    from database.queries import DatabaseManager
+    from ui.components import UIComponents
+    from ui.tabs import TabRenderer
+    from business.calculations import ComisionCalculator
+    from business.ai_recommendations import AIRecommendations
+    from utils.formatting import format_currency
+    from config.settings import AppConfig
+except ImportError as e:
+    st.error(f"Error importando módulos: {e}")
+    st.info("Verifica que todos los archivos __init__.py estén presentes")
+    st.stop()
+    
 # ========================
 # CONFIGURACIÓN INICIAL
 # ========================
