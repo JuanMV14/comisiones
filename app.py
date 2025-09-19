@@ -6,12 +6,12 @@ from supabase import create_client, Client
 
 # Importar módulos organizados
 from comisiones.queries import DatabaseManager
-from ui.componentes import UIComponents
+from comisiones.ui.componentes import UIComponents
 from comisiones.ui.tabs import TabRenderer
-from business.calculations import ComisionCalculator
-from business.ai_recommendations import AIRecommendations
-from comisiones.utils.formatting import format_currency
-from config.settings import AppConfig
+from comisiones.business.calculations import ComisionCalculator
+from comisiones.business.ai_recommendations import AIRecommendations
+from comisones.comisiones.utils.formatting import format_currency
+from comisiones.config.settings import AppConfig
 
 # ========================
 # CONFIGURACIÓN INICIAL
