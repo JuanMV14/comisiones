@@ -1,1 +1,1 @@
-# utils package
+"""Módulo de utilidades para el CRM"""
