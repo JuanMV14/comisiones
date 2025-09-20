@@ -1944,4 +1944,4 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         st.error(f"Error en la aplicación: {str(e)}")
-        st.info("Por favor, recarga la página o contacta al administrador.")import os
+        st.info("Por favor, recarga la página o contacta al administrador.")
