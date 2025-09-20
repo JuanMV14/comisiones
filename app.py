@@ -63,6 +63,23 @@ def calcular_comision_inteligente(valor_total, cliente_propio=False, tiene_descu
         'porcentaje': porcentaje
     }
 
+def agregar_campos_faltantes(df):
+    """Agrega campos que podrían no existir"""
+    campos_nuevos = {
+        'valor_neto': lambda row: row.get('valor', 0) / 1.19 if row.get('valor') else 0,
+        'iva': lambda row: row.get('valor', 0) - (row.get('valor', 0) / 1.19) if row.get('valor') else 0,
+        'base_comision': lambda row: (row.get('valor', 0) / 1.19) * 0.85 if row.get('valor') else 0,
+    }
+    
+    for campo, default in campos_nuevos.items():
+        if campo not in df.columns:
+            if callable(default):
+                df[campo] = df.apply(default, axis=1)
+            else:
+                df[campo] = default
+    
+    return df
+
 # ========================
 # FUNCIONES DE BASE DE DATOS
 # ========================
@@ -147,6 +164,67 @@ def insertar_venta(data: dict):
         st.error(f"Error insertando venta: {e}")
         return False
 
+def actualizar_factura(factura_id: int, updates: dict):
+    """Actualiza una factura"""
+    try:
+        if not factura_id or factura_id == 0:
+            st.error("ID de factura inválido")
+            return False
+            
+        factura_id = int(factura_id)
+        
+        # Verificar existencia de la factura
+        check_response = supabase.table("comisiones").select("id").eq("id", factura_id).execute()
+        if not check_response.data:
+            st.error("Factura no encontrada")
+            return False
+
+        # Siempre agregar updated_at
+        updates["updated_at"] = datetime.now().isoformat()
+        
+        # Ejecutar actualización
+        result = supabase.table("comisiones").update(updates).eq("id", factura_id).execute()
+        
+        if result.data:
+            st.cache_data.clear()
+            return True
+        else:
+            st.error("No se pudo actualizar la factura")
+            return False
+        
+    except Exception as e:
+        st.error(f"Error actualizando factura: {e}")
+        return False
+
+def subir_comprobante(file, factura_id: int):
+    """Sube comprobante de pago"""
+    try:
+        if file is None:
+            return None
+            
+        file_content = file.getvalue()
+        original_extension = file.name.split('.')[-1].lower()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        new_filename = f"comprobante_{factura_id}_{timestamp}.{original_extension}"
+        
+        result = supabase.storage.from_("comprobantes").upload(
+            new_filename,
+            file_content,
+            file_options={
+                "content-type": f"application/{original_extension}",
+                "upsert": "true"
+            }
+        )
+        
+        if result:
+            public_url = supabase.storage.from_("comprobantes").get_public_url(new_filename)
+            return public_url
+        return None
+        
+    except Exception as e:
+        st.error(f"Error subiendo comprobante: {e}")
+        return None
+
 def obtener_meta_mes_actual():
     """Obtiene la meta del mes actual"""
     try:
@@ -198,6 +276,134 @@ def actualizar_meta(mes: str, meta_ventas: float, meta_clientes: int):
     except Exception as e:
         st.error(f"Error actualizando meta: {e}")
         return False
+
+# ========================
+# FUNCIONES DE DEVOLUCIONES
+# ========================
+def cargar_devoluciones():
+    """Carga datos de devoluciones"""
+    try:
+        response = supabase.table("devoluciones").select("""
+            *,
+            comisiones!devoluciones_factura_id_fkey(
+                pedido,
+                cliente,
+                factura,
+                valor,
+                comision
+            )
+        """).execute()
+        
+        if not response.data:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(response.data)
+        
+        # Expandir datos de la factura relacionada
+        if 'comisiones' in df.columns:
+            factura_data = pd.json_normalize(df['comisiones'])
+            factura_data.columns = ['factura_' + col for col in factura_data.columns]
+            df = pd.concat([df.drop('comisiones', axis=1), factura_data], axis=1)
+        
+        # Procesar tipos de datos
+        df['valor_devuelto'] = pd.to_numeric(df['valor_devuelto'], errors='coerce').fillna(0)
+        df['afecta_comision'] = df['afecta_comision'].fillna(True).astype(bool)
+        
+        # Convertir fechas
+        for col in ['fecha_devolucion', 'created_at']:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+        
+        # Campos string
+        for col in ['motivo']:
+            if col in df.columns:
+                df[col] = df[col].fillna('').astype(str)
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"Error cargando devoluciones: {str(e)}")
+        return pd.DataFrame()
+
+def insertar_devolucion(data: dict):
+    """Inserta una nueva devolución"""
+    try:
+        data["created_at"] = datetime.now().isoformat()
+        result = supabase.table("devoluciones").insert(data).execute()
+        
+        if result.data:
+            # Si la devolución afecta la comisión, actualizar la factura
+            if data.get("afecta_comision", True):
+                actualizar_comision_por_devolucion(data["factura_id"], data["valor_devuelto"])
+            
+            return True
+        return False
+        
+    except Exception as e:
+        st.error(f"Error insertando devolución: {e}")
+        return False
+
+def actualizar_comision_por_devolucion(factura_id: int, valor_devuelto: float):
+    """Actualiza la comisión de una factura considerando devoluciones"""
+    try:
+        # Obtener datos actuales de la factura
+        factura_response = supabase.table("comisiones").select("*").eq("id", factura_id).execute()
+        if not factura_response.data:
+            return False
+        
+        factura = factura_response.data[0]
+        
+        # Obtener total de devoluciones que afectan comisión para esta factura
+        devoluciones_response = supabase.table("devoluciones").select("valor_devuelto").eq("factura_id", factura_id).eq("afecta_comision", True).execute()
+        
+        total_devuelto = sum([d['valor_devuelto'] for d in devoluciones_response.data]) if devoluciones_response.data else 0
+        
+        # Recalcular valores considerando devoluciones
+        valor_original = factura.get('valor', 0)
+        valor_neto_original = factura.get('valor_neto', 0)
+        porcentaje = factura.get('porcentaje', 0)
+        
+        # Nuevo valor después de devoluciones
+        valor_neto_efectivo = valor_neto_original - (total_devuelto / 1.19)
+        
+        # Recalcular base comisión
+        if factura.get('descuento_pie_factura', False):
+            base_comision_efectiva = valor_neto_efectivo
+        else:
+            base_comision_efectiva = valor_neto_efectivo * 0.85
+        
+        # Nueva comisión
+        comision_efectiva = base_comision_efectiva * (porcentaje / 100)
+        
+        updates = {
+            "valor_devuelto": total_devuelto,
+            "comision_ajustada": comision_efectiva,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = supabase.table("comisiones").update(updates).eq("id", factura_id).execute()
+        return True if result.data else False
+        
+    except Exception as e:
+        st.error(f"Error actualizando comisión por devolución: {e}")
+        return False
+
+def obtener_facturas_para_devolucion():
+    """Obtiene facturas disponibles para devoluciones"""
+    try:
+        response = supabase.table("comisiones").select(
+            "id, pedido, cliente, factura, valor, comision, fecha_factura"
+        ).order("fecha_factura", desc=True).execute()
+        
+        if response.data:
+            df = pd.DataFrame(response.data)
+            df['fecha_factura'] = pd.to_datetime(df['fecha_factura'])
+            return df
+        return pd.DataFrame()
+        
+    except Exception as e:
+        st.error(f"Error obteniendo facturas: {e}")
+        return pd.DataFrame()
 
 # ========================
 # FUNCIONES DE RECOMENDACIONES IA
@@ -259,6 +465,32 @@ def generar_recomendaciones_reales():
                 'prioridad': 'alta'
             })
         
+        # Clientes sin actividad reciente
+        if len(recomendaciones) < 3:
+            df['dias_desde_factura'] = (hoy - df['fecha_factura']).dt.days
+            
+            clientes_inactivos = df.groupby('cliente').agg({
+                'dias_desde_factura': 'min',
+                'valor': 'mean',
+                'comision': 'mean'
+            }).reset_index()
+            
+            oportunidades = clientes_inactivos[
+                (clientes_inactivos['dias_desde_factura'] >= 30) & 
+                (clientes_inactivos['dias_desde_factura'] <= 90)
+            ].nlargest(1, 'valor')
+            
+            for _, cliente in oportunidades.iterrows():
+                recomendaciones.append({
+                    'cliente': cliente['cliente'],
+                    'accion': 'Reactivar cliente',
+                    'producto': f"Oferta personalizada (${cliente['valor']*0.8:,.0f})",
+                    'razon': f"Sin compras {int(cliente['dias_desde_factura'])} días - Cliente valioso",
+                    'probabilidad': max(30, 90 - int(cliente['dias_desde_factura'])),
+                    'impacto_comision': cliente['comision'],
+                    'prioridad': 'media'
+                })
+        
         # Si no hay suficientes recomendaciones
         if len(recomendaciones) == 0:
             top_cliente = df.groupby('cliente')['valor'].sum().nlargest(1)
@@ -288,6 +520,468 @@ def generar_recomendaciones_reales():
             'impacto_comision': 0,
             'prioridad': 'baja'
         }]
+
+# ========================
+# FUNCIONES DE UI
+# ========================
+def render_factura_card(factura, index):
+    """Renderiza una card de factura"""
+    estado_pagado = factura.get("pagado", False)
+    
+    if estado_pagado:
+        estado_badge = "PAGADA"
+        estado_color = "success"
+        estado_icon = "✅"
+    else:
+        dias_venc = factura.get("dias_vencimiento")
+        if dias_venc is not None and dias_venc < 0:
+            estado_badge = f"VENCIDA ({abs(dias_venc)} días)"
+            estado_color = "error"
+            estado_icon = "🚨"
+        elif dias_venc is not None and dias_venc <= 5:
+            estado_badge = f"POR VENCER ({dias_venc} días)"
+            estado_color = "warning"
+            estado_icon = "⚠️"
+        else:
+            estado_badge = "PENDIENTE"
+            estado_color = "info"
+            estado_icon = "⏳"
+    
+    with st.container(border=True):
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.markdown(f"## 🧾 {factura.get('pedido', 'N/A')} - {factura.get('cliente', 'N/A')}")
+            st.caption(f"Factura: {factura.get('factura', 'N/A')}")
+        
+        with col2:
+            if estado_color == "error":
+                st.error(f"{estado_icon} {estado_badge}")
+            elif estado_color == "success":
+                st.success(f"{estado_icon} {estado_badge}")
+            elif estado_color == "warning":
+                st.warning(f"{estado_icon} {estado_badge}")
+            else:
+                st.info(f"{estado_icon} {estado_badge}")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Valor Neto", format_currency(factura.get('valor_neto', 0)))
+        with col2:
+            st.metric("Base Comisión", format_currency(factura.get('base_comision', 0)))
+        with col3:
+            st.metric("Comisión", format_currency(factura.get('comision', 0)))
+        with col4:
+            fecha_factura = factura.get('fecha_factura')
+            if pd.notna(fecha_factura):
+                fecha_str = pd.to_datetime(fecha_factura).strftime('%d/%m/%Y')
+            else:
+                fecha_str = "N/A"
+            st.metric("Fecha", fecha_str)
+
+        # Mostrar información adicional solo para facturas NO PAGADAS
+        if not estado_pagado:
+            dias_venc = factura.get('dias_vencimiento')
+            if dias_venc is not None:
+                if dias_venc < 0:
+                    st.error(f"⚠️ Vencida hace {abs(dias_venc)} días")
+                elif dias_venc <= 5:
+                    st.warning(f"⏰ Vence en {dias_venc} días")
+        else:
+            # Para facturas pagadas, mostrar información del pago
+            fecha_pago = factura.get('fecha_pago_real')
+            if pd.notna(fecha_pago):
+                st.success(f"💰 Pagada el {pd.to_datetime(fecha_pago).strftime('%d/%m/%Y')}")
+
+def mostrar_modal_editar(factura):
+    """Modal de edición de factura"""
+    factura_id = factura.get('id')
+    if not factura_id:
+        st.error("ERROR: Factura sin ID")
+        return
+    
+    form_key = f"edit_form_{factura_id}"
+    
+    with st.form(form_key, clear_on_submit=False):
+        st.markdown(f"### ✏️ Editar Factura - {factura.get('pedido', 'N/A')}")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            nuevo_pedido = st.text_input("Pedido", value=str(factura.get('pedido', '')), key=f"edit_pedido_{factura_id}")
+            nuevo_cliente = st.text_input("Cliente", value=str(factura.get('cliente', '')), key=f"edit_cliente_{factura_id}")
+            nuevo_valor = st.number_input("Valor Total", value=float(factura.get('valor', 0)), min_value=0.0, key=f"edit_valor_{factura_id}")
+        
+        with col2:
+            nueva_factura = st.text_input("Número Factura", value=str(factura.get('factura', '')), key=f"edit_factura_{factura_id}")
+            cliente_propio = st.checkbox("Cliente Propio", value=bool(factura.get('cliente_propio', False)), key=f"edit_cliente_propio_{factura_id}")
+            descuento_adicional = st.number_input("Descuento %", value=float(factura.get('descuento_adicional', 0)), key=f"edit_descuento_{factura_id}")
+        
+        nueva_fecha = st.date_input(
+            "Fecha Factura", 
+            value=pd.to_datetime(factura.get('fecha_factura', date.today())).date(),
+            key=f"edit_fecha_{factura_id}"
+        )
+        
+        st.markdown("#### Recálculo de Comisión")
+        if nuevo_valor > 0:
+            calc = calcular_comision_inteligente(
+                nuevo_valor, 
+                cliente_propio, 
+                descuento_adicional, 
+                factura.get('descuento_pie_factura', False)
+            )
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Nueva Comisión", format_currency(calc['comision']))
+            with col2:
+                st.metric("Porcentaje", f"{calc['porcentaje']}%")
+            with col3:
+                st.metric("Base", format_currency(calc['base_comision']))
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            guardar = st.form_submit_button("💾 Guardar Cambios", type="primary")
+        with col2:
+            cancelar = st.form_submit_button("❌ Cancelar")
+        
+        if cancelar:
+            if f"show_edit_{factura_id}" in st.session_state:
+                del st.session_state[f"show_edit_{factura_id}"]
+            st.rerun()
+        
+        if guardar:
+            if nuevo_pedido and nuevo_cliente and nuevo_valor > 0:
+                try:
+                    # Recalcular comisión
+                    calc = calcular_comision_inteligente(
+                        nuevo_valor, 
+                        cliente_propio, 
+                        descuento_adicional,
+                        factura.get('descuento_pie_factura', False)
+                    )
+                    
+                    # Recalcular fechas de pago
+                    dias_pago = 60 if factura.get('condicion_especial', False) else 35
+                    dias_max = 60 if factura.get('condicion_especial', False) else 45
+                    fecha_pago_est = nueva_fecha + timedelta(days=dias_pago)
+                    fecha_pago_max = nueva_fecha + timedelta(days=dias_max)
+                    
+                    updates = {
+                        "pedido": nuevo_pedido,
+                        "cliente": nuevo_cliente,
+                        "factura": nueva_factura,
+                        "valor": nuevo_valor,
+                        "valor_neto": calc['valor_neto'],
+                        "iva": calc['iva'],
+                        "base_comision": calc['base_comision'],
+                        "comision": calc['comision'],
+                        "porcentaje": calc['porcentaje'],
+                        "fecha_factura": nueva_fecha.isoformat(),
+                        "fecha_pago_est": fecha_pago_est.isoformat(),
+                        "fecha_pago_max": fecha_pago_max.isoformat(),
+                        "cliente_propio": cliente_propio,
+                        "descuento_adicional": descuento_adicional
+                    }
+                    
+                    with st.spinner("Guardando cambios..."):
+                        resultado = actualizar_factura(factura_id, updates)
+                    
+                    if resultado:
+                        st.success("✅ Factura actualizada exitosamente!")
+                        if f"show_edit_{factura_id}" in st.session_state:
+                            del st.session_state[f"show_edit_{factura_id}"]
+                        st.rerun()
+                    else:
+                        st.error("❌ Error actualizando la factura")
+                        
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+            else:
+                st.error("Por favor completa todos los campos requeridos")
+
+def mostrar_modal_pago_final(factura):
+    """Modal de pago con información completa"""
+    factura_id = factura.get('id')
+    if not factura_id:
+        st.error("ERROR: Factura sin ID")
+        return
+    
+    if factura.get('pagado'):
+        st.warning("⚠️ Esta factura ya está marcada como pagada")
+        return
+    
+    form_key = f"pago_form_{factura_id}"
+    
+    with st.form(form_key, clear_on_submit=False):
+        st.markdown(f"### 💳 Procesar Pago - {factura.get('pedido', 'N/A')}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            fecha_pago = st.date_input("Fecha de Pago", value=date.today(), key=f"pago_fecha_{factura_id}")
+            metodo = st.selectbox("Método", ["Transferencia", "Efectivo", "Cheque", "Tarjeta"], key=f"pago_metodo_{factura_id}")
+        with col2:
+            referencia = st.text_input("Referencia", placeholder="Número de transacción", key=f"pago_referencia_{factura_id}")
+            observaciones = st.text_area("Observaciones", placeholder="Notas del pago", key=f"pago_observaciones_{factura_id}")
+        
+        archivo = st.file_uploader(
+            "Subir comprobante", 
+            type=['pdf', 'jpg', 'jpeg', 'png'],
+            key=f"archivo_pago_{factura_id}"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            procesar = st.form_submit_button("✅ PROCESAR PAGO", type="primary")
+        with col2:
+            cancelar = st.form_submit_button("❌ Cancelar")
+        
+        if cancelar:
+            if f"show_pago_{factura_id}" in st.session_state:
+                del st.session_state[f"show_pago_{factura_id}"]
+            st.rerun()
+        
+        if procesar:
+            with st.spinner("🔄 Procesando pago..."):
+                try:
+                    comprobante_url = None
+                    if archivo:
+                        comprobante_url = subir_comprobante(archivo, factura_id)
+                    
+                    # Calcular días de pago
+                    fecha_factura = pd.to_datetime(factura.get('fecha_factura'))
+                    dias = (pd.to_datetime(fecha_pago) - fecha_factura).days
+                    
+                    updates = {
+                        "pagado": True,
+                        "fecha_pago_real": fecha_pago.isoformat(),
+                        "dias_pago_real": dias,
+                        "metodo_pago": metodo,
+                        "referencia": referencia,
+                        "observaciones_pago": observaciones
+                    }
+                    
+                    if comprobante_url:
+                        updates["comprobante_url"] = comprobante_url
+                    
+                    # Verificar si la comisión se pierde por pago tardío
+                    if dias > 80:
+                        updates["comision_perdida"] = True
+                        updates["razon_perdida"] = f"Pago tardío: {dias} días"
+                        updates["comision_ajustada"] = 0
+                    else:
+                        updates["comision_perdida"] = False
+                        updates["comision_ajustada"] = factura.get('comision', 0)
+                    
+                    resultado = actualizar_factura(factura_id, updates)
+                    
+                    if resultado:
+                        st.success("🎉 PAGO PROCESADO EXITOSAMENTE!")
+                        st.balloons()
+                        
+                        if dias > 80:
+                            st.warning(f"⚠️ COMISIÓN PERDIDA: Pago realizado después de 80 días ({dias} días)")
+                        
+                        if f"show_pago_{factura_id}" in st.session_state:
+                            del st.session_state[f"show_pago_{factura_id}"]
+                        st.rerun()
+                    else:
+                        st.error("❌ Error procesando el pago")
+                        
+                except Exception as e:
+                    st.error(f"Error procesando pago: {str(e)}")
+
+def render_devolucion_card(devolucion, index):
+    """Renderiza una card de devolución"""
+    with st.container(border=True):
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            cliente = devolucion.get('factura_cliente', 'N/A')
+            pedido = devolucion.get('factura_pedido', 'N/A')
+            st.markdown(f"## 🔄 {pedido} - {cliente}")
+            st.caption(f"Factura: {devolucion.get('factura_factura', 'N/A')}")
+        
+        with col2:
+            if devolucion.get('afecta_comision', True):
+                st.error("❌ AFECTA COMISIÓN")
+            else:
+                st.success("✅ NO AFECTA")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Valor Devuelto", format_currency(devolucion.get('valor_devuelto', 0)))
+        
+        with col2:
+            valor_factura = devolucion.get('factura_valor', 0)
+            porcentaje = (devolucion.get('valor_devuelto', 0) / valor_factura * 100) if valor_factura > 0 else 0
+            st.metric("% de Factura", f"{porcentaje:.1f}%")
+        
+        with col3:
+            if devolucion.get('afecta_comision', True):
+                comision_original = devolucion.get('factura_comision', 0)
+                comision_perdida = comision_original * (porcentaje / 100)
+                st.metric("Comisión Perdida", format_currency(comision_perdida))
+            else:
+                st.metric("Comisión Perdida", format_currency(0))
+        
+        with col4:
+            fecha_dev = devolucion.get('fecha_devolucion')
+            if pd.notna(fecha_dev):
+                fecha_str = pd.to_datetime(fecha_dev).strftime('%d/%m/%Y')
+            else:
+                fecha_str = "N/A"
+            st.metric("Fecha", fecha_str)
+        
+        # Mostrar motivo si existe
+        if devolucion.get('motivo'):
+            st.markdown(f"**Motivo:** {devolucion.get('motivo')}")
+
+def mostrar_modal_nueva_devolucion(facturas_df):
+    """Modal para crear nueva devolución"""
+    with st.form("nueva_devolucion_form", clear_on_submit=False):
+        st.markdown("### Registrar Nueva Devolución")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if not facturas_df.empty:
+                opciones_factura = [f"{row['pedido']} - {row['cliente']} - {format_currency(row['valor'])}" 
+                                   for _, row in facturas_df.iterrows()]
+                
+                factura_seleccionada = st.selectbox(
+                    "Seleccionar Factura *",
+                    options=range(len(opciones_factura)),
+                    format_func=lambda x: opciones_factura[x] if x < len(opciones_factura) else "Seleccione...",
+                    help="Factura sobre la cual se hará la devolución",
+                    key="devolucion_factura_select"
+                )
+            else:
+                st.error("No hay facturas disponibles")
+                return
+            
+            valor_devuelto = st.number_input(
+                "Valor a Devolver *",
+                min_value=0.0,
+                step=1000.0,
+                format="%.0f",
+                help="Valor total a devolver (incluye IVA si aplica)",
+                key="devolucion_valor"
+            )
+        
+        with col2:
+            fecha_devolucion = st.date_input(
+                "Fecha de Devolución *",
+                value=date.today(),
+                help="Fecha en que se procesa la devolución",
+                key="devolucion_fecha"
+            )
+            
+            afecta_comision = st.checkbox(
+                "Afecta Comisión",
+                value=True,
+                help="Si esta devolución debe reducir la comisión calculada",
+                key="devolucion_afecta"
+            )
+        
+        motivo = st.text_area(
+            "Motivo de la Devolución",
+            placeholder="Ej: Producto defectuoso, Error en pedido, Cambio de especificación...",
+            help="Descripción del motivo de la devolución",
+            key="devolucion_motivo"
+        )
+        
+        # Mostrar información de la factura seleccionada
+        if factura_seleccionada is not None and factura_seleccionada < len(facturas_df):
+            st.markdown("---")
+            st.markdown("### Información de la Factura")
+            
+            factura_info = facturas_df.iloc[factura_seleccionada]
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Valor Factura", format_currency(factura_info['valor']))
+            with col2:
+                st.metric("Comisión Original", format_currency(factura_info['comision']))
+            with col3:
+                if valor_devuelto > 0 and afecta_comision:
+                    porcentaje_devuelto = valor_devuelto / factura_info['valor']
+                    comision_perdida = factura_info['comision'] * porcentaje_devuelto
+                    st.metric("Comisión Perdida", format_currency(comision_perdida))
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            registrar = st.form_submit_button(
+                "Registrar Devolución",
+                type="primary",
+                use_container_width=True
+            )
+        
+        with col2:
+            cancelar = st.form_submit_button(
+                "Cancelar",
+                use_container_width=True
+            )
+        
+        if cancelar:
+            if 'show_nueva_devolucion' in st.session_state:
+                del st.session_state['show_nueva_devolucion']
+            st.rerun()
+        
+        if registrar:
+            if factura_seleccionada is not None and valor_devuelto > 0:
+                try:
+                    factura_info = facturas_df.iloc[factura_seleccionada]
+                    
+                    # Validar que el valor no exceda el de la factura
+                    if valor_devuelto > factura_info['valor']:
+                        st.error("El valor a devolver no puede ser mayor al valor de la factura")
+                        return
+                    
+                    data = {
+                        "factura_id": int(factura_info['id']),
+                        "valor_devuelto": float(valor_devuelto),
+                        "motivo": motivo.strip(),
+                        "fecha_devolucion": fecha_devolucion.isoformat(),
+                        "afecta_comision": afecta_comision
+                    }
+                    
+                    if insertar_devolucion(data):
+                        st.success("Devolución registrada correctamente!")
+                        
+                        if afecta_comision:
+                            st.warning("La comisión de la factura ha sido recalculada")
+                        
+                        st.balloons()
+                        
+                        # Mostrar resumen
+                        st.markdown("### Resumen de la Devolución")
+                        st.write(f"**Cliente:** {factura_info['cliente']}")
+                        st.write(f"**Pedido:** {factura_info['pedido']}")
+                        st.write(f"**Valor devuelto:** {format_currency(valor_devuelto)}")
+                        st.write(f"**Fecha:** {fecha_devolucion.strftime('%d/%m/%Y')}")
+                        if motivo:
+                            st.write(f"**Motivo:** {motivo}")
+                        
+                        # Limpiar cache y estado
+                        st.cache_data.clear()
+                        if 'show_nueva_devolucion' in st.session_state:
+                            del st.session_state['show_nueva_devolucion']
+                        
+                        st.rerun()
+                    else:
+                        st.error("Error registrando la devolución")
+                        
+                except Exception as e:
+                    st.error(f"Error procesando devolución: {str(e)}")
+            else:
+                st.error("Por favor completa todos los campos obligatorios")
 
 # ========================
 # CSS STYLES
@@ -488,6 +1182,25 @@ def main():
             <small>{progreso:.1f}% completado</small>
         </div>
         """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # Filtros globales
+        meses_disponibles = ["Todos"] + (sorted(df_tmp["mes_factura"].dropna().unique().tolist()) if not df_tmp.empty else [])
+        
+        mes_seleccionado = st.selectbox(
+            "📅 Filtrar por mes",
+            meses_disponibles,
+            index=0
+        )
+        
+        # Botón de limpieza de estado
+        if st.button("🔄 Limpiar Estados"):
+            keys_to_delete = [key for key in st.session_state.keys() if key.startswith('show_')]
+            for key in keys_to_delete:
+                del st.session_state[key]
+            st.cache_data.clear()
+            st.rerun()
 
     # MODAL DE CONFIGURACIÓN DE META
     if st.session_state.show_meta_config:
@@ -538,7 +1251,10 @@ def main():
 
         tabs = st.tabs([
             "Dashboard",
+            "Comisiones",
             "Nueva Venta",
+            "Devoluciones",
+            "Clientes",
             "IA & Alertas"
         ])
 
@@ -549,6 +1265,11 @@ def main():
             df = cargar_datos()
             
             if not df.empty:
+                df = agregar_campos_faltantes(df)
+                
+                if mes_seleccionado != "Todos":
+                    df = df[df["mes_factura"] == mes_seleccionado]
+                
                 # Separar por tipo de cliente
                 clientes_propios = df[df["cliente_propio"] == True]
                 clientes_externos = df[df["cliente_propio"] == False]
@@ -559,7 +1280,7 @@ def main():
                 comision_propios = clientes_propios["comision"].sum()
                 comision_externos = clientes_externos["comision"].sum()
                 
-                # Mostrar métricas principales (solo clientes propios)
+                # Mostrar métricas principales
                 col1, col2, col3, col4 = st.columns(4)
         
                 with col1:
@@ -647,8 +1368,188 @@ def main():
                         </div>
                         """, unsafe_allow_html=True)
 
-        # TAB 2 - NUEVA VENTA
+        # TAB 2 - COMISIONES
         with tabs[1]:
+            st.header("Gestión de Comisiones")
+            
+            # Botón para limpiar cache
+            col_refresh, col_empty = st.columns([1, 3])
+            with col_refresh:
+                if st.button("🔄 Actualizar Datos", type="secondary"):
+                    st.cache_data.clear()
+                    keys_to_delete = [key for key in st.session_state.keys() if key.startswith('show_')]
+                    for key in keys_to_delete:
+                        del st.session_state[key]
+                    st.rerun()
+            
+            # Filtros
+            with st.container():
+                st.markdown("### Filtros")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    estado_filter = st.selectbox("Estado", ["Todos", "Pendientes", "Pagadas", "Vencidas"])
+                with col2:
+                    cliente_filter = st.text_input("Buscar cliente", key="comisiones_cliente_filter")
+                with col3:
+                    monto_min = st.number_input("Valor mínimo", min_value=0, value=0, step=100000)
+                with col4:
+                    aplicar_filtros = st.button("🔍 Aplicar Filtros")
+            
+            # Cargar y filtrar datos
+            df = cargar_datos()
+            
+            if not df.empty:
+                df = agregar_campos_faltantes(df)
+                df_filtrado = df.copy()
+                
+                # Aplicar filtros
+                if estado_filter == "Pendientes":
+                    df_filtrado = df_filtrado[df_filtrado["pagado"] == False]
+                elif estado_filter == "Pagadas":
+                    df_filtrado = df_filtrado[df_filtrado["pagado"] == True]
+                elif estado_filter == "Vencidas":
+                    df_filtrado = df_filtrado[
+                        (df_filtrado["dias_vencimiento"].notna()) & 
+                        (df_filtrado["dias_vencimiento"] < 0) & 
+                        (df_filtrado["pagado"] == False)
+                    ]
+                
+                if cliente_filter:
+                    df_filtrado = df_filtrado[df_filtrado["cliente"].str.contains(cliente_filter, case=False, na=False)]
+                
+                if monto_min > 0:
+                    df_filtrado = df_filtrado[df_filtrado["valor"] >= monto_min]
+            else:
+                df_filtrado = pd.DataFrame()
+            
+            # Mostrar resumen
+            if not df_filtrado.empty:
+                st.markdown("### Resumen")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Facturas", len(df_filtrado))
+                with col2:
+                    st.metric("Total Comisiones", format_currency(df_filtrado["comision"].sum()))
+                with col3:
+                    st.metric("Valor Promedio", format_currency(df_filtrado["valor"].mean()))
+                with col4:
+                    pendientes = len(df_filtrado[df_filtrado["pagado"] == False])
+                    st.metric("Pendientes", pendientes)
+            
+            st.markdown("---")
+            
+            # Mostrar facturas
+            if not df_filtrado.empty:
+                st.markdown("### Facturas Detalladas")
+                
+                # Ordenar por prioridad
+                def calcular_prioridad(row):
+                    if row['pagado']:
+                        return 3
+                    elif row.get('dias_vencimiento') is not None:
+                        if row['dias_vencimiento'] < 0:
+                            return 0
+                        elif row['dias_vencimiento'] <= 5:
+                            return 1
+                        else:
+                            return 2
+                    return 2
+                
+                df_filtrado['prioridad'] = df_filtrado.apply(calcular_prioridad, axis=1)
+                df_filtrado = df_filtrado.sort_values(['prioridad', 'fecha_factura'], ascending=[True, False])
+                
+                for index, (_, factura) in enumerate(df_filtrado.iterrows()):
+                    factura_id = factura.get('id')
+                    if not factura_id:
+                        continue
+                        
+                    unique_key = f"{factura_id}_{index}_{int(datetime.now().timestamp() / 100)}"
+                    
+                    # Renderizar card de factura
+                    render_factura_card(factura, index)
+                    
+                    # Botones de acción
+                    col1, col2, col3, col4, col5, col6 = st.columns(6)
+                    
+                    with col1:
+                        if st.button("✏️ Editar", key=f"edit_{unique_key}"):
+                            for key in list(st.session_state.keys()):
+                                if key.startswith(f"show_") and str(factura_id) in key:
+                                    del st.session_state[key]
+                            st.session_state[f"show_edit_{factura_id}"] = True
+                            st.rerun()
+                    
+                    with col2:
+                        if not factura.get("pagado"):
+                            if st.button("💳 Pagar", key=f"pay_{unique_key}"):
+                                for key in list(st.session_state.keys()):
+                                    if key.startswith(f"show_") and str(factura_id) in key:
+                                        del st.session_state[key]
+                                st.session_state[f"show_pago_{factura_id}"] = True
+                                st.rerun()
+                        else:
+                            st.success("✅ Pagada")
+                    
+                    with col3:
+                        if st.button("📊 Detalles", key=f"detail_{unique_key}"):
+                            st.info(f"Detalles de {factura.get('pedido', 'N/A')}")
+                    
+                    with col4:
+                        if factura.get("comprobante_url"):
+                            st.success("📄 Tiene")
+                        else:
+                            st.caption("Sin comprobante")
+                    
+                    with col5:
+                        if factura.get("pagado"):
+                            dias_pago = factura.get("dias_pago_real", 0)
+                            if dias_pago > 80:
+                                st.error("⚠️ Sin comisión")
+                            else:
+                                st.success(f"✅ {dias_pago} días")
+                        else:
+                            dias_venc = factura.get("dias_vencimiento")
+                            if dias_venc is not None:
+                                if dias_venc < 0:
+                                    st.error(f"🚨 -{abs(dias_venc)}d")
+                                elif dias_venc <= 5:
+                                    st.warning(f"⏰ {dias_venc}d")
+                                else:
+                                    st.info(f"📅 {dias_venc}d")
+                    
+                    with col6:
+                        if factura.get("pagado"):
+                            st.success("✅ COMPLETO")
+                        else:
+                            dias_venc = factura.get("dias_vencimiento")
+                            if dias_venc is not None:
+                                if dias_venc < 0:
+                                    st.error("🚨 CRÍTICO")
+                                elif dias_venc <= 5:
+                                    st.warning("⚠️ ALTO")
+                                else:
+                                    st.info("📋 MEDIO")
+                    
+                    # Mostrar modales según el estado
+                    if st.session_state.get(f"show_edit_{factura_id}", False):
+                        with st.expander(f"✏️ Editando: {factura.get('pedido', 'N/A')}", expanded=True):
+                            mostrar_modal_editar(factura)
+                    
+                    if st.session_state.get(f"show_pago_{factura_id}", False):
+                        with st.expander(f"💳 Procesando Pago: {factura.get('pedido', 'N/A')}", expanded=True):
+                            mostrar_modal_pago_final(factura)
+                    
+                    st.markdown("---")
+            else:
+                st.info("No hay facturas que coincidan con los filtros aplicados")
+                
+                if df.empty:
+                    st.warning("No hay datos en la base de datos. Registra tu primera venta en la pestaña 'Nueva Venta'.")
+
+        # TAB 3 - NUEVA VENTA
+        with tabs[2]:
             st.header("Registrar Nueva Venta")
             
             with st.form("nueva_venta_form", clear_on_submit=False):
@@ -827,8 +1728,151 @@ def main():
                     else:
                         st.error("Por favor completa todos los campos marcados con *")
 
-        # TAB 3 - IA & ALERTAS
-        with tabs[2]:
+        # TAB 4 - DEVOLUCIONES
+        with tabs[3]:
+            st.header("Gestión de Devoluciones")
+            
+            # Botones de acción
+            col1, col2, col3 = st.columns([1, 1, 2])
+            
+            with col1:
+                if st.button("➕ Nueva Devolución", type="primary"):
+                    st.session_state['show_nueva_devolucion'] = True
+                    st.rerun()
+            
+            with col2:
+                if st.button("🔄 Actualizar", type="secondary"):
+                    st.cache_data.clear()
+                    st.rerun()
+            
+            # Modal nueva devolución
+            if st.session_state.get('show_nueva_devolucion', False):
+                with st.expander("➕ Nueva Devolución", expanded=True):
+                    facturas_df = obtener_facturas_para_devolucion()
+                    mostrar_modal_nueva_devolucion(facturas_df)
+            
+            st.markdown("---")
+            
+            # Cargar devoluciones
+            df_devoluciones = cargar_devoluciones()
+            
+            if not df_devoluciones.empty:
+                # Resumen de devoluciones
+                st.markdown("### Resumen")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Devoluciones", len(df_devoluciones))
+                
+                with col2:
+                    total_devuelto = df_devoluciones['valor_devuelto'].sum()
+                    st.metric("Valor Total Devuelto", format_currency(total_devuelto))
+                
+                with col3:
+                    afectan_comision = len(df_devoluciones[df_devoluciones['afecta_comision'] == True])
+                    st.metric("Afectan Comisión", afectan_comision)
+                
+                with col4:
+                    valor_promedio = df_devoluciones['valor_devuelto'].mean()
+                    st.metric("Valor Promedio", format_currency(valor_promedio))
+                
+                st.markdown("---")
+                
+                # Filtros
+                st.markdown("### Filtros")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    afecta_filter = st.selectbox("Afecta Comisión", ["Todos", "Sí", "No"])
+                
+                with col2:
+                    cliente_filter = st.text_input("Buscar cliente", key="devoluciones_cliente_filter")
+                
+                with col3:
+                    fecha_desde = st.date_input("Desde", value=date.today() - timedelta(days=30))
+                
+                with col4:
+                    fecha_hasta = st.date_input("Hasta", value=date.today())
+                
+                # Aplicar filtros
+                df_filtrado = df_devoluciones.copy()
+                
+                if afecta_filter == "Sí":
+                    df_filtrado = df_filtrado[df_filtrado['afecta_comision'] == True]
+                elif afecta_filter == "No":
+                    df_filtrado = df_filtrado[df_filtrado['afecta_comision'] == False]
+                
+                if cliente_filter:
+                    df_filtrado = df_filtrado[df_filtrado['factura_cliente'].str.contains(cliente_filter, case=False, na=False)]
+                
+                # Filtro por fechas
+                df_filtrado['fecha_devolucion'] = pd.to_datetime(df_filtrado['fecha_devolucion'])
+                df_filtrado = df_filtrado[
+                    (df_filtrado['fecha_devolucion'].dt.date >= fecha_desde) &
+                    (df_filtrado['fecha_devolucion'].dt.date <= fecha_hasta)
+                ]
+                
+                st.markdown("---")
+                
+                # Mostrar devoluciones
+                if not df_filtrado.empty:
+                    st.markdown("### Devoluciones Registradas")
+                    
+                    df_filtrado = df_filtrado.sort_values('fecha_devolucion', ascending=False)
+                    
+                    for index, (_, devolucion) in enumerate(df_filtrado.iterrows()):
+                        render_devolucion_card(devolucion, index)
+                        st.markdown("---")
+                else:
+                    st.info("No hay devoluciones que coincidan con los filtros aplicados")
+            
+            else:
+                st.info("No hay devoluciones registradas")
+                st.markdown("""
+                **¿Cómo registrar una devolución?**
+                1. Haz clic en "Nueva Devolución"
+                2. Selecciona la factura correspondiente
+                3. Ingresa el valor y motivo
+                4. Indica si afecta la comisión
+                5. Registra la devolución
+                """)
+
+        # TAB 5 - CLIENTES
+        with tabs[4]:
+            st.header("Gestión de Clientes")
+            st.info("Módulo en desarrollo - Próximamente funcionalidad completa de gestión de clientes")
+            
+            df = cargar_datos()
+            if not df.empty:
+                clientes_stats = df.groupby('cliente').agg({
+                    'valor_neto': ['sum', 'mean', 'count'],
+                    'comision': 'sum',
+                    'fecha_factura': 'max'
+                }).round(0)
+                
+                clientes_stats.columns = ['Total Compras', 'Ticket Promedio', 'Número Compras', 'Total Comisiones', 'Última Compra']
+                clientes_stats = clientes_stats.sort_values('Total Compras', ascending=False).head(10)
+                
+                st.markdown("### Top 10 Clientes")
+                
+                for cliente, row in clientes_stats.iterrows():
+                    with st.container(border=True):
+                        st.markdown(f"**{cliente}**")
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Total", format_currency(row['Total Compras']))
+                        with col2:
+                            st.metric("Ticket", format_currency(row['Ticket Promedio']))
+                        with col3:
+                            st.metric("Compras", int(row['Número Compras']))
+                        with col4:
+                            st.metric("Comisiones", format_currency(row['Total Comisiones']))
+            else:
+                st.warning("No hay datos de clientes disponibles")
+
+        # TAB 6 - IA & ALERTAS
+        with tabs[5]:
             st.header("Inteligencia Artificial & Alertas")
             
             col1, col2 = st.columns([1, 1])
@@ -900,4 +1944,4 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         st.error(f"Error en la aplicación: {str(e)}")
-        st.info("Por favor, recarga la página o contacta al administrador.")
+        st.info("Por favor, recarga la página o contacta al administrador.")import os
