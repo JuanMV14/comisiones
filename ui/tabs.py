@@ -159,7 +159,7 @@ class TabRenderer:
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                estado_filter = st.selectbox("Estado", ["Todos", "Pendientes", "Pagadas", "Vencidas"])
+                estado_filter = st.selectbox("Estado", ["Todos", "Pendientes", "Pagadas", "Vencidas"], key="estado_filter_comisiones")
             with col2:
                 cliente_filter = st.text_input("Buscar cliente", key="comisiones_cliente_filter")
             with col3:
@@ -494,7 +494,6 @@ class TabRenderer:
         
         if not df_devoluciones.empty:
             self._render_resumen_devoluciones(df_devoluciones)
-            self._render_filtros_devoluciones()
             self._render_devoluciones_detalladas(df_devoluciones)
         else:
             self._render_ayuda_devoluciones()
@@ -523,7 +522,7 @@ class TabRenderer:
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            afecta_filter = st.selectbox("Afecta Comisión", ["Todos", "Sí", "No"])
+            afecta_filter = st.selectbox("Afecta Comisión", ["Todos", "Sí", "No"], key="afecta_filter_devoluciones")
         with col2:
             cliente_filter = st.text_input("Buscar cliente", key="devoluciones_cliente_filter")
         with col3:

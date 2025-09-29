@@ -1,5 +1,9 @@
 import os
 from typing import Dict, Any
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
 
 class AppConfig:
     """Configuraciones centralizadas de la aplicación"""

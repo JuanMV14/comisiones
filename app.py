@@ -100,21 +100,177 @@ def render_client_classification_tab(systems):
     # Sección de entrenamiento del modelo
     st.markdown("### Entrenar Modelo de Clasificación")
     
-    col1, col2 = st.columns([2, 1])
+    # Opciones de entrenamiento
+    opcion_entrenamiento = st.radio(
+        "Selecciona la fuente de datos para entrenar:",
+        ["📊 Usar datos de la base de datos", "📁 Subir archivo Excel/CSV"],
+        key="opcion_entrenamiento"
+    )
     
-    with col1:
-        meses_historial = st.slider(
-            "Meses de historial para entrenar",
-            min_value=3,
-            max_value=24,
-            value=12,
-            help="Recomendado: 12-18 meses para modelos robustos"
+    if opcion_entrenamiento == "📊 Usar datos de la base de datos":
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            meses_historial = st.slider(
+                "Meses de historial para entrenar",
+                min_value=3,
+                max_value=24,
+                value=12,
+                help="Recomendado: 12-18 meses para modelos robustos"
+            )
+        
+        with col2:
+            if st.button("🚀 Entrenar con Base de Datos", type="primary"):
+                with st.spinner("Entrenando modelo de clasificación..."):
+                    resultado = client_classifier.entrenar_modelo(meses_historial)
+    
+    else:  # Subir archivo
+        st.markdown("#### 📁 Subir Archivo de Datos")
+        
+        # Información sobre el formato requerido
+        with st.expander("📋 Formato de archivo requerido"):
+            st.markdown("""
+            **Columnas obligatorias (se mapean automáticamente):**
+            - **Cliente**: `FUENTE`, `NUM_DCTO`, `cliente`, etc.
+            - **Valor**: `Total`, `valor_Unitario`, `valor`, etc.
+            - **Fecha**: `FECHA`, `fecha`, `fecha_factura`, etc.
+            
+            **Columnas opcionales (se mapean si están disponibles):**
+            - **Descuento**: `dcto`, `DCTO`, `descuento`, etc.
+            - **Comisión**: `comision`, `Comision`, etc.
+            - **Cliente propio**: `cliente_propio`, `Cliente_Propio`, etc.
+            - **Estado de pago**: `pagado`, `Pagado`, etc.
+            
+            **Ejemplo de columnas que funcionan:**
+            - `FUENTE`, `NUM_DCTO`, `FECHA`, `Total`, `dcto`
+            - `cliente`, `valor`, `fecha_factura`, `comision`
+            - `COD_ARTICULO`, `DETALLE`, `CANTIDAD`, `FAMILIA`, etc. (se ignoran)
+            
+            **Formatos soportados:** CSV, Excel (.xlsx, .xls)
+            **Mínimo de registros:** 10
+            """)
+        
+        # Subir archivo
+        archivo_subido = st.file_uploader(
+            "Selecciona un archivo",
+            type=['csv', 'xlsx', 'xls'],
+            help="Sube un archivo CSV o Excel con datos de clientes. Asegúrate de que sea un archivo válido, no HTML o corrupto."
         )
+        
+        # Información adicional sobre archivos válidos
+        st.info("""
+        **💡 Consejos para subir archivos:**
+        - Asegúrate de que el archivo sea realmente Excel (.xlsx, .xls) o CSV
+        - No subas archivos HTML, PDF o archivos corruptos
+        - Si exportas desde un sistema, verifica que sea el formato correcto
+        - El archivo debe tener al menos 10 filas de datos
+        """)
+        
+        if archivo_subido is not None:
+            # Procesar archivo
+            with st.spinner("Procesando archivo..."):
+                resultado_procesamiento = client_classifier.procesar_archivo_entrenamiento(archivo_subido)
+            
+            if resultado_procesamiento["success"]:
+                st.success("✅ Archivo procesado exitosamente!")
+                
+                # Mostrar mapeo de columnas
+                if "mapeo" in resultado_procesamiento:
+                    st.markdown("#### Mapeo de Columnas")
+                    mapeo = resultado_procesamiento["mapeo"]
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.write("**Columnas del archivo → Columnas del modelo:**")
+                        for col_archivo, col_modelo in mapeo.items():
+                            st.write(f"• {col_archivo} → {col_modelo}")
+                    
+                    with col2:
+                        st.write("**Columnas no mapeadas (se usarán valores por defecto):**")
+                        # Obtener columnas del archivo original si están disponibles
+                        columnas_archivo = resultado_procesamiento.get("columnas_archivo", [])
+                        if columnas_archivo:
+                            columnas_no_mapeadas = [col for col in columnas_archivo 
+                                                  if col not in mapeo.values()]
+                            if columnas_no_mapeadas:
+                                for col in columnas_no_mapeadas:
+                                    st.write(f"• {col}")
+                            else:
+                                st.write("• Todas las columnas fueron mapeadas")
+                        else:
+                            st.write("• Información de columnas no disponible")
+                
+                # Mostrar resumen del archivo
+                resumen = resultado_procesamiento["resumen_datos"]
+                st.markdown("#### Resumen del Archivo")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Registros", resumen["total_registros"])
+                with col2:
+                    st.metric("Clientes Únicos", resumen["clientes_unicos"])
+                with col3:
+                    st.metric("Valor Total", format_currency(resumen["valor_total"]))
+                with col4:
+                    st.metric("Valor Promedio", format_currency(resumen["valor_promedio"]))
+                
+                # Mostrar rango de fechas
+                st.info(f"📅 **Rango de fechas:** {resumen['fecha_mas_antigua'].strftime('%Y-%m-%d')} a {resumen['fecha_mas_reciente'].strftime('%Y-%m-%d')} ({resumen['rango_fechas_dias']} días)")
+                
+                # Botón para entrenar con archivo
+                if st.button("🚀 Entrenar Modelo con Archivo", type="primary"):
+                    with st.spinner("Entrenando modelo con datos del archivo..."):
+                        resultado = client_classifier.entrenar_modelo(
+                            meses_historial=0, 
+                            archivo_datos=resultado_procesamiento["dataframe"]
+                        )
+            else:
+                st.error(f"❌ Error procesando archivo: {resultado_procesamiento['message']}")
+                
+                if "columnas_requeridas" in resultado_procesamiento:
+                    st.markdown("#### Columnas requeridas vs encontradas")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write("**Columnas requeridas:**")
+                        for col in resultado_procesamiento["columnas_requeridas"]:
+                            st.write(f"• {col}")
+                    with col2:
+                        st.write("**Columnas en el archivo:**")
+                        for col in resultado_procesamiento["columnas_encontradas"]:
+                            st.write(f"• {col}")
+                    
+                    # Mostrar mapeo sugerido si está disponible
+                    if "mapeo_sugerido" in resultado_procesamiento and resultado_procesamiento["mapeo_sugerido"]:
+                        st.markdown("#### Mapeo Sugerido")
+                        mapeo_sugerido = resultado_procesamiento["mapeo_sugerido"]
+                        for col_requerida, col_sugerida in mapeo_sugerido.items():
+                            st.write(f"• **{col_requerida}** → `{col_sugerida}`")
+                    
+                    # Mostrar columnas faltantes específicas
+                    if "columnas_faltantes" in resultado_procesamiento:
+                        st.markdown("#### Columnas Faltantes")
+                        for col_faltante in resultado_procesamiento["columnas_faltantes"]:
+                            st.write(f"• **{col_faltante}** - No se encontró en el archivo")
+                    
+                    # Sugerencias para corregir
+                    st.markdown("#### 💡 Sugerencias para corregir:")
+                    st.write("""
+                    1. **Verifica que tu archivo tenga estas columnas:**
+                       - Una columna con el nombre del cliente (ej: FUENTE, NUM_DCTO, cliente)
+                       - Una columna con el valor (ej: Total, valor_Unitario, valor)
+                       - Una columna con la fecha (ej: FECHA, fecha, fecha_factura)
+                    
+                    2. **Si las columnas tienen nombres diferentes:**
+                       - Renombra las columnas en tu archivo Excel
+                       - O exporta el archivo con los nombres correctos
+                    
+                    3. **Verifica que el archivo no esté vacío:**
+                       - Asegúrate de que tenga al menos 10 filas de datos
+                       - Verifica que las columnas tengan datos
+                    """)
     
-    with col2:
-        if st.button("🚀 Entrenar Modelo", type="primary"):
-            with st.spinner("Entrenando modelo de clasificación..."):
-                resultado = client_classifier.entrenar_modelo(meses_historial)
+    # Mostrar resultados del entrenamiento (si existe)
+    if 'resultado' in locals() and resultado:
             
             if resultado["success"]:
                 st.success("✅ Modelo entrenado exitosamente!")
@@ -122,20 +278,92 @@ def render_client_classification_tab(systems):
                 # Mostrar resultados del entrenamiento
                 st.markdown("#### Resultados del Entrenamiento")
                 
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("Clientes Entrenados", resultado["clientes_entrenados"])
                 with col2:
-                    st.metric("Meses Analizados", resultado["meses_analizados"])
+                    if resultado["fuente_datos"] == "base_datos":
+                        st.metric("Meses Analizados", resultado["meses_analizados"])
+                    else:
+                        st.metric("Fuente", "Archivo Subido")
                 with col3:
-                    st.metric("Clusters Identificados", len(resultado["clusters"]))
+                    if resultado.get("tipo_analisis") == "individual":
+                        st.metric("Tipo de Análisis", "Individual")
+                    else:
+                        st.metric("Clusters Identificados", len(resultado["clusters"]))
+                with col4:
+                    st.metric("Fuente de Datos", resultado["fuente_datos"].replace("_", " ").title())
                 
-                # Mostrar clusters
-                st.markdown("#### Clusters de Clientes Identificados")
-                for cluster_id, cluster_data in resultado["clusters"].items():
-                    with st.expander(f"{cluster_data['caracteristicas']['nombre']} ({cluster_data['cantidad']} clientes)"):
-                        st.write(f"**Descripción:** {cluster_data['caracteristicas']['descripcion']}")
-                        st.write(f"**Estrategia:** {cluster_data['caracteristicas']['estrategia_recomendada']}")
+                # Mostrar análisis individual o clusters
+                if resultado.get("tipo_analisis") == "individual":
+                    # Análisis individual
+                    cliente_analysis = resultado["cliente_analisis"]
+                    st.markdown("#### 📊 Análisis del Cliente")
+                    
+                    # Información del cliente
+                    st.markdown(f"**Cliente:** {cliente_analysis['cliente']}")
+                    st.markdown(f"**Perfil:** {cliente_analysis['perfil']['nombre']}")
+                    st.markdown(f"**Valoración:** {cliente_analysis['perfil']['valoracion']}")
+                    st.markdown(f"**Descripción:** {cliente_analysis['perfil']['descripcion']}")
+                    
+                    # Métricas del cliente
+                    st.markdown("#### 📈 Métricas del Cliente")
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total Compras", cliente_analysis['metricas']['total_compras'])
+                    with col2:
+                        st.metric("Valor Total", format_currency(cliente_analysis['metricas']['valor_total']))
+                    with col3:
+                        st.metric("Ticket Promedio", format_currency(cliente_analysis['metricas']['ticket_promedio']))
+                    with col4:
+                        st.metric("Antigüedad (días)", cliente_analysis['metricas']['antiguedad_dias'])
+                    
+                    # Recomendaciones
+                    st.markdown("#### 💡 Recomendaciones")
+                    for recomendacion in cliente_analysis['recomendaciones']:
+                        st.write(f"• {recomendacion}")
+                    
+                    # Productos frecuentes
+                    if cliente_analysis['productos_frecuentes']:
+                        st.markdown("#### 🛍️ Productos Más Frecuentes")
+                        for producto in cliente_analysis['productos_frecuentes']:
+                            st.write(f"• **{producto['codigo']}** - {producto['descripcion']} (Cantidad: {producto['cantidad_total']}, Valor: {format_currency(producto['valor_total'])})")
+                    
+                    # Análisis de Marcas
+                    if 'analisis_marcas' in cliente_analysis['perfil']:
+                        st.markdown("#### 🏷️ Análisis por Marcas")
+                        analisis_marcas = cliente_analysis['perfil']['analisis_marcas']
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.write(f"• **Tipo de Cliente:** {analisis_marcas['tipo_cliente']}")
+                            st.write(f"• **Marca Principal:** {analisis_marcas['marca_principal']}")
+                            st.write(f"• **Especializado:** {'Sí' if analisis_marcas['es_especializado'] else 'No'}")
+                        with col2:
+                            st.write(f"• **Total de Marcas:** {analisis_marcas['total_marcas']}")
+                            st.write(f"• **% Marca Principal:** {analisis_marcas['porcentaje_marca_principal']}%")
+                        
+                        # Mostrar distribución de marcas
+                        if analisis_marcas['marcas_compradas']:
+                            st.markdown("**Distribución por Marcas:**")
+                            for marca, cantidad in list(analisis_marcas['marcas_compradas'].items())[:5]:
+                                porcentaje = (cantidad / sum(analisis_marcas['marcas_compradas'].values())) * 100
+                                st.write(f"• {marca}: {cantidad} compras ({porcentaje:.1f}%)")
+                    
+                    # Tendencias
+                    st.markdown("#### 📊 Tendencias")
+                    tendencias = cliente_analysis['tendencias']
+                    st.write(f"• **Compras por mes:** {tendencias['compras_por_mes']}")
+                    st.write(f"• **Mes más activo:** {tendencias['mes_mas_activo']}")
+                    st.write(f"• **Tendencia:** {tendencias['tendencia']}")
+                    
+                else:
+                    # Análisis por clusters
+                    st.markdown("#### Clusters de Clientes Identificados")
+                    for cluster_id, cluster_data in resultado["clusters"].items():
+                        with st.expander(f"{cluster_data['caracteristicas']['nombre']} ({cluster_data['cantidad']} clientes)"):
+                            st.write(f"**Descripción:** {cluster_data['caracteristicas']['descripcion']}")
+                            st.write(f"**Estrategia:** {cluster_data['caracteristicas']['estrategia_recomendada']}")
                         st.write(f"**Productos sugeridos:** {', '.join(cluster_data['caracteristicas']['productos_sugeridos'])}")
                         
                         # Mostrar métricas
@@ -171,7 +399,8 @@ def render_client_classification_tab(systems):
             cliente_seleccionado = st.selectbox(
                 "Seleccionar Cliente",
                 clientes,
-                help="Selecciona un cliente para ver recomendaciones de importación"
+                help="Selecciona un cliente para ver recomendaciones de importación",
+                key="cliente_recomendaciones"
             )
         
         with col2:
@@ -258,7 +487,8 @@ def render_monthly_commissions_tab(systems):
         mes_seleccionado = st.selectbox(
             "Seleccionar Mes",
             ["Mes Anterior", "Mes Actual", "Mes Específico"],
-            help="Selecciona el mes para calcular comisiones"
+            help="Selecciona el mes para calcular comisiones",
+            key="mes_comisiones"
         )
     
     with col2:

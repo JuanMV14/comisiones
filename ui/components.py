@@ -62,6 +62,7 @@ class UIComponents:
         mes_seleccionado = st.selectbox(
             "📅 Filtrar por mes",
             meses_disponibles,
+            key="mes_filter_sidebar",
             index=0
         )
         
