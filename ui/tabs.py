@@ -657,6 +657,31 @@ class TabRenderer:
                     help="Marca esto si es la primera vez que este cliente compra"
                 )
             
+            st.markdown("### Información de Envío")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                ciudad_destino = st.selectbox(
+                    "Ciudad de Destino *",
+                    options=["Medellín", "Bogotá", "Resto"],
+                    index=0,
+                    key="nueva_venta_ciudad",
+                    help="Ciudad donde se enviará el pedido"
+                )
+            
+            with col2:
+                # Checkbox de recogida local (solo visible si es Medellín)
+                if ciudad_destino == "Medellín":
+                    recogida_local = st.checkbox(
+                        "Recogida Local",
+                        value=False,
+                        key="nueva_venta_recogida_local",
+                        help="El cliente recoge el pedido localmente (sin flete)"
+                    )
+                else:
+                    recogida_local = False
+            
             st.markdown("### Configuración de Comisión")
             
             # Usar valores del patrón como defaults (excepto descuento adicional que siempre es 0)
@@ -692,11 +717,23 @@ class TabRenderer:
                 with col4:
                     st.metric("Comisión Final", format_currency(calc['comision']))
                 
+                # Validación de flete
+                from business.freight_validator import FreightValidator
+                debe_tener_flete, razon_flete = FreightValidator.debe_tener_flete(
+                    calc['base_comision'], ciudad_destino, recogida_local
+                )
+                
+                # Mostrar alerta de flete
+                if debe_tener_flete:
+                    st.warning(f"⚠️ **Este pedido debe incluir flete**\n\n{razon_flete}")
+                else:
+                    st.success(f"✅ **Este pedido NO debe tener flete**\n\n{razon_flete}")
+                
                 st.info(f"""
                 **Detalles del cálculo:**
                 - Tipo cliente: {'Propio' if cliente_propio else 'Externo'}
                 - Porcentaje comisión: {calc['porcentaje']}%
-                - {'Descuento aplicado en factura' if descuento_pie_factura else 'Descuento automático del 15%'}
+                - {'Descuento aplicado en factura' if descuento_pie_factura else 'Sin descuento a pie'}
                 - Descuento adicional: {descuento_adicional}%
                 """)
             
@@ -723,11 +760,12 @@ class TabRenderer:
             if submit:
                 self._procesar_nueva_venta(pedido, cliente, factura, fecha_factura, valor_total, 
                                          condicion_especial, cliente_propio, descuento_pie_factura, 
-                                         descuento_adicional, es_cliente_nuevo)
+                                         descuento_adicional, es_cliente_nuevo, ciudad_destino, recogida_local)
     
     def _procesar_nueva_venta(self, pedido: str, cliente: str, factura: str, fecha_factura: date,
                              valor_total: float, condicion_especial: bool, cliente_propio: bool,
-                             descuento_pie_factura: bool, descuento_adicional: float, es_cliente_nuevo: bool = False):
+                             descuento_pie_factura: bool, descuento_adicional: float, es_cliente_nuevo: bool = False,
+                             ciudad_destino: str = "Resto", recogida_local: bool = False):
         """Procesa el registro de una nueva venta"""
         if pedido and cliente and valor_total > 0:
             try:
@@ -759,6 +797,8 @@ class TabRenderer:
                     "descuento_adicional": float(descuento_adicional),
                     "condicion_especial": condicion_especial,
                     "cliente_nuevo": es_cliente_nuevo,
+                    "ciudad_destino": ciudad_destino,
+                    "recogida_local": recogida_local,
                     "pagado": False
                 }
                 
