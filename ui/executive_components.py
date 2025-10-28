@@ -471,54 +471,38 @@ class ExecutiveComponents:
         if change is not None:
             change_color = theme['success'] if change >= 0 else theme['error']
             change_icon = "↗" if change >= 0 else "↘"
-            change_html = f"""
-            <div style='
-                display: inline-flex;
-                align-items: center;
-                gap: 4px;
-                padding: 4px 12px;
-                border-radius: 12px;
-                background: rgba({int(change_color[1:3], 16)}, {int(change_color[3:5], 16)}, {int(change_color[5:], 16)}, 0.15);
-                color: {change_color};
-                font-size: 14px;
-                font-weight: 600;
-                margin-top: 8px;
-            '>
-                {change_icon} {abs(change):.1f}%
-            </div>
-            """
+            change_html = f"""<div style='display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 12px; background: rgba({int(change_color[1:3], 16)}, {int(change_color[3:5], 16)}, {int(change_color[5:], 16)}, 0.15); color: {change_color}; font-size: 14px; font-weight: 600; margin-top: 8px;'>{change_icon} {abs(change):.1f}%</div>"""
         
         border_style = f"border-top: 4px solid transparent; border-image: {gradient} 1;" if gradient else f"border-top: 4px solid {theme['primary']};"
         
-        st.markdown(
-            f"""
-            <div style='
-                background: {theme['surface']};
-                border-radius: 16px;
-                padding: 20px;
-                {border_style}
-                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-                transition: all 0.3s ease;
-                height: 160px;
-                display: flex;
-                flex-direction: column;
-                justify-content: space-between;
-            '>
-                <div>
-                    <p style='margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: {theme['text_tertiary']};'>
-                        {icon} {title}
-                    </p>
-                </div>
-                <div>
-                    <p style='margin: 0; font-size: 28px; font-weight: 700; color: {theme['text_primary']};'>
-                        {value}
-                    </p>
-                    {change_html}
-                </div>
+        html = f"""
+        <div style='
+            background: {theme['surface']};
+            border-radius: 16px;
+            padding: 20px;
+            {border_style}
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            height: 160px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        '>
+            <div>
+                <p style='margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: {theme['text_tertiary']};'>
+                    {icon} {title}
+                </p>
             </div>
-            """,
-            unsafe_allow_html=True
-        )
+            <div>
+                <p style='margin: 0; font-size: 28px; font-weight: 700; color: {theme['text_primary']};'>
+                    {value}
+                </p>
+                {change_html}
+            </div>
+        </div>
+        """
+        
+        st.markdown(html, unsafe_allow_html=True)
     
     @staticmethod
     def _render_top_item(rank: int, name: str, value: str, icon: str):
