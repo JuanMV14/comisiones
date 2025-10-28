@@ -716,7 +716,7 @@ class UIComponents:
             st.metric("Comisión Original", format_currency(factura_info['comision']))
         with col3:
             if valor_devuelto > 0 and afecta_comision:
-                porcentaje_devuelto = valor_devuelto / factura_info['valor']
+                porcentaje_devuelto = (valor_devuelto / factura_info['valor']) if factura_info['valor'] > 0 else 0
                 comision_perdida = factura_info['comision'] * porcentaje_devuelto
                 st.metric("Comisión Perdida", format_currency(comision_perdida))
     

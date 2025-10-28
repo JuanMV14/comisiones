@@ -251,7 +251,11 @@ class InvoiceRadicationSystem:
             
             # Calcular pendientes
             reporte['Facturas Pendientes'] = reporte['Total Facturas'] - reporte['Facturas Radicadas']
-            reporte['% Radicadas'] = (reporte['Facturas Radicadas'] / reporte['Total Facturas'] * 100).round(1)
+            # Proteger contra división por cero
+            reporte['% Radicadas'] = reporte.apply(
+                lambda row: round((row['Facturas Radicadas'] / row['Total Facturas'] * 100), 1) if row['Total Facturas'] > 0 else 0,
+                axis=1
+            )
             
             # Ordenar por % radicadas (menor a mayor - prioridad a los que tienen menos radicadas)
             reporte = reporte.sort_values('% Radicadas', ascending=True)

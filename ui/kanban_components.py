@@ -528,18 +528,20 @@ class KanbanUI:
             )
         
         with col2:
+            delta_best = f"+{((forecast['valor_best_case'] / forecast['valor_esperado'] - 1) * 100):.0f}%" if forecast['valor_esperado'] > 0 else "N/A"
             st.metric(
                 "Best Case",
                 format_currency(forecast["valor_best_case"]),
-                delta=f"+{((forecast['valor_best_case'] / forecast['valor_esperado'] - 1) * 100):.0f}%",
+                delta=delta_best,
                 help="Si todos los deals se ganan"
             )
         
         with col3:
+            delta_worst = f"{((forecast['valor_worst_case'] / forecast['valor_esperado'] - 1) * 100):.0f}%" if forecast['valor_esperado'] > 0 else "N/A"
             st.metric(
                 "Worst Case",
                 format_currency(forecast["valor_worst_case"]),
-                delta=f"{((forecast['valor_worst_case'] / forecast['valor_esperado'] - 1) * 100):.0f}%",
+                delta=delta_worst,
                 delta_color="inverse",
                 help="Basado en tasa de conversión histórica"
             )

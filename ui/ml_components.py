@@ -432,7 +432,7 @@ class MLComponentsUI:
                 st.metric("Total Clientes", result['total_clientes'])
             
             with col2:
-                pct_alto = result['alto_riesgo_count'] / result['total_clientes'] * 100
+                pct_alto = (result['alto_riesgo_count'] / result['total_clientes'] * 100) if result['total_clientes'] > 0 else 0
                 st.metric(
                     "Riesgo Alto",
                     result['alto_riesgo_count'],
@@ -441,7 +441,7 @@ class MLComponentsUI:
                 )
             
             with col3:
-                pct_medio = result['medio_riesgo_count'] / result['total_clientes'] * 100
+                pct_medio = (result['medio_riesgo_count'] / result['total_clientes'] * 100) if result['total_clientes'] > 0 else 0
                 st.metric(
                     "Riesgo Medio",
                     result['medio_riesgo_count'],
