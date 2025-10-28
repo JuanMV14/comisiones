@@ -8,12 +8,14 @@ from ui.components import UIComponents
 from ui.executive_components import ExecutiveComponents
 from ui.notification_components import NotificationUI
 from ui.kanban_components import KanbanUI
+from ui.ml_components import MLComponentsUI
 from business.calculations import ComisionCalculator, MetricsCalculator
 from business.ai_recommendations import AIRecommendations
 from business.invoice_radication import InvoiceRadicationSystem
 from business.executive_dashboard import ExecutiveDashboard
 from business.notification_system import NotificationSystem
 from business.sales_pipeline import SalesPipeline
+from business.ml_analytics import MLAnalytics
 from utils.formatting import format_currency
 
 class TabRenderer:
@@ -31,6 +33,8 @@ class TabRenderer:
         self.notification_ui = NotificationUI(self.notification_system)
         self.sales_pipeline = SalesPipeline(db_manager)
         self.kanban_ui = KanbanUI(self.sales_pipeline)
+        self.ml_analytics = MLAnalytics(db_manager)
+        self.ml_ui = MLComponentsUI(self.ml_analytics)
     
     # ========================
     # TAB DASHBOARD EJECUTIVO
@@ -1223,6 +1227,15 @@ class TabRenderer:
     def render_sales_pipeline(self):
         """Renderiza la pestaña de pipeline de ventas"""
         self.kanban_ui.render_pipeline_dashboard()
+    
+    # ========================
+    # TAB ML & ANALYTICS
+    # ========================
+    
+    def render_ml_analytics(self):
+        """Renderiza la pestaña de Machine Learning y Analytics"""
+        df = self.db_manager.cargar_datos()
+        self.ml_ui.render_ml_dashboard(df)
     
     # ========================
     # TAB IA & ALERTAS

@@ -664,7 +664,8 @@ def main():
         "🔔 Alertas",
         "📲 Notificaciones",
         "🎯 Pipeline Ventas",
-        "🧠 IA & Recomendaciones"
+        "🧠 ML & Analytics",
+        "🎯 IA & Recomendaciones"
     ])
     
     # Tab 0: Dashboard Ejecutivo (NUEVO)
@@ -711,12 +712,16 @@ def main():
     with tabs[10]:
         systems["tab_renderer"].render_notifications()
     
-    # Tab 11: Pipeline de Ventas (NUEVO)
+    # Tab 11: Pipeline de Ventas
     with tabs[11]:
         systems["tab_renderer"].render_sales_pipeline()
     
-    # Tab 12: IA y Recomendaciones
+    # Tab 12: ML & Analytics (NUEVO)
     with tabs[12]:
+        systems["tab_renderer"].render_ml_analytics()
+    
+    # Tab 13: IA y Recomendaciones
+    with tabs[13]:
         systems["tab_renderer"].render_ia_alertas()
 
 def load_css():
