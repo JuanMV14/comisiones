@@ -475,32 +475,8 @@ class ExecutiveComponents:
         
         border_style = f"border-top: 4px solid transparent; border-image: {gradient} 1;" if gradient else f"border-top: 4px solid {theme['primary']};"
         
-        html = f"""
-        <div style='
-            background: {theme['surface']};
-            border-radius: 16px;
-            padding: 20px;
-            {border_style}
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            transition: all 0.3s ease;
-            height: 160px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-        '>
-            <div>
-                <p style='margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: {theme['text_tertiary']};'>
-                    {icon} {title}
-                </p>
-            </div>
-            <div>
-                <p style='margin: 0; font-size: 28px; font-weight: 700; color: {theme['text_primary']};'>
-                    {value}
-                </p>
-                {change_html}
-            </div>
-        </div>
-        """
+        # Construir HTML compacto (sin espacios problemáticos)
+        html = f"""<div style='background: {theme['surface']}; border-radius: 16px; padding: 20px; {border_style} box-shadow: 0 4px 12px rgba(0,0,0,0.08); transition: all 0.3s ease; height: 160px; display: flex; flex-direction: column; justify-content: space-between;'><div><p style='margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: {theme['text_tertiary']};'>{icon} {title}</p></div><div><p style='margin: 0; font-size: 28px; font-weight: 700; color: {theme['text_primary']};'>{value}</p>{change_html}</div></div>"""
         
         st.markdown(html, unsafe_allow_html=True)
     
