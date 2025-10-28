@@ -5,9 +5,11 @@ from typing import Dict, Any
 
 from database.queries import DatabaseManager
 from ui.components import UIComponents
+from ui.executive_components import ExecutiveComponents
 from business.calculations import ComisionCalculator, MetricsCalculator
 from business.ai_recommendations import AIRecommendations
 from business.invoice_radication import InvoiceRadicationSystem
+from business.executive_dashboard import ExecutiveDashboard
 from utils.formatting import format_currency
 
 class TabRenderer:
@@ -20,6 +22,125 @@ class TabRenderer:
         self.metrics_calc = MetricsCalculator()
         self.ai_recommendations = AIRecommendations(db_manager)
         self.invoice_radication = InvoiceRadicationSystem(db_manager)
+        self.executive_dashboard = ExecutiveDashboard(db_manager)
+    
+    # ========================
+    # TAB DASHBOARD EJECUTIVO
+    # ========================
+    
+    def render_executive_dashboard(self):
+        """Renderiza el Dashboard Ejecutivo Profesional para Gerencia"""
+        from ui.theme_manager import ThemeManager
+        
+        theme = ThemeManager.get_theme()
+        
+        # Título personalizado
+        st.markdown(
+            f"""
+            <div style='text-align: center; margin-bottom: 2rem;'>
+                <h1 style='
+                    font-size: 2.5rem;
+                    font-weight: 800;
+                    background: {theme['gradient_1']};
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                    margin-bottom: 0.5rem;
+                '>
+                    📊 Dashboard Ejecutivo
+                </h1>
+                <p style='color: {theme['text_secondary']}; font-size: 1rem;'>
+                    Vista Ejecutiva · KPIs · Tendencias · Análisis de Riesgo
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        # Obtener resumen ejecutivo
+        with st.spinner("Cargando dashboard ejecutivo..."):
+            summary = self.executive_dashboard.get_executive_summary()
+        
+        # ========== SECCIÓN 1: KPIs FINANCIEROS ==========
+        st.markdown("---")
+        ExecutiveComponents.render_executive_kpi_grid(
+            {**summary['kpis_financieros'], **summary['proyecciones']}
+        )
+        
+        # ========== SECCIÓN 2: KPIs OPERACIONALES ==========
+        st.markdown("---")
+        ExecutiveComponents.render_operational_kpis(summary['kpis_operacionales'])
+        
+        # ========== SECCIÓN 3: TENDENCIAS Y MIX DE CLIENTES ==========
+        st.markdown("---")
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.markdown("### 📈 Tendencia Mensual (Últimos 6 Meses)")
+            ExecutiveComponents.render_trend_chart(summary['tendencias']['monthly_trend'])
+            
+            if summary['tendencias']['growth_rate'] != 0:
+                growth = summary['tendencias']['growth_rate']
+                if growth > 0:
+                    st.success(f"📈 Crecimiento de {growth:.1f}% en el período analizado")
+                else:
+                    st.warning(f"📉 Decrecimiento de {abs(growth):.1f}% en el período analizado")
+        
+        with col2:
+            st.markdown("### 🎯 Mix de Clientes")
+            ExecutiveComponents.render_client_mix(summary['comparativas'])
+        
+        # ========== SECCIÓN 4: ANÁLISIS DE RIESGO ==========
+        st.markdown("---")
+        ExecutiveComponents.render_risk_panel(summary['analisis_riesgo'])
+        
+        # ========== SECCIÓN 5: TOP PERFORMERS ==========
+        st.markdown("---")
+        st.markdown("### 🏆 Top Performers")
+        ExecutiveComponents.render_top_performers(summary['top_performers'])
+        
+        # ========== SECCIÓN 6: PROYECCIONES ==========
+        st.markdown("---")
+        st.markdown("### 🔮 Proyecciones Fin de Mes")
+        
+        proyecciones = summary['proyecciones']
+        
+        if proyecciones:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    "Revenue Proyectado",
+                    format_currency(proyecciones.get('proyeccion_revenue', 0)),
+                    help=f"Basado en {proyecciones.get('dias_transcurridos', 0)} días de datos"
+                )
+            
+            with col2:
+                st.metric(
+                    "Comisión Proyectada",
+                    format_currency(proyecciones.get('proyeccion_comision', 0)),
+                    help=f"Confianza: {proyecciones.get('confianza', 'N/A').upper()}"
+                )
+            
+            with col3:
+                dias_restantes = proyecciones.get('dias_restantes', 0)
+                st.metric(
+                    "Días Restantes",
+                    dias_restantes,
+                    help=f"De {proyecciones.get('dias_mes', 0)} días del mes"
+                )
+            
+            # Barra de progreso del mes
+            dias_transcurridos = proyecciones.get('dias_transcurridos', 0)
+            dias_mes = proyecciones.get('dias_mes', 30)
+            progreso_mes = (dias_transcurridos / dias_mes * 100) if dias_mes > 0 else 0
+            
+            st.markdown("#### Progreso del Mes")
+            st.progress(progreso_mes / 100)
+            st.caption(f"Día {dias_transcurridos} de {dias_mes} ({progreso_mes:.1f}%)")
+        
+        # ========== FOOTER CON TIMESTAMP ==========
+        st.markdown("---")
+        st.caption(f"📅 Actualizado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     # ========================
     # TAB DASHBOARD

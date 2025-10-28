@@ -652,7 +652,8 @@ def main():
     
     # Tabs principales con emojis
     tabs = st.tabs([
-        "📊 Dashboard",
+        "👔 Dashboard Ejecutivo",
+        "📊 Dashboard General",
         "💰 Comisiones",
         "➕ Nueva Venta",
         "↩️ Devoluciones",
@@ -664,40 +665,48 @@ def main():
         "🎯 IA & Recomendaciones"
     ])
     
-    # Tabs principales
+    # Tab 0: Dashboard Ejecutivo (NUEVO)
     with tabs[0]:
+        systems["tab_renderer"].render_executive_dashboard()
+    
+    # Tab 1: Dashboard General
+    with tabs[1]:
         systems["tab_renderer"].render_dashboard()
     
-    with tabs[1]:
+    # Tab 2: Comisiones
+    with tabs[2]:
         systems["tab_renderer"].render_comisiones()
     
-    with tabs[2]:
+    # Tab 3: Nueva Venta
+    with tabs[3]:
         systems["tab_renderer"].render_nueva_venta()
     
-    with tabs[3]:
+    # Tab 4: Devoluciones
+    with tabs[4]:
         systems["tab_renderer"].render_devoluciones()
     
     # Tab 5: Mensajes para Clientes
-    with tabs[4]:
+    with tabs[5]:
         systems["tab_renderer"].render_radicacion_facturas()
     
-    with tabs[5]:
+    # Tab 6: Clientes
+    with tabs[6]:
         systems["tab_renderer"].render_clientes()
     
     # Tab 7: Clasificación de Clientes
-    with tabs[6]:
+    with tabs[7]:
         render_client_classification_tab(systems)
     
     # Tab 8: Comisiones Mensuales
-    with tabs[7]:
+    with tabs[8]:
         render_monthly_commissions_tab(systems)
     
     # Tab 9: Alertas de Facturas
-    with tabs[8]:
+    with tabs[9]:
         render_invoice_alerts_tab(systems)
     
     # Tab 10: IA y Recomendaciones
-    with tabs[9]:
+    with tabs[10]:
         systems["tab_renderer"].render_ia_alertas()
 
 def load_css():
