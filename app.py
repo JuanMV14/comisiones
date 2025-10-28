@@ -663,7 +663,8 @@ def main():
         "📅 Comis. Mensuales",
         "🔔 Alertas",
         "📲 Notificaciones",
-        "🎯 IA & Recomendaciones"
+        "🎯 Pipeline Ventas",
+        "🧠 IA & Recomendaciones"
     ])
     
     # Tab 0: Dashboard Ejecutivo (NUEVO)
@@ -706,12 +707,16 @@ def main():
     with tabs[9]:
         render_invoice_alerts_tab(systems)
     
-    # Tab 10: Notificaciones (NUEVO)
+    # Tab 10: Notificaciones
     with tabs[10]:
         systems["tab_renderer"].render_notifications()
     
-    # Tab 11: IA y Recomendaciones
+    # Tab 11: Pipeline de Ventas (NUEVO)
     with tabs[11]:
+        systems["tab_renderer"].render_sales_pipeline()
+    
+    # Tab 12: IA y Recomendaciones
+    with tabs[12]:
         systems["tab_renderer"].render_ia_alertas()
 
 def load_css():

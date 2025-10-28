@@ -7,11 +7,13 @@ from database.queries import DatabaseManager
 from ui.components import UIComponents
 from ui.executive_components import ExecutiveComponents
 from ui.notification_components import NotificationUI
+from ui.kanban_components import KanbanUI
 from business.calculations import ComisionCalculator, MetricsCalculator
 from business.ai_recommendations import AIRecommendations
 from business.invoice_radication import InvoiceRadicationSystem
 from business.executive_dashboard import ExecutiveDashboard
 from business.notification_system import NotificationSystem
+from business.sales_pipeline import SalesPipeline
 from utils.formatting import format_currency
 
 class TabRenderer:
@@ -27,6 +29,8 @@ class TabRenderer:
         self.executive_dashboard = ExecutiveDashboard(db_manager)
         self.notification_system = NotificationSystem(db_manager)
         self.notification_ui = NotificationUI(self.notification_system)
+        self.sales_pipeline = SalesPipeline(db_manager)
+        self.kanban_ui = KanbanUI(self.sales_pipeline)
     
     # ========================
     # TAB DASHBOARD EJECUTIVO
@@ -1211,6 +1215,14 @@ class TabRenderer:
     def render_notifications(self):
         """Renderiza la pestaña de notificaciones"""
         self.notification_ui.render_notification_dashboard()
+    
+    # ========================
+    # TAB PIPELINE DE VENTAS
+    # ========================
+    
+    def render_sales_pipeline(self):
+        """Renderiza la pestaña de pipeline de ventas"""
+        self.kanban_ui.render_pipeline_dashboard()
     
     # ========================
     # TAB IA & ALERTAS
