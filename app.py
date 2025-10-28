@@ -93,390 +93,47 @@ def initialize_systems():
 # ========================
 def render_client_classification_tab(systems):
     """Renderiza la pestaña de clasificación de clientes"""
-    st.header("🤖 Clasificación de Clientes con IA")
-    
-    client_classifier = systems["client_classifier"]
-    
-    # Sección de entrenamiento del modelo
-    st.markdown("### Entrenar Modelo de Clasificación")
-    
-    # Opciones de entrenamiento
-    opcion_entrenamiento = st.radio(
-        "Selecciona la fuente de datos para entrenar:",
-        ["📊 Usar datos de la base de datos", "📁 Subir archivo Excel/CSV"],
-        key="opcion_entrenamiento"
-    )
-    
-    if opcion_entrenamiento == "📊 Usar datos de la base de datos":
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            meses_historial = st.slider(
-                "Meses de historial para entrenar",
-                min_value=3,
-                max_value=24,
-                value=12,
-                help="Recomendado: 12-18 meses para modelos robustos"
-            )
-        
-        with col2:
-            if st.button("🚀 Entrenar con Base de Datos", type="primary"):
-                with st.spinner("Entrenando modelo de clasificación..."):
-                    resultado = client_classifier.entrenar_modelo(meses_historial)
-    
-    else:  # Subir archivo
-        st.markdown("#### 📁 Subir Archivo de Datos")
-        
-        # Información sobre el formato requerido
-        with st.expander("📋 Formato de archivo requerido"):
-            st.markdown("""
-            **Columnas obligatorias (se mapean automáticamente):**
-            - **Cliente**: `FUENTE`, `NUM_DCTO`, `cliente`, etc.
-            - **Valor**: `Total`, `valor_Unitario`, `valor`, etc.
-            - **Fecha**: `FECHA`, `fecha`, `fecha_factura`, etc.
-            
-            **Columnas opcionales (se mapean si están disponibles):**
-            - **Descuento**: `dcto`, `DCTO`, `descuento`, etc.
-            - **Comisión**: `comision`, `Comision`, etc.
-            - **Cliente propio**: `cliente_propio`, `Cliente_Propio`, etc.
-            - **Estado de pago**: `pagado`, `Pagado`, etc.
-            
-            **Ejemplo de columnas que funcionan:**
-            - `FUENTE`, `NUM_DCTO`, `FECHA`, `Total`, `dcto`
-            - `cliente`, `valor`, `fecha_factura`, `comision`
-            - `COD_ARTICULO`, `DETALLE`, `CANTIDAD`, `FAMILIA`, etc. (se ignoran)
-            
-            **Formatos soportados:** CSV, Excel (.xlsx, .xls)
-            **Mínimo de registros:** 10
-            """)
-        
-        # Subir archivo
-        archivo_subido = st.file_uploader(
-            "Selecciona un archivo",
-            type=['csv', 'xlsx', 'xls'],
-            help="Sube un archivo CSV o Excel con datos de clientes. Asegúrate de que sea un archivo válido, no HTML o corrupto."
-        )
-        
-        # Información adicional sobre archivos válidos
-        st.info("""
-        **💡 Consejos para subir archivos:**
-        - Asegúrate de que el archivo sea realmente Excel (.xlsx, .xls) o CSV
-        - No subas archivos HTML, PDF o archivos corruptos
-        - Si exportas desde un sistema, verifica que sea el formato correcto
-        - El archivo debe tener al menos 10 filas de datos
-        """)
-        
-        if archivo_subido is not None:
-            # Procesar archivo
-            with st.spinner("Procesando archivo..."):
-                resultado_procesamiento = client_classifier.procesar_archivo_entrenamiento(archivo_subido)
-            
-            if resultado_procesamiento["success"]:
-                st.success("✅ Archivo procesado exitosamente!")
-                
-                # Mostrar mapeo de columnas
-                if "mapeo" in resultado_procesamiento:
-                    st.markdown("#### Mapeo de Columnas")
-                    mapeo = resultado_procesamiento["mapeo"]
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write("**Columnas del archivo → Columnas del modelo:**")
-                        for col_archivo, col_modelo in mapeo.items():
-                            st.write(f"• {col_archivo} → {col_modelo}")
-                    
-                    with col2:
-                        st.write("**Columnas no mapeadas (se usarán valores por defecto):**")
-                        # Obtener columnas del archivo original si están disponibles
-                        columnas_archivo = resultado_procesamiento.get("columnas_archivo", [])
-                        if columnas_archivo:
-                            columnas_no_mapeadas = [col for col in columnas_archivo 
-                                                  if col not in mapeo.values()]
-                            if columnas_no_mapeadas:
-                                for col in columnas_no_mapeadas:
-                                    st.write(f"• {col}")
-                            else:
-                                st.write("• Todas las columnas fueron mapeadas")
-                        else:
-                            st.write("• Información de columnas no disponible")
-                
-                # Mostrar resumen del archivo
-                resumen = resultado_procesamiento["resumen_datos"]
-                st.markdown("#### Resumen del Archivo")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Registros", resumen["total_registros"])
-                with col2:
-                    st.metric("Clientes Únicos", resumen["clientes_unicos"])
-                with col3:
-                    st.metric("Valor Total", format_currency(resumen["valor_total"]))
-                with col4:
-                    st.metric("Valor Promedio", format_currency(resumen["valor_promedio"]))
-                
-                # Mostrar rango de fechas
-                st.info(f"📅 **Rango de fechas:** {resumen['fecha_mas_antigua'].strftime('%Y-%m-%d')} a {resumen['fecha_mas_reciente'].strftime('%Y-%m-%d')} ({resumen['rango_fechas_dias']} días)")
-                
-                # Botón para entrenar con archivo
-                if st.button("🚀 Entrenar Modelo con Archivo", type="primary"):
-                    with st.spinner("Entrenando modelo con datos del archivo..."):
-                        resultado = client_classifier.entrenar_modelo(
-                            meses_historial=0, 
-                            archivo_datos=resultado_procesamiento["dataframe"]
-                        )
-            else:
-                st.error(f"❌ Error procesando archivo: {resultado_procesamiento['message']}")
-                
-                if "columnas_requeridas" in resultado_procesamiento:
-                    st.markdown("#### Columnas requeridas vs encontradas")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.write("**Columnas requeridas:**")
-                        for col in resultado_procesamiento["columnas_requeridas"]:
-                            st.write(f"• {col}")
-                    with col2:
-                        st.write("**Columnas en el archivo:**")
-                        for col in resultado_procesamiento["columnas_encontradas"]:
-                            st.write(f"• {col}")
-                    
-                    # Mostrar mapeo sugerido si está disponible
-                    if "mapeo_sugerido" in resultado_procesamiento and resultado_procesamiento["mapeo_sugerido"]:
-                        st.markdown("#### Mapeo Sugerido")
-                        mapeo_sugerido = resultado_procesamiento["mapeo_sugerido"]
-                        for col_requerida, col_sugerida in mapeo_sugerido.items():
-                            st.write(f"• **{col_requerida}** → `{col_sugerida}`")
-                    
-                    # Mostrar columnas faltantes específicas
-                    if "columnas_faltantes" in resultado_procesamiento:
-                        st.markdown("#### Columnas Faltantes")
-                        for col_faltante in resultado_procesamiento["columnas_faltantes"]:
-                            st.write(f"• **{col_faltante}** - No se encontró en el archivo")
-                    
-                    # Sugerencias para corregir
-                    st.markdown("#### 💡 Sugerencias para corregir:")
-                    st.write("""
-                    1. **Verifica que tu archivo tenga estas columnas:**
-                       - Una columna con el nombre del cliente (ej: FUENTE, NUM_DCTO, cliente)
-                       - Una columna con el valor (ej: Total, valor_Unitario, valor)
-                       - Una columna con la fecha (ej: FECHA, fecha, fecha_factura)
-                    
-                    2. **Si las columnas tienen nombres diferentes:**
-                       - Renombra las columnas en tu archivo Excel
-                       - O exporta el archivo con los nombres correctos
-                    
-                    3. **Verifica que el archivo no esté vacío:**
-                       - Asegúrate de que tenga al menos 10 filas de datos
-                       - Verifica que las columnas tengan datos
-                    """)
-    
-    # Mostrar resultados del entrenamiento (si existe)
-    if 'resultado' in locals() and resultado:
-            
-            if resultado["success"]:
-                st.success("✅ Modelo entrenado exitosamente!")
-                
-                # Mostrar resultados del entrenamiento
-                st.markdown("#### Resultados del Entrenamiento")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Clientes Entrenados", resultado["clientes_entrenados"])
-                with col2:
-                    if resultado["fuente_datos"] == "base_datos":
-                        st.metric("Meses Analizados", resultado["meses_analizados"])
-                    else:
-                        st.metric("Fuente", "Archivo Subido")
-                with col3:
-                    if resultado.get("tipo_analisis") == "individual":
-                        st.metric("Tipo de Análisis", "Individual")
-                    else:
-                        st.metric("Clusters Identificados", len(resultado["clusters"]))
-                with col4:
-                    st.metric("Fuente de Datos", resultado["fuente_datos"].replace("_", " ").title())
-                
-                # Mostrar análisis individual o clusters
-                if resultado.get("tipo_analisis") == "individual":
-                    # Análisis individual
-                    cliente_analysis = resultado["cliente_analisis"]
-                    st.markdown("#### 📊 Análisis del Cliente")
-                    
-                    # Información del cliente
-                    st.markdown(f"**Cliente:** {cliente_analysis['cliente']}")
-                    st.markdown(f"**Perfil:** {cliente_analysis['perfil']['nombre']}")
-                    st.markdown(f"**Valoración:** {cliente_analysis['perfil']['valoracion']}")
-                    st.markdown(f"**Descripción:** {cliente_analysis['perfil']['descripcion']}")
-                    
-                    # Métricas del cliente
-                    st.markdown("#### 📈 Métricas del Cliente")
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Total Compras", cliente_analysis['metricas']['total_compras'])
-                    with col2:
-                        st.metric("Valor Total", format_currency(cliente_analysis['metricas']['valor_total']))
-                    with col3:
-                        st.metric("Ticket Promedio", format_currency(cliente_analysis['metricas']['ticket_promedio']))
-                    with col4:
-                        st.metric("Antigüedad (días)", cliente_analysis['metricas']['antiguedad_dias'])
-                    
-                    # Recomendaciones
-                    st.markdown("#### 💡 Recomendaciones")
-                    for recomendacion in cliente_analysis['recomendaciones']:
-                        st.write(f"• {recomendacion}")
-                    
-                    # Productos frecuentes
-                    if cliente_analysis['productos_frecuentes']:
-                        st.markdown("#### 🛍️ Productos Más Frecuentes")
-                        for producto in cliente_analysis['productos_frecuentes']:
-                            st.write(f"• **{producto['codigo']}** - {producto['descripcion']} (Cantidad: {producto['cantidad_total']}, Valor: {format_currency(producto['valor_total'])})")
-                    
-                    # Análisis de Marcas
-                    if 'analisis_marcas' in cliente_analysis['perfil']:
-                        st.markdown("#### 🏷️ Análisis por Marcas")
-                        analisis_marcas = cliente_analysis['perfil']['analisis_marcas']
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.write(f"• **Tipo de Cliente:** {analisis_marcas['tipo_cliente']}")
-                            st.write(f"• **Marca Principal:** {analisis_marcas['marca_principal']}")
-                            st.write(f"• **Especializado:** {'Sí' if analisis_marcas['es_especializado'] else 'No'}")
-                        with col2:
-                            st.write(f"• **Total de Marcas:** {analisis_marcas['total_marcas']}")
-                            st.write(f"• **% Marca Principal:** {analisis_marcas['porcentaje_marca_principal']}%")
-                        
-                        # Mostrar distribución de marcas
-                        if analisis_marcas['marcas_compradas']:
-                            st.markdown("**Distribución por Marcas:**")
-                            for marca, cantidad in list(analisis_marcas['marcas_compradas'].items())[:5]:
-                                porcentaje = (cantidad / sum(analisis_marcas['marcas_compradas'].values())) * 100
-                                st.write(f"• {marca}: {cantidad} compras ({porcentaje:.1f}%)")
-                    
-                    # Tendencias
-                    st.markdown("#### 📊 Tendencias")
-                    tendencias = cliente_analysis['tendencias']
-                    st.write(f"• **Compras por mes:** {tendencias['compras_por_mes']}")
-                    st.write(f"• **Mes más activo:** {tendencias['mes_mas_activo']}")
-                    st.write(f"• **Tendencia:** {tendencias['tendencia']}")
-                    
-                else:
-                    # Análisis por clusters
-                    st.markdown("#### Clusters de Clientes Identificados")
-                    for cluster_id, cluster_data in resultado["clusters"].items():
-                        with st.expander(f"{cluster_data['caracteristicas']['nombre']} ({cluster_data['cantidad']} clientes)"):
-                            st.write(f"**Descripción:** {cluster_data['caracteristicas']['descripcion']}")
-                            st.write(f"**Estrategia:** {cluster_data['caracteristicas']['estrategia_recomendada']}")
-                        st.write(f"**Productos sugeridos:** {', '.join(cluster_data['caracteristicas']['productos_sugeridos'])}")
-                        
-                        # Mostrar métricas
-                        metricas = cluster_data['caracteristicas']['metricas_promedio']
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("Frecuencia", f"{metricas['frecuencia_compras']:.1f}")
-                        with col2:
-                            st.metric("Ticket Promedio", format_currency(metricas['ticket_promedio']))
-                        with col3:
-                            st.metric("Puntualidad", f"{metricas['puntualidad_pago']:.0f} días")
-                
-                # Recomendación de tiempo
-                st.info(f"💡 **Recomendación:** {resultado['recomendacion_tiempo']}")
-                
-            else:
-                st.error(f"❌ Error: {resultado['message']}")
-                st.info(f"💡 **Sugerencia:** {resultado['recomendacion']}")
+    st.header("🚧 Clasificación de Clientes con IA")
     
     st.markdown("---")
     
-    # Sección de recomendaciones por cliente
-    st.markdown("### Recomendaciones por Cliente")
+    # Mensaje de construcción
+    st.info("### 🔨 Esta funcionalidad está en construcción")
     
-    # Obtener lista de clientes
-    df = systems["db_manager"].cargar_datos()
-    if not df.empty:
-        clientes = df['cliente'].unique()
-        
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            cliente_seleccionado = st.selectbox(
-                "Seleccionar Cliente",
-                clientes,
-                help="Selecciona un cliente para ver recomendaciones de importación",
-                key="cliente_recomendaciones"
-            )
-        
-        with col2:
-            if st.button("📋 Generar Recomendaciones"):
-                with st.spinner("Generando recomendaciones..."):
-                    recomendaciones = systems["product_recommendations"].generar_recomendaciones_importacion(cliente_seleccionado)
-                
-                if "error" not in recomendaciones:
-                    st.success(f"✅ Recomendaciones generadas para {cliente_seleccionado}")
-                    
-                    # Mostrar recomendaciones
-                    perfil = recomendaciones["perfil_cliente"]
-                    rec = recomendaciones["recomendaciones"]
-                    
-                    # Perfil del cliente
-                    st.markdown("#### Perfil del Cliente")
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Clasificación", perfil["clasificacion"])
-                    with col2:
-                        st.metric("Volumen Total", format_currency(perfil["volumen_total"]))
-                    with col3:
-                        st.metric("Ticket Promedio", format_currency(perfil["ticket_promedio"]))
-                    with col4:
-                        st.metric("Puntualidad", perfil["puntualidad"])
-                    
-                    # Recomendaciones de productos
-                    st.markdown("#### Productos Recomendados")
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown("**Productos Principales:**")
-                        for producto in rec["productos_principales"]:
-                            st.write(f"• {producto}")
-                    
-                    with col2:
-                        st.markdown("**Productos Complementarios:**")
-                        for producto in rec["productos_complementarios"]:
-                            st.write(f"• {producto}")
-                    
-                    # Descuentos aplicables
-                    st.markdown("#### Descuentos Aplicables")
-                    descuentos = recomendaciones["descuentos_aplicables"]
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Descuento Base", f"{descuentos['descuento_base']*100:.1f}%")
-                    with col2:
-                        st.metric("Descuento Adicional", f"{descuentos['descuento_adicional']*100:.1f}%")
-                    with col3:
-                        st.metric("Bonificación Puntualidad", f"{descuentos['bonificacion_puntualidad']*100:.1f}%")
-                    with col4:
-                        st.metric("Descuento Total", f"{descuentos['descuento_total']*100:.1f}%")
-                    
-                    # Mensaje personalizado
-                    st.markdown("#### Mensaje Personalizado")
-                    st.info(recomendaciones["mensaje_personalizado"])
-                    
-                    # Estrategia de contacto
-                    estrategia = recomendaciones["estrategia_contacto"]
-                    st.markdown("#### Estrategia de Contacto")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.write(f"**Canal:** {estrategia['canal_preferido']}")
-                        st.write(f"**Frecuencia:** {estrategia['frecuencia_contacto']}")
-                    with col2:
-                        st.write(f"**Momento óptimo:** {estrategia['momento_optimo']}")
-                        st.write(f"**Objetivo:** {estrategia['objetivo_contacto']}")
-                
-                else:
-                    st.error(f"❌ Error: {recomendaciones['error']}")
-    else:
-        st.warning("No hay datos de clientes disponibles")
+    st.markdown("""
+    **Próximamente:**
+    
+    - 🤖 Clasificación automática de clientes con Inteligencia Artificial
+    - 📊 Análisis de patrones de compra y comportamiento
+    - 🎯 Segmentación avanzada de clientes
+    - 💡 Recomendaciones personalizadas por segmento
+    - 📈 Predicción de comportamiento futuro
+    - 🏷️ Análisis de marcas preferidas
+    - 📉 Identificación de clientes en riesgo
+    
+    ---
+    
+    **Estado actual:** En desarrollo
+    
+    **Fecha estimada:** Próxima actualización
+    """)
+    
+    # Placeholder visual
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Funcionalidad", "En desarrollo", delta="0%")
+    with col2:
+        st.metric("Progreso", "Planificación", delta="Fase inicial")
+    with col3:
+        st.metric("Estado", "🚧", delta="Próximamente")
+    
+    st.markdown("---")
+    
+    st.warning("💡 **Nota:** Esta funcionalidad estará disponible en una próxima actualización del sistema.")
 
 def render_monthly_commissions_tab(systems):
     """Renderiza la pestaña de comisiones mensuales"""
-    st.header("💰 Comisiones Mensuales")
+    st.header("Comisiones Mensuales")
     
     monthly_calc = systems["monthly_calc"]
     
@@ -502,7 +159,7 @@ def render_monthly_commissions_tab(systems):
             mes_input = None
     
     # Botón de cálculo
-    if st.button("📊 Calcular Comisiones", type="primary"):
+    if st.button("Calcular Comisiones", type="primary"):
         with st.spinner("Calculando comisiones..."):
             if mes_seleccionado == "Mes Anterior":
                 resultado = monthly_calc.calcular_comisiones_mes()
@@ -516,7 +173,7 @@ def render_monthly_commissions_tab(systems):
             
             # Mostrar resumen principal
             st.markdown("#### Resumen de Comisiones")
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2 = st.columns(2)
             
             with col1:
                 st.metric(
@@ -525,8 +182,22 @@ def render_monthly_commissions_tab(systems):
                 )
             with col2:
                 st.metric(
+                    "Comisiones Netas",
+                    format_currency(resultado.get("comisiones_netas", resultado.get("proyeccion_comisiones_netas", 0)))
+                )
+            
+            st.markdown("#### Descuentos Aplicados")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric(
                     "Descuento Salud (4%)",
                     format_currency(resultado.get("descuento_salud", 0))
+                )
+            with col2:
+                st.metric(
+                    "Descuento Pensión (4%)",
+                    format_currency(resultado.get("descuento_pension", 0))
                 )
             with col3:
                 st.metric(
@@ -535,31 +206,77 @@ def render_monthly_commissions_tab(systems):
                 )
             with col4:
                 st.metric(
-                    "Comisiones Netas",
-                    format_currency(resultado.get("comisiones_netas", resultado.get("proyeccion_comisiones_netas", 0)))
+                    "Total Descuentos (10.5%)",
+                    format_currency(resultado.get("total_descuentos", 0))
                 )
             
             # Mostrar detalles
             if "detalle_facturas" in resultado:
-                st.markdown("#### Detalle de Facturas")
+                st.markdown("---")
+                st.markdown("#### 📋 Detalle de Facturas Contadas")
                 
                 # Crear DataFrame para mostrar
                 df_detalle = pd.DataFrame(resultado["detalle_facturas"])
                 
                 if not df_detalle.empty:
-                    # Mostrar columnas relevantes
-                    columnas_mostrar = [
-                        "cliente", "pedido", "factura", "valor", 
-                        "comision", "comision_final", "descuento_aplicado"
-                    ]
+                    st.info(f"**Total de facturas contadas:** {len(df_detalle)} facturas pagadas en este mes")
                     
-                    df_mostrar = df_detalle[columnas_mostrar].copy()
-                    df_mostrar.columns = [
-                        "Cliente", "Pedido", "Factura", "Valor",
-                        "Comisión Original", "Comisión Final", "Descuento Aplicado"
-                    ]
+                    # Preparar datos para mostrar
+                    df_mostrar = df_detalle.copy()
                     
-                    st.dataframe(df_mostrar, use_container_width=True)
+                    # Formatear montos
+                    df_mostrar['Valor'] = df_mostrar['valor'].apply(lambda x: format_currency(x))
+                    df_mostrar['Comisión Original'] = df_mostrar['comision'].apply(lambda x: format_currency(x))
+                    df_mostrar['Comisión Final'] = df_mostrar['comision_final'].apply(lambda x: format_currency(x))
+                    # Calcular porcentaje de descuento correctamente
+                    # No mostrar descuento si hay devoluciones (causa cálculos incorrectos)
+                    df_mostrar['Descuento'] = df_mostrar.apply(
+                        lambda row: "N/A (Dev.)" if row.get('valor_devuelto', 0) > 0
+                        else f"{((row['comision'] - row['comision_final']) / row['comision'] * 100):.1f}%" 
+                        if row['comision'] > 0 and row['comision'] != row['comision_final']
+                        else "0.0%", 
+                        axis=1
+                    )
+                    
+                    # Seleccionar y renombrar columnas
+                    columnas_finales = {
+                        'cliente': 'Cliente',
+                        'pedido': 'Pedido',
+                        'factura': 'Factura',
+                        'fecha_pago': 'Fecha Pago',
+                        'Valor': 'Valor Factura',
+                        'Comisión Original': 'Comisión Base',
+                        'Descuento': 'Desc. Aplicado',
+                        'Comisión Final': 'Comisión Final'
+                    }
+                    
+                    df_display = df_mostrar[list(columnas_finales.keys())].copy()
+                    df_display.columns = list(columnas_finales.values())
+                    
+                    # Mostrar tabla
+                    st.dataframe(df_display, use_container_width=True, hide_index=True)
+                    
+                    # Mostrar totales al final
+                    st.markdown("##### Resumen de Totales:")
+                    col1, col2, col3, col4 = st.columns(4)
+                    
+                    with col1:
+                        total_valor = df_detalle['valor'].sum()
+                        st.metric("Total Facturado", format_currency(total_valor))
+                    
+                    with col2:
+                        total_comision_original = df_detalle['comision'].sum()
+                        st.metric("Total Comisión Base", format_currency(total_comision_original))
+                    
+                    with col3:
+                        total_comision_final = df_detalle['comision_final'].sum()
+                        st.metric("Total Comisión Final", format_currency(total_comision_final))
+                    
+                    with col4:
+                        ahorro_descuento = total_comision_original - total_comision_final
+                        st.metric("Desc. Automático Total", format_currency(ahorro_descuento))
+                else:
+                    st.warning("No hay detalle de facturas disponible")
             
             # Mostrar resumen por cliente
             if "resumen_por_cliente" in resultado:
@@ -574,33 +291,99 @@ def render_monthly_commissions_tab(systems):
                 st.markdown("#### Alertas")
                 for alerta in resultado["alertas"]:
                     st.warning(f"⚠️ {alerta}")
-            
-            # Mostrar proyección si es mes actual
-            if mes_seleccionado == "Mes Actual" and "probabilidad_cumplimiento" in resultado:
-                st.markdown("#### Proyección del Mes")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.metric(
-                        "Probabilidad Cumplimiento",
-                        f"{resultado['probabilidad_cumplimiento']:.1f}%"
-                    )
-                
-                with col2:
-                    st.metric(
-                        "Velocidad Actual",
-                        format_currency(resultado.get("velocidad_actual", 0)) + "/día"
-                    )
+    
+    # Sección de facturas por vencer y vencidas (siempre visible)
+    st.markdown("---")
+    st.markdown("### 📅 Estado de Facturas")
+    
+    # Obtener todas las facturas no pagadas
+    df = systems["db_manager"].cargar_datos()
+    
+    if not df.empty:
+        df_no_pagadas = df[df["pagado"] == False].copy()
         
+        if not df_no_pagadas.empty:
+            # Calcular mes actual
+            hoy = date.today()
+            mes_actual_inicio = date(hoy.year, hoy.month, 1)
+            if hoy.month == 12:
+                mes_actual_fin = date(hoy.year, 12, 31)
+            else:
+                mes_actual_fin = date(hoy.year, hoy.month + 1, 1) - timedelta(days=1)
+            
+            # Convertir fecha_pago_est a datetime
+            df_no_pagadas['fecha_pago_est_dt'] = pd.to_datetime(df_no_pagadas['fecha_pago_est']).dt.date
+            
+            # 1. Facturas que vencen este mes (futuras)
+            facturas_vencen_mes = df_no_pagadas[
+                (df_no_pagadas['fecha_pago_est_dt'] >= mes_actual_inicio) & 
+                (df_no_pagadas['fecha_pago_est_dt'] <= mes_actual_fin) &
+                (df_no_pagadas['fecha_pago_est_dt'] >= hoy)
+            ].sort_values('fecha_pago_est_dt')
+            
+            # 2. Facturas ya vencidas
+            facturas_vencidas = df_no_pagadas[
+                (df_no_pagadas['dias_vencimiento'].notna()) &
+                (df_no_pagadas['dias_vencimiento'] < 0)
+            ].sort_values('dias_vencimiento')
+            
+            # Mostrar facturas que vencen este mes
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 📅 Se Vencen Este Mes")
+                if not facturas_vencen_mes.empty:
+                    st.info(f"**{len(facturas_vencen_mes)} factura(s)** por vencer este mes")
+                    
+                    for _, factura in facturas_vencen_mes.iterrows():
+                        dias_restantes = (factura['fecha_pago_est_dt'] - hoy).days
+                        
+                        with st.container(border=True):
+                            st.markdown(f"**{factura['cliente']}**")
+                            st.write(f"📋 Pedido: {factura['pedido']} | Factura: {factura['factura']}")
+                            st.write(f"💰 Valor: {format_currency(factura['valor'])}")
+                            st.write(f"📅 Vence: {factura['fecha_pago_est_dt'].strftime('%d/%m/%Y')}")
+                            
+                            if dias_restantes <= 3:
+                                st.error(f"⏰ **Vence en {dias_restantes} días** - ¡URGENTE!")
+                            elif dias_restantes <= 7:
+                                st.warning(f"⚠️ Vence en {dias_restantes} días")
+                            else:
+                                st.caption(f"🟢 Vence en {dias_restantes} días")
+                else:
+                    st.success("✅ No hay facturas por vencer este mes")
+            
+            with col2:
+                st.markdown("#### 🚨 Ya Vencidas")
+                if not facturas_vencidas.empty:
+                    st.error(f"**{len(facturas_vencidas)} factura(s)** vencidas")
+                    
+                    for _, factura in facturas_vencidas.iterrows():
+                        dias_vencida = abs(int(factura['dias_vencimiento']))
+                        
+                        with st.container(border=True):
+                            st.markdown(f"**🚨 {factura['cliente']}**")
+                            st.write(f"📋 Pedido: {factura['pedido']} | Factura: {factura['factura']}")
+                            st.write(f"💰 Valor: {format_currency(factura['valor'])}")
+                            st.error(f"⏰ **Vencida hace {dias_vencida} días**")
+                            
+                            if dias_vencida > 30:
+                                st.error("🔴 MUY URGENTE - Más de 30 días vencida")
+                            elif dias_vencida > 15:
+                                st.warning("🟡 URGENTE - Más de 15 días vencida")
+                else:
+                    st.success("✅ No hay facturas vencidas")
         else:
-            st.error(f"❌ Error: {resultado['error']}")
+            st.info("No hay facturas pendientes de pago")
+    else:
+        st.info("No hay datos de facturas")
     
     st.markdown("---")
     
     # Historial de comisiones
     st.markdown("### Historial de Comisiones")
     
-    if st.button("📈 Ver Historial"):
+    if st.button("Ver Historial"):
         with st.spinner("Obteniendo historial..."):
             historial = monthly_calc.obtener_historial_comisiones(12)
         
@@ -632,12 +415,12 @@ def render_monthly_commissions_tab(systems):
 
 def render_invoice_alerts_tab(systems):
     """Renderiza la pestaña de alertas de facturas"""
-    st.header("🚨 Alertas de Vencimiento")
+    st.header("Alertas de Vencimiento")
     
     invoice_alerts = systems["invoice_alerts"]
     
     # Botón para generar alertas
-    if st.button("🔍 Generar Alertas", type="primary"):
+    if st.button("Generar Alertas", type="primary"):
         with st.spinner("Generando alertas..."):
             alertas = invoice_alerts.generar_alertas_vencimiento()
         
@@ -749,7 +532,7 @@ def render_invoice_alerts_tab(systems):
     # Recordatorios automáticos
     st.markdown("### Recordatorios Automáticos")
     
-    if st.button("📅 Generar Recordatorios"):
+    if st.button("Generar Recordatorios"):
         with st.spinner("Generando recordatorios..."):
             recordatorios = invoice_alerts.generar_recordatorios_automaticos()
         
@@ -806,7 +589,7 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.title("🧠 CRM Inteligente")
+        st.title("CRM Inteligente")
         st.markdown("---")
         
         # Meta mensual
@@ -818,7 +601,7 @@ def main():
         filtros = systems["ui_components"].render_sidebar_filters()
         
         # Botón de limpieza
-        if st.button("🔄 Limpiar Estados"):
+        if st.button("Limpiar Estados"):
             keys_to_delete = [key for key in st.session_state.keys() if key.startswith('show_')]
             for key in keys_to_delete:
                 del st.session_state[key]
@@ -826,7 +609,7 @@ def main():
             st.rerun()
     
     # Layout principal
-    st.title("🧠 CRM Inteligente - Versión Optimizada")
+    st.title("CRM Inteligente - Versión Optimizada")
     
     # Tabs principales
     tabs = st.tabs([
@@ -834,14 +617,15 @@ def main():
         "Comisiones",
         "Nueva Venta",
         "Devoluciones",
+        "Mensajes Clientes",
         "Clientes",
-        "🤖 Clasificación IA",
-        "💰 Comisiones Mensuales",
-        "🚨 Alertas Facturas",
+        "Clasificación IA",
+        "Comisiones Mensuales",
+        "Alertas Facturas",
         "IA & Recomendaciones"
     ])
     
-    # Tab 1-5: Tabs existentes
+    # Tabs principales
     with tabs[0]:
         systems["tab_renderer"].render_dashboard()
     
@@ -854,23 +638,27 @@ def main():
     with tabs[3]:
         systems["tab_renderer"].render_devoluciones()
     
+    # Tab 5: Mensajes para Clientes
     with tabs[4]:
+        systems["tab_renderer"].render_radicacion_facturas()
+    
+    with tabs[5]:
         systems["tab_renderer"].render_clientes()
     
-    # Tab 6: Clasificación de Clientes
-    with tabs[5]:
+    # Tab 7: Clasificación de Clientes
+    with tabs[6]:
         render_client_classification_tab(systems)
     
-    # Tab 7: Comisiones Mensuales
-    with tabs[6]:
+    # Tab 8: Comisiones Mensuales
+    with tabs[7]:
         render_monthly_commissions_tab(systems)
     
-    # Tab 8: Alertas de Facturas
-    with tabs[7]:
+    # Tab 9: Alertas de Facturas
+    with tabs[8]:
         render_invoice_alerts_tab(systems)
     
-    # Tab 9: IA y Recomendaciones (existente)
-    with tabs[8]:
+    # Tab 10: IA y Recomendaciones
+    with tabs[9]:
         systems["tab_renderer"].render_ia_alertas()
 
 def load_css():

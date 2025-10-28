@@ -9,115 +9,187 @@ class AIRecommendations:
         self.db_manager = db_manager
     
     def generar_recomendaciones_reales(self) -> List[Dict[str, Any]]:
-        """Genera recomendaciones basadas en datos reales"""
+        """Genera insights estratégicos del negocio"""
         try:
             df = self.db_manager.cargar_datos()
             
             if df.empty:
                 return [{
-                    'cliente': 'No hay datos disponibles',
-                    'accion': 'Revisar base de datos',
-                    'producto': 'N/A',
-                    'razon': 'La tabla comisiones está vacía o hay error de conexión',
-                    'probabilidad': 0,
-                    'impacto_comision': 0,
+                    'tipo': 'Sin datos',
+                    'titulo': 'No hay datos disponibles',
+                    'insight': 'Comienza registrando tus primeras ventas',
+                    'metrica': 'N/A',
+                    'impacto': 0,
+                    'accion_recomendada': 'Registra ventas en la pestaña "Nueva Venta"',
                     'prioridad': 'alta'
                 }]
             
-            recomendaciones = []
+            insights = []
             hoy = pd.Timestamp.now()
+            mes_actual = hoy.strftime("%Y-%m")
+            mes_anterior = (hoy - pd.DateOffset(months=1)).strftime("%Y-%m")
             
-            # Facturas próximas a vencer (solo las no pagadas)
-            proximas_vencer = df[
-                (df['dias_vencimiento'].notna()) & 
-                (df['dias_vencimiento'] >= 0) & 
-                (df['dias_vencimiento'] <= 7) & 
-                (df['pagado'] == False)
-            ].nlargest(2, 'comision')
+            # 1. ANÁLISIS DE CARTERA
+            df_mes_actual = df[df['mes_factura'] == mes_actual]
+            df_mes_anterior = df[df['mes_factura'] == mes_anterior]
             
-            for _, factura in proximas_vencer.iterrows():
-                recomendaciones.append({
-                    'cliente': factura['cliente'],
-                    'accion': f"URGENTE: Cobrar en {int(factura['dias_vencimiento'])} días",
-                    'producto': f"Factura {factura['factura']} - ${factura['valor']:,.0f}",
-                    'razon': f"Comisión de ${factura['comision']:,.0f} en riesgo de perderse",
-                    'probabilidad': 90,
-                    'impacto_comision': factura['comision'],
+            ventas_mes_actual = df_mes_actual['valor'].sum()
+            ventas_mes_anterior = df_mes_anterior['valor'].sum()
+            
+            if ventas_mes_anterior > 0:
+                variacion_cartera = ((ventas_mes_actual - ventas_mes_anterior) / ventas_mes_anterior) * 100
+                
+                if variacion_cartera < -10:
+                    insights.append({
+                        'tipo': 'Cartera',
+                        'titulo': '📉 La cartera está bajando',
+                        'insight': f'Ventas bajaron {abs(variacion_cartera):.1f}% vs mes anterior',
+                        'metrica': f'${ventas_mes_actual:,.0f} vs ${ventas_mes_anterior:,.0f}',
+                        'impacto': abs(ventas_mes_actual - ventas_mes_anterior),
+                        'accion_recomendada': 'Intensificar prospección y reactivar clientes inactivos',
+                        'prioridad': 'alta'
+                    })
+                elif variacion_cartera > 15:
+                    insights.append({
+                        'tipo': 'Cartera',
+                        'titulo': '📈 ¡Cartera en crecimiento!',
+                        'insight': f'Ventas subieron {variacion_cartera:.1f}% vs mes anterior',
+                        'metrica': f'${ventas_mes_actual:,.0f} vs ${ventas_mes_anterior:,.0f}',
+                        'impacto': ventas_mes_actual - ventas_mes_anterior,
+                        'accion_recomendada': 'Mantener el ritmo y explorar nuevos mercados',
+                        'prioridad': 'media'
+                    })
+                else:
+                    insights.append({
+                        'tipo': 'Cartera',
+                        'titulo': '📊 Cartera estable',
+                        'insight': f'Ventas con variación del {variacion_cartera:.1f}%',
+                        'metrica': f'${ventas_mes_actual:,.0f} este mes',
+                        'impacto': abs(ventas_mes_actual - ventas_mes_anterior),
+                        'accion_recomendada': 'Buscar oportunidades de crecimiento para aumentar ventas',
+                        'prioridad': 'media'
+                    })
+            
+            # 2. ANÁLISIS DE COMISIONES PENDIENTES
+            comisiones_pendientes = df[df['pagado'] == False]['comision'].sum()
+            num_facturas_pendientes = len(df[df['pagado'] == False])
+            
+            if comisiones_pendientes > 0:
+                insights.append({
+                    'tipo': 'Comisiones',
+                    'titulo': '💰 Comisiones por cobrar',
+                    'insight': f'{num_facturas_pendientes} factura(s) pendiente(s) de pago',
+                    'metrica': f'${comisiones_pendientes:,.0f} en comisiones',
+                    'impacto': comisiones_pendientes,
+                    'accion_recomendada': 'Hacer seguimiento de cobro para asegurar tus comisiones',
                     'prioridad': 'alta'
                 })
             
-            # Facturas vencidas (solo las no pagadas)
-            vencidas = df[
+            # 3. ANÁLISIS DE CLIENTES NUEVOS (Basado en checkbox cliente_nuevo)
+            clientes_mes_actual = df_mes_actual['cliente'].nunique()
+            
+            # Contar clientes nuevos usando el campo cliente_nuevo DEL AÑO ACTUAL
+            if 'cliente_nuevo' in df.columns:
+                # Filtrar por año actual (los clientes nuevos son meta anual)
+                from datetime import datetime
+                anio_actual = datetime.now().strftime("%Y")
+                df_anio_actual = df[df['mes_factura'].str.startswith(anio_actual)]
+                
+                # Contar clientes únicos marcados como nuevos del año
+                df_clientes_nuevos = df_anio_actual[df_anio_actual['cliente_nuevo'] == True]
+                clientes_nuevos_mes = df_clientes_nuevos['cliente'].nunique()
+            else:
+                # Fallback: comparar con mes anterior si no existe el campo
+                clientes_mes_anterior = df_mes_anterior['cliente'].nunique()
+                clientes_nuevos_mes = max(0, clientes_mes_actual - clientes_mes_anterior)
+            
+            # Generar insight según la cantidad de clientes nuevos
+            if clientes_nuevos_mes > 0:
+                insights.append({
+                    'tipo': 'Clientes',
+                    'titulo': '✨ Crecimiento de clientes',
+                    'insight': f'Ganaste {clientes_nuevos_mes} cliente(s) nuevo(s) este año',
+                    'metrica': f'{clientes_mes_actual} clientes activos este mes',
+                    'impacto': clientes_nuevos_mes * (ventas_mes_actual / max(clientes_mes_actual, 1)),
+                    'accion_recomendada': 'Fidelizar nuevos clientes y aumentar ticket promedio',
+                    'prioridad': 'media'
+                })
+            elif clientes_mes_actual < 5:
+                insights.append({
+                    'tipo': 'Clientes',
+                    'titulo': '⚠️ Pocos clientes activos',
+                    'insight': f'Solo {clientes_mes_actual} cliente(s) activo(s) este mes',
+                    'metrica': f'Necesitas ampliar tu cartera',
+                    'impacto': 0,
+                    'accion_recomendada': 'Buscar nuevos prospectos y reactivar clientes antiguos',
+                    'prioridad': 'alta'
+                })
+            
+            # 4. TICKET PROMEDIO
+            if not df_mes_actual.empty:
+                ticket_promedio_actual = df_mes_actual['valor'].mean()
+                ticket_promedio_anterior = df_mes_anterior['valor'].mean() if not df_mes_anterior.empty else 0
+                
+                if ticket_promedio_anterior > 0:
+                    variacion_ticket = ((ticket_promedio_actual - ticket_promedio_anterior) / ticket_promedio_anterior) * 100
+                    
+                    if abs(variacion_ticket) > 10:
+                        insights.append({
+                            'tipo': 'Ticket',
+                            'titulo': f"{'💎' if variacion_ticket > 0 else '📦'} Ticket promedio {'aumentó' if variacion_ticket > 0 else 'bajó'}",
+                            'insight': f'Variación del {variacion_ticket:.1f}% en valor promedio de venta',
+                            'metrica': f'${ticket_promedio_actual:,.0f} promedio',
+                            'impacto': abs(ticket_promedio_actual - ticket_promedio_anterior) * clientes_mes_actual,
+                            'accion_recomendada': 'Vender productos complementarios' if variacion_ticket < 0 else 'Mantener estrategia de valor agregado',
+                            'prioridad': 'media'
+                        })
+            
+            # 5. CLIENTES EN RIESGO (facturas vencidas)
+            clientes_riesgo = df[
                 (df['dias_vencimiento'].notna()) & 
                 (df['dias_vencimiento'] < 0) & 
                 (df['pagado'] == False)
-            ].nlargest(2, 'comision')
+            ]['cliente'].nunique()
             
-            for _, factura in vencidas.iterrows():
-                dias_vencida = abs(int(factura['dias_vencimiento']))
-                recomendaciones.append({
-                    'cliente': factura['cliente'],
-                    'accion': f"CRÍTICO: Vencida hace {dias_vencida} días",
-                    'producto': f"Factura {factura['factura']} - ${factura['valor']:,.0f}",
-                    'razon': f"Comisión perdida si no se cobra pronto (${factura['comision']:,.0f})",
-                    'probabilidad': max(20, 100 - dias_vencida * 2),
-                    'impacto_comision': factura['comision'],
+            if clientes_riesgo > 2:
+                comision_riesgo = df[
+                    (df['dias_vencimiento'].notna()) & 
+                    (df['dias_vencimiento'] < 0) & 
+                    (df['pagado'] == False)
+                ]['comision'].sum()
+                
+                insights.append({
+                    'tipo': 'Riesgo',
+                    'titulo': '🚨 Clientes con facturas vencidas',
+                    'insight': f'{clientes_riesgo} cliente(s) con pagos atrasados',
+                    'metrica': f'${comision_riesgo:,.0f} en riesgo',
+                    'impacto': comision_riesgo,
+                    'accion_recomendada': 'Contactar urgente para gestionar cobro y evitar pérdidas',
                     'prioridad': 'alta'
                 })
             
-            # Clientes sin actividad reciente
-            if len(recomendaciones) < 3:
-                df['dias_desde_factura'] = (hoy - df['fecha_factura']).dt.days
-                
-                clientes_inactivos = df.groupby('cliente').agg({
-                    'dias_desde_factura': 'min',
-                    'valor': 'mean',
-                    'comision': 'mean'
-                }).reset_index()
-                
-                oportunidades = clientes_inactivos[
-                    (clientes_inactivos['dias_desde_factura'] >= 30) & 
-                    (clientes_inactivos['dias_desde_factura'] <= 90)
-                ].nlargest(1, 'valor')
-                
-                for _, cliente in oportunidades.iterrows():
-                    recomendaciones.append({
-                        'cliente': cliente['cliente'],
-                        'accion': 'Reactivar cliente',
-                        'producto': f"Oferta personalizada (${cliente['valor']*0.8:,.0f})",
-                        'razon': f"Sin compras {int(cliente['dias_desde_factura'])} días - Cliente valioso",
-                        'probabilidad': max(30, 90 - int(cliente['dias_desde_factura'])),
-                        'impacto_comision': cliente['comision'],
-                        'prioridad': 'media'
-                    })
+            # Si no hay suficientes insights, agregar uno genérico positivo
+            if len(insights) == 0:
+                insights.append({
+                    'tipo': 'General',
+                    'titulo': '✅ Todo en orden',
+                    'insight': 'Tu negocio está funcionando bien',
+                    'metrica': f'${ventas_mes_actual:,.0f} en ventas',
+                    'impacto': ventas_mes_actual * 0.02,
+                    'accion_recomendada': 'Buscar oportunidades de crecimiento y nuevos clientes',
+                    'prioridad': 'media'
+                })
             
-            # Si no hay suficientes recomendaciones
-            if len(recomendaciones) == 0:
-                top_cliente = df.groupby('cliente')['valor'].sum().nlargest(1)
-                if not top_cliente.empty:
-                    cliente_nombre = top_cliente.index[0]
-                    volumen_total = top_cliente.iloc[0]
-                    
-                    recomendaciones.append({
-                        'cliente': cliente_nombre,
-                        'accion': 'Seguimiento comercial',
-                        'producto': f"Nueva propuesta (${volumen_total*0.3:,.0f})",
-                        'razon': f"Tu cliente #1 por volumen total (${volumen_total:,.0f})",
-                        'probabilidad': 65,
-                        'impacto_comision': volumen_total * 0.015,
-                        'prioridad': 'media'
-                    })
-            
-            return recomendaciones[:3]
+            return insights[:4]
             
         except Exception as e:
             return [{
-                'cliente': 'Error técnico',
-                'accion': 'Revisar logs',
-                'producto': 'N/A',
-                'razon': f'Error: {str(e)[:100]}',
-                'probabilidad': 0,
-                'impacto_comision': 0,
+                'tipo': 'Error',
+                'titulo': 'Error técnico',
+                'insight': f'Error al generar insights: {str(e)[:50]}',
+                'metrica': 'N/A',
+                'impacto': 0,
+                'accion_recomendada': 'Contactar soporte técnico',
                 'prioridad': 'baja'
             }]
     

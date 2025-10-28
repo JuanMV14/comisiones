@@ -7,6 +7,7 @@ from database.queries import DatabaseManager
 from ui.components import UIComponents
 from business.calculations import ComisionCalculator, MetricsCalculator
 from business.ai_recommendations import AIRecommendations
+from business.invoice_radication import InvoiceRadicationSystem
 from utils.formatting import format_currency
 
 class TabRenderer:
@@ -18,6 +19,7 @@ class TabRenderer:
         self.comision_calc = ComisionCalculator()
         self.metrics_calc = MetricsCalculator()
         self.ai_recommendations = AIRecommendations(db_manager)
+        self.invoice_radication = InvoiceRadicationSystem(db_manager)
     
     # ========================
     # TAB DASHBOARD
@@ -32,6 +34,12 @@ class TabRenderer:
         
         if not df.empty:
             df = self.db_manager.agregar_campos_faltantes(df)
+            
+            # Aplicar filtro de mes si está seleccionado
+            mes_filter = st.session_state.get("mes_filter_sidebar", "Todos")
+            if mes_filter != "Todos":
+                df = df[df["mes_factura"] == mes_filter]
+                st.info(f"📅 Mostrando datos de: {mes_filter}")
         
         # Métricas principales
         col1, col2, col3, col4 = st.columns(4)
@@ -80,14 +88,19 @@ class TabRenderer:
         
         st.markdown("---")
         
-        # Progreso Meta y Recomendaciones IA
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            self._render_progreso_meta(df, meta_actual)
-        
-        with col2:
-            self._render_recomendaciones_dashboard()
+        # Contenedor principal para alinear todo
+        with st.container():
+            # Progreso Meta y Recomendaciones IA
+            col1, col2 = st.columns([1, 1])
+            
+            with col1:
+                self._render_progreso_meta(df, meta_actual)
+            
+            with col2:
+                self._render_progreso_clientes_nuevos(df, meta_actual)
+            
+            # Recomendaciones motivacionales - Mismo ancho que las columnas de arriba
+            self._render_recomendaciones_motivacionales(df, meta_actual)
     
     def _render_progreso_meta(self, df: pd.DataFrame, meta_actual: Dict[str, Any]):
         """Renderiza el progreso de la meta mensual"""
@@ -119,21 +132,250 @@ class TabRenderer:
         <p><strong>{progreso_meta:.1f}%</strong> completado | <strong>Necesitas:</strong> {format_currency(velocidad_necesaria)}/día</p>
         """, unsafe_allow_html=True)
     
-    def _render_recomendaciones_dashboard(self):
-        """Renderiza las recomendaciones IA en el dashboard"""
-        st.markdown("### Recomendaciones IA")
+    def _render_progreso_clientes_nuevos(self, df: pd.DataFrame, meta_actual: Dict[str, Any]):
+        """Renderiza el progreso de la meta de clientes nuevos"""
+        st.markdown("### Meta Clientes Nuevos (2025)")
         
-        recomendaciones = self.ai_recommendations.generar_recomendaciones_reales()
+        # Obtener meta de clientes nuevos
+        meta_clientes = meta_actual.get("meta_clientes_nuevos", 0)
         
-        for rec in recomendaciones:
-            st.markdown(f"""
-            <div class="alert-{'high' if rec['prioridad'] == 'alta' else 'medium'}">
-                <h4 style="margin:0; color: #ffffff;">{rec['cliente']}</h4>
-                <p style="margin:0.5rem 0; color: #ffffff;"><strong>{rec['accion']}</strong> ({rec['probabilidad']}% prob.)</p>
-                <p style="margin:0; color: #ffffff; font-size: 0.9rem;">{rec['razon']}</p>
-                <p style="margin:0.5rem 0 0 0; color: #ffffff; font-weight: bold;">💰 +{format_currency(rec['impacto_comision'])} comisión</p>
-            </div>
-            """, unsafe_allow_html=True)
+        # Calcular clientes nuevos del mes actual basándose en el campo cliente_nuevo
+        clientes_nuevos_lista = []
+        if not df.empty:
+            mes_actual = date.today().strftime("%Y-%m")
+            
+            # Filtrar por mes actual para otras métricas
+            df_mes_actual = df[df["mes_factura"] == mes_actual]
+            
+            # Obtener año actual para la meta de clientes nuevos
+            anio_actual = date.today().strftime("%Y")
+            df_anio_actual = df[df["mes_factura"].str.startswith(anio_actual)]
+            
+            # Verificar si existe la columna cliente_nuevo
+            if 'cliente_nuevo' in df.columns:
+                # Contar clientes únicos marcados como nuevos DEL AÑO ACTUAL
+                # (Los clientes nuevos son una meta anual, no mensual)
+                df_clientes_nuevos = df_anio_actual[df_anio_actual["cliente_nuevo"] == True]
+                clientes_nuevos_lista = sorted(df_clientes_nuevos["cliente"].unique().tolist())
+                clientes_nuevos_mes = len(clientes_nuevos_lista)
+            else:
+                # Fallback: usar lógica anterior si no existe el campo
+                df_mes_propios = df_mes_actual[df_mes_actual["cliente_propio"] == True]
+                clientes_mes_actual = set(df_mes_propios["cliente"].unique())
+                
+                df_meses_anteriores = df[df["mes_factura"] < mes_actual]
+                clientes_anteriores = set(df_meses_anteriores["cliente"].unique())
+                
+                clientes_nuevos = clientes_mes_actual - clientes_anteriores
+                
+                # Lista de palabras clave para excluir
+                palabras_excluidas = [
+                    "BLANCO CAMARGO",
+                    "INVERSIONES CÁRDENAS",
+                    "CARDENAS PIEDRAHITA"
+                ]
+                
+                clientes_filtrados = []
+                for cliente in clientes_nuevos:
+                    excluir = False
+                    for palabra in palabras_excluidas:
+                        if palabra.upper() in cliente.upper():
+                            excluir = True
+                            break
+                    if not excluir:
+                        clientes_filtrados.append(cliente)
+                
+                clientes_nuevos_lista = sorted(clientes_filtrados)
+                clientes_nuevos_mes = len(clientes_nuevos_lista)
+        else:
+            clientes_nuevos_mes = 0
+        
+        # Calcular progreso
+        if meta_clientes > 0:
+            progreso_clientes = (clientes_nuevos_mes / meta_clientes) * 100
+        else:
+            progreso_clientes = 0
+        
+        faltante_clientes = max(0, meta_clientes - clientes_nuevos_mes)
+        
+        # Calcular velocidad necesaria (días restantes del mes)
+        hoy = date.today()
+        if hoy.month == 12:
+            ultimo_dia_mes = date(hoy.year, 12, 31)
+        else:
+            ultimo_dia_mes = date(hoy.year, hoy.month + 1, 1) - timedelta(days=1)
+        
+        dias_restantes = max(1, (ultimo_dia_mes - hoy).days + 1)
+        
+        if dias_restantes > 0 and faltante_clientes > 0:
+            clientes_por_dia = faltante_clientes / dias_restantes
+        else:
+            clientes_por_dia = 0
+        
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("Meta", f"{meta_clientes} clientes")
+        with col_b:
+            st.metric("Actual", f"{clientes_nuevos_mes} clientes")
+        with col_c:
+            st.metric("Faltante", f"{faltante_clientes} clientes")
+        
+        color = "#10b981" if progreso_clientes > 80 else "#f59e0b" if progreso_clientes > 50 else "#ef4444"
+        st.markdown(f"""
+        <div class="progress-bar" style="margin: 1rem 0;">
+            <div class="progress-fill" style="width: {min(progreso_clientes, 100)}%; background: {color}"></div>
+        </div>
+        <p><strong>{progreso_clientes:.1f}%</strong> completado | <strong>Necesitas:</strong> {clientes_por_dia:.1f} clientes/día</p>
+        """, unsafe_allow_html=True)
+    
+    def _render_recomendaciones_motivacionales(self, df: pd.DataFrame, meta_actual: Dict[str, Any]):
+        """Renderiza recomendaciones motivacionales basadas en el progreso"""
+        
+        # Calcular datos del presupuesto
+        progreso_data = self.metrics_calc.calcular_progreso_meta(df, meta_actual)
+        meta = progreso_data["meta_ventas"]
+        actual = progreso_data["ventas_actuales"]
+        faltante = progreso_data["faltante"]
+        progreso = progreso_data["progreso"]
+        
+        # Calcular días restantes del mes
+        hoy = date.today()
+        if hoy.month == 12:
+            ultimo_dia_mes = date(hoy.year, 12, 31)
+        else:
+            ultimo_dia_mes = date(hoy.year, hoy.month + 1, 1) - timedelta(days=1)
+        
+        dias_restantes = max(1, (ultimo_dia_mes - hoy).days + 1)
+        
+        # Frases motivacionales según el cumplimiento de la meta
+        if progreso >= 100:
+            # Meta cumplida - Frases de celebración que cambian
+            frases_motivacionales = [
+                "🏆 ¡Eres un campeón! Tu dedicación dio sus frutos.",
+                "⭐ ¡Extraordinario! Superaste todas las expectativas.",
+                "🎯 ¡Perfección! Tu profesionalismo es ejemplar.",
+                "💫 ¡Imparable! Has elevado el estándar de excelencia.",
+                "🌟 ¡Brillante! Tu éxito inspira a todos.",
+                "🚀 ¡A otro nivel! Tu potencial no tiene límites.",
+                "💎 ¡Valioso! Has demostrado tu verdadero poder.",
+                "🎊 ¡Victoria merecida! Disfruta tu logro.",
+                "🏅 ¡Medallista de oro! Tu esfuerzo vale oro.",
+                "🌈 ¡Llegaste al tesoro! El éxito es tuyo.",
+                "🔥 ¡Imparable! Tu pasión te llevó a la cima.",
+                "💪 ¡Fuerza titánica! Nada puede detenerte.",
+                "🎨 ¡Obra maestra! Tu trabajo es arte puro.",
+                "🦅 ¡Vuelo perfecto! Alcanzaste las alturas."
+            ]
+        elif progreso >= 80:
+            # Muy cerca - Frases de último empujón que cambian
+            frases_motivacionales = [
+                "💪 ¡Casi lo logras! Un último empujón y es tuyo.",
+                "🎯 ¡A un paso! La meta está tan cerca.",
+                "🔥 ¡Último tramo! Dale todo lo que tienes.",
+                "🚀 ¡Sprint final! Acelera hacia la victoria.",
+                "⭐ ¡Tan cerca! Puedes lograrlo.",
+                "🏃 ¡Último esfuerzo! Cruza la línea de meta.",
+                "💫 ¡La cima te espera! Solo un poco más.",
+                "🎊 ¡Casi celebramos! Termina con fuerza.",
+                "🌟 ¡Gran trayectoria! El final será épico.",
+                "💎 ¡Casi pulido! Último toque brillante."
+            ]
+        elif progreso >= 50:
+            # A mitad - Frases de motivación que cambian
+            frases_motivacionales = [
+                "💪 ¡Vas bien! Mantén el ritmo ganador.",
+                "🎯 ¡Mitad del camino! Sigue avanzando firme.",
+                "🚀 ¡Buen progreso! Acelera el paso ahora.",
+                "⭐ ¡Vas por buen camino! No pares.",
+                "🔥 ¡Encendido! Mantén viva tu pasión.",
+                "🌟 ¡Brillando! Continúa iluminando el camino.",
+                "💫 ¡Firme! Cada día te acerca más.",
+                "🏃 ¡Buen ritmo! La meta se acerca.",
+                "💎 ¡Valor creciente! Sigues puliéndote."
+            ]
+        else:
+            # Inicio - Frases de ánimo que cambian
+            frases_motivacionales = [
+                "💪 ¡Tú puedes! Cada gran logro comienza ahora.",
+                "🎯 ¡Enfócate! La constancia vence todo.",
+                "🔥 ¡Enciéndete! El éxito requiere acción.",
+                "🚀 ¡Despega! Tu potencial es enorme.",
+                "⭐ ¡Brilla! Este es tu momento.",
+                "💫 ¡Persiste! Los logros toman tiempo.",
+                "🌟 ¡Adelante! Cada esfuerzo suma.",
+                "🏃 ¡Acelera! El tiempo es ahora.",
+                "💎 ¡Eres valioso! Demuéstralo hoy.",
+                "🦅 ¡Levántate! Vuela contra el viento.",
+                "🌺 ¡Florece! Incluso en lo difícil creces."
+            ]
+        
+        # Seleccionar frase del día (basada en el día del mes, ajustada al tamaño de la lista)
+        indice_frase = hoy.day % len(frases_motivacionales)
+        frase_del_dia = frases_motivacionales[indice_frase]
+        
+        # Tarjeta motivacional - Ancho completo
+        st.markdown("---")
+        
+        # Generar recomendaciones según el progreso
+        if progreso >= 100:
+            # Meta cumplida
+            st.success(f"""
+            ### 🎉 ¡META CUMPLIDA! 
+            
+            **¡Felicitaciones!** Has superado la meta del mes con **{format_currency(actual)}**. 
+            ¡Excelente trabajo! 🏆
+            
+            {frase_del_dia}
+            """)
+        elif progreso >= 80:
+            # Muy cerca de la meta
+            venta_necesaria_por_dia = faltante / dias_restantes
+            dias_para_meta = int(faltante / venta_necesaria_por_dia) if venta_necesaria_por_dia > 0 else 0
+            
+            st.info(f"""
+            ### 🎯 ¡Casi lo logras! 💪
+            
+            **Te falta:** {format_currency(faltante)} para cumplir la meta
+            
+            **Plan de acción:**
+            - Si vendes **{format_currency(venta_necesaria_por_dia)}** diarios, cumplirás la meta en **{dias_para_meta} días** 📈
+            - Tienes **{dias_restantes} días** para cerrar este mes con éxito
+            - Estás en el **{progreso:.1f}%** - ¡Un último empujón! 💪
+            
+            {frase_del_dia}
+            """)
+        elif progreso >= 50:
+            # A medio camino
+            venta_necesaria_por_dia = faltante / dias_restantes
+            
+            st.warning(f"""
+            ### 💼 ¡Vas por buen camino!
+            
+            **Te falta:** {format_currency(faltante)} para cumplir la meta
+            
+            **Plan de acción:**
+            - Necesitas vender **{format_currency(venta_necesaria_por_dia)}** por día
+            - Quedan **{dias_restantes} días** para alcanzar la meta
+            - Llevas **{progreso:.1f}%** completado - ¡Sigue así! ⚡
+            
+            {frase_del_dia}
+            """)
+        else:
+            # Inicio del mes o bajo progreso
+            venta_necesaria_por_dia = faltante / dias_restantes
+            
+            st.error(f"""
+            ### 🚀 ¡Es hora de acelerar!
+            
+            **Te falta:** {format_currency(faltante)} para cumplir la meta
+            
+            **Plan de acción:**
+            - Necesitas vender **{format_currency(venta_necesaria_por_dia)}** diarios
+            - Tienes **{dias_restantes} días** por delante - ¡Usa el tiempo sabiamente! ⏰
+            - Llevas **{progreso:.1f}%** - ¡Cada día cuenta! 🔥
+            
+            {frase_del_dia}
+            """)
     
     # ========================
     # TAB COMISIONES
@@ -161,7 +403,10 @@ class TabRenderer:
             with col1:
                 estado_filter = st.selectbox("Estado", ["Todos", "Pendientes", "Pagadas", "Vencidas"], key="estado_filter_comisiones")
             with col2:
-                cliente_filter = st.text_input("Buscar cliente", key="comisiones_cliente_filter")
+                # Obtener lista de clientes para el desplegable
+                lista_clientes = self.db_manager.obtener_lista_clientes()
+                opciones_clientes = ["Todos"] + lista_clientes
+                cliente_filter = st.selectbox("Cliente", opciones_clientes, key="comisiones_cliente_filter")
             with col3:
                 monto_min = st.number_input("Valor mínimo", min_value=0, value=0, step=100000)
             with col4:
@@ -172,6 +417,17 @@ class TabRenderer:
         
         if not df.empty:
             df = self.db_manager.agregar_campos_faltantes(df)
+            
+            # Aplicar filtro de mes del sidebar (solo si hay datos y el mes existe)
+            try:
+                mes_filter = st.session_state.get("mes_filter_sidebar", "Todos")
+                if mes_filter != "Todos" and "mes_factura" in df.columns:
+                    df = df[df["mes_factura"] == mes_filter]
+                    if not df.empty:
+                        st.info(f"📅 Filtrando por mes: {mes_filter}")
+            except Exception:
+                pass  # Ignorar errores de filtrado
+            
             df_filtrado = self._aplicar_filtros_comisiones(df, estado_filter, cliente_filter, monto_min)
         else:
             df_filtrado = pd.DataFrame()
@@ -205,8 +461,9 @@ class TabRenderer:
                 (df_filtrado["pagado"] == False)
             ]
         
-        if cliente_filter:
-            df_filtrado = df_filtrado[df_filtrado["cliente"].str.contains(cliente_filter, case=False, na=False)]
+        # Filtrar por cliente (exacto si se selecciona uno del desplegable)
+        if cliente_filter and cliente_filter != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["cliente"] == cliente_filter]
         
         if monto_min > 0:
             df_filtrado = df_filtrado[df_filtrado["valor"] >= monto_min]
@@ -328,6 +585,47 @@ class TabRenderer:
         """Renderiza la pestaña de nueva venta"""
         st.header("Registrar Nueva Venta")
         
+        # Obtener lista de clientes existentes
+        lista_clientes = self.db_manager.obtener_lista_clientes()
+        
+        # Selector de cliente FUERA del formulario para que se actualice dinámicamente
+        st.markdown("### Seleccionar Cliente")
+        col_sel1, col_sel2 = st.columns([2, 1])
+        
+        with col_sel1:
+            opciones_clientes = ["-- Nuevo Cliente --"] + lista_clientes
+            cliente_seleccionado = st.selectbox(
+                "Cliente",
+                opciones_clientes,
+                key="nueva_venta_cliente_select",
+                help="Selecciona un cliente existente para auto-completar sus datos"
+            )
+        
+        with col_sel2:
+            if cliente_seleccionado != "-- Nuevo Cliente --":
+                patron = self.db_manager.obtener_patron_cliente(cliente_seleccionado)
+                if patron['existe']:
+                    st.success(f"📊 {patron['num_compras']} compra(s)")
+                    st.caption(f"Últ: {patron['ultima_compra'].strftime('%d/%m/%Y') if patron['ultima_compra'] else 'N/A'}")
+        
+        # Obtener patrón del cliente seleccionado
+        patron_cliente = {}
+        if cliente_seleccionado != "-- Nuevo Cliente --":
+            patron_cliente = self.db_manager.obtener_patron_cliente(cliente_seleccionado)
+        
+        # Mostrar info del patrón si existe
+        if patron_cliente.get('existe', False):
+            st.info(f"""
+            **Configuración habitual de {cliente_seleccionado}:**
+            - Cliente Propio: {'✅ Sí' if patron_cliente['cliente_propio'] else '❌ No'}
+            - Descuento a Pie: {'✅ Sí' if patron_cliente['descuento_pie_factura'] else '❌ No'}
+            - Condición Especial: {'✅ Sí' if patron_cliente['condicion_especial'] else '❌ No'}
+            - Desc. Adicional Promedio: {patron_cliente['descuento_adicional']:.1f}% (informativo)
+            """)
+        
+        st.markdown("---")
+        
+        # Formulario con valores por defecto basados en el patrón
         with st.form("nueva_venta_form", clear_on_submit=False):
             st.markdown("### Información Básica")
             
@@ -335,24 +633,47 @@ class TabRenderer:
             
             with col1:
                 pedido = st.text_input("Número de Pedido *", placeholder="Ej: PED-001", key="nueva_venta_pedido")
-                cliente = st.text_input("Cliente *", placeholder="Ej: DISTRIBUIDORA CENTRAL", key="nueva_venta_cliente")
+                
+                # Campo de texto para cliente (pre-llenado si hay selección)
+                cliente_default = cliente_seleccionado if cliente_seleccionado != "-- Nuevo Cliente --" else ""
+                cliente = st.text_input(
+                    "Nombre del Cliente *", 
+                    value=cliente_default,
+                    placeholder="Ej: DISTRIBUIDORA CENTRAL", 
+                    key="nueva_venta_cliente_nombre"
+                )
+                
                 factura = st.text_input("Número de Factura", placeholder="Ej: FAC-1001", key="nueva_venta_factura")
             
             with col2:
                 fecha_factura = st.date_input("Fecha de Factura *", value=date.today(), key="nueva_venta_fecha")
                 valor_total = st.number_input("Valor Total (con IVA) *", min_value=0.0, step=10000.0, format="%.0f", key="nueva_venta_valor")
-                condicion_especial = st.checkbox("Condición Especial (60 días de pago)", key="nueva_venta_condicion")
+                
+                # Checkbox para marcar si es cliente nuevo - SIMPLIFICADO
+                es_cliente_nuevo = st.checkbox(
+                    "Cliente Nuevo (cuenta para meta)", 
+                    value=False,
+                    key="nueva_venta_es_cliente_nuevo",
+                    help="Marca esto si es la primera vez que este cliente compra"
+                )
             
             st.markdown("### Configuración de Comisión")
             
-            col1, col2, col3 = st.columns(3)
+            # Usar valores del patrón como defaults (excepto descuento adicional que siempre es 0)
+            cliente_propio_default = patron_cliente.get('cliente_propio', False) if patron_cliente else False
+            descuento_pie_default = patron_cliente.get('descuento_pie_factura', False) if patron_cliente else False
+            condicion_especial_default = patron_cliente.get('condicion_especial', False) if patron_cliente else False
+            
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                cliente_propio = st.checkbox("Cliente Propio", key="nueva_venta_cliente_propio")
+                cliente_propio = st.checkbox("Cliente Propio", value=cliente_propio_default, key="nueva_venta_cliente_propio")
             with col2:
-                descuento_pie_factura = st.checkbox("Descuento a Pie de Factura", key="nueva_venta_descuento_pie")
+                descuento_pie_factura = st.checkbox("Descuento a Pie", value=descuento_pie_default, key="nueva_venta_descuento_pie")
             with col3:
-                descuento_adicional = st.number_input("Descuento Adicional (%)", min_value=0.0, max_value=100.0, step=0.5, key="nueva_venta_descuento_adicional")
+                condicion_especial = st.checkbox("Condición Especial", value=condicion_especial_default, key="nueva_venta_condicion")
+            with col4:
+                descuento_adicional = st.number_input("Desc. Adicional (%)", min_value=0.0, max_value=100.0, step=0.5, value=0.0, key="nueva_venta_descuento_adicional")
             
             # Preview de cálculos
             if valor_total > 0:
@@ -401,11 +722,12 @@ class TabRenderer:
             # Lógica de guardado
             if submit:
                 self._procesar_nueva_venta(pedido, cliente, factura, fecha_factura, valor_total, 
-                                         condicion_especial, cliente_propio, descuento_pie_factura, descuento_adicional)
+                                         condicion_especial, cliente_propio, descuento_pie_factura, 
+                                         descuento_adicional, es_cliente_nuevo)
     
     def _procesar_nueva_venta(self, pedido: str, cliente: str, factura: str, fecha_factura: date,
                              valor_total: float, condicion_especial: bool, cliente_propio: bool,
-                             descuento_pie_factura: bool, descuento_adicional: float):
+                             descuento_pie_factura: bool, descuento_adicional: float, es_cliente_nuevo: bool = False):
         """Procesa el registro de una nueva venta"""
         if pedido and cliente and valor_total > 0:
             try:
@@ -436,6 +758,7 @@ class TabRenderer:
                     "descuento_pie_factura": descuento_pie_factura,
                     "descuento_adicional": float(descuento_adicional),
                     "condicion_especial": condicion_especial,
+                    "cliente_nuevo": es_cliente_nuevo,
                     "pagado": False
                 }
                 
@@ -491,6 +814,18 @@ class TabRenderer:
         
         # Cargar y mostrar devoluciones
         df_devoluciones = self.db_manager.cargar_devoluciones()
+        
+        # Aplicar filtro de mes del sidebar si hay devoluciones
+        if not df_devoluciones.empty:
+            try:
+                mes_filter = st.session_state.get("mes_filter_sidebar", "Todos")
+                if mes_filter != "Todos" and 'fecha_devolucion' in df_devoluciones.columns:
+                    df_devoluciones['mes_devolucion'] = pd.to_datetime(df_devoluciones['fecha_devolucion']).dt.to_period('M').astype(str)
+                    df_devoluciones = df_devoluciones[df_devoluciones['mes_devolucion'] == mes_filter]
+                    if not df_devoluciones.empty:
+                        st.info(f"📅 Mostrando devoluciones de: {mes_filter}")
+            except Exception:
+                pass
         
         if not df_devoluciones.empty:
             self._render_resumen_devoluciones(df_devoluciones)
@@ -600,6 +935,18 @@ class TabRenderer:
         st.info("Módulo en desarrollo - Próximamente funcionalidad completa de gestión de clientes")
         
         df = self.db_manager.cargar_datos()
+        
+        # Aplicar filtro de mes del sidebar
+        if not df.empty:
+            try:
+                mes_filter = st.session_state.get("mes_filter_sidebar", "Todos")
+                if mes_filter != "Todos" and "mes_factura" in df.columns:
+                    df = df[df["mes_factura"] == mes_filter]
+                    if not df.empty:
+                        st.info(f"📅 Mostrando clientes de: {mes_filter}")
+            except Exception:
+                pass
+        
         if not df.empty:
             self._render_top_clientes(df)
         else:
@@ -641,6 +988,17 @@ class TabRenderer:
         
         df = self.db_manager.cargar_datos()
         meta_actual = self.db_manager.obtener_meta_mes_actual()
+        
+        # Aplicar filtro de mes del sidebar
+        if not df.empty:
+            try:
+                mes_filter = st.session_state.get("mes_filter_sidebar", "Todos")
+                if mes_filter != "Todos" and "mes_factura" in df.columns:
+                    df = df[df["mes_factura"] == mes_filter]
+                    if not df.empty:
+                        st.info(f"📅 Mostrando análisis de: {mes_filter}")
+            except Exception:
+                pass
         
         # Análisis predictivo
         self._render_analisis_predictivo(df, meta_actual)
@@ -743,33 +1101,276 @@ class TabRenderer:
             st.success("No hay alertas críticas en este momento")
     
     def _render_recomendaciones_estrategicas(self):
-        """Renderiza recomendaciones estratégicas"""
-        st.markdown("### Recomendaciones Estratégicas")
+        """Renderiza insights estratégicos del negocio"""
+        st.markdown("### Insights Estratégicos")
         
-        recomendaciones = self.ai_recommendations.generar_recomendaciones_reales()
+        insights = self.ai_recommendations.generar_recomendaciones_reales()
         
-        for i, rec in enumerate(recomendaciones):
+        for i, insight in enumerate(insights):
+            prioridad_color = "🔴" if insight.get('prioridad', 'media') == 'alta' else "🟡" if insight.get('prioridad', 'media') == 'media' else "🟢"
+            tipo_emoji = {
+                'Cartera': '💼',
+                'Comisiones': '💰',
+                'Clientes': '👥',
+                'Ticket': '💎',
+                'Riesgo': '🚨',
+                'General': '✅',
+                'Sin datos': 'ℹ️',
+                'Error': '⚠️'
+            }.get(insight.get('tipo', 'General'), '📊')
+            
             with st.container(border=True):
-                with st.expander(f"#{i+1} {rec['cliente']} - {rec['probabilidad']}% probabilidad", expanded=True):
-                    col_a, col_b = st.columns([3, 1])
-                    
-                    with col_a:
-                        st.markdown(f"**Acción:** {rec['accion']}")
-                        st.markdown(f"**Producto:** {rec['producto']}")
-                        st.markdown(f"**Razón:** {rec['razon']}")
-                        
-                        prioridad_color = "🔴" if rec['prioridad'] == 'alta' else "🟡"
-                        st.markdown(f"**Prioridad:** {prioridad_color} {rec['prioridad'].title()}")
-                    
-                    with col_b:
+                col_a, col_b = st.columns([3, 1])
+                
+                with col_a:
+                    st.markdown(f"### {tipo_emoji} {insight.get('titulo', 'Insight')}")
+                    st.markdown(f"**Análisis:** {insight.get('insight', 'N/A')}")
+                    st.markdown(f"**Métrica:** {insight.get('metrica', 'N/A')}")
+                    st.markdown(f"**Acción Recomendada:** {insight.get('accion_recomendada', 'N/A')}")
+                    st.markdown(f"**Prioridad:** {prioridad_color} {insight.get('prioridad', 'media').title()}")
+                
+                with col_b:
+                    impacto_valor = insight.get('impacto', 0)
+                    if impacto_valor > 0:
                         st.metric(
-                            label="Impacto Comisión",
-                            value=format_currency(rec['impacto_comision']),
-                            delta=f"+{rec['probabilidad']}%"
+                            label="Impacto Estimado",
+                            value=format_currency(impacto_valor),
+                            delta="Potencial" if insight.get('tipo') in ['Cartera', 'Clientes', 'Ticket'] else "En riesgo",
+                            delta_color="normal" if insight.get('tipo') in ['Cartera', 'Clientes', 'Ticket'] else "inverse"
                         )
-                    
-                    if st.button(f"Ejecutar Acción", key=f"action_rec_{i}"):
-                        st.success(f"Acción programada para {rec['cliente']}")
+                    else:
+                        st.info("N/A")
         
-        if st.button("Generar Nuevas Recomendaciones"):
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Actualizar Insights", use_container_width=True, key="btn_actualizar_insights"):
+                st.rerun()
+        with col2:
+            st.caption("Los insights se actualizan automáticamente con cada venta registrada")
+    
+    # ========================
+    # TAB RADICACIÓN FACTURAS
+    # ========================
+    
+    def render_radicacion_facturas(self):
+        """Renderiza la pestaña de radicación de facturas"""
+        st.header("💬 Mensajes para Clientes")
+        
+        # Botón de actualizar
+        if st.button("🔄 Actualizar", type="secondary", key="btn_actualizar_radicacion"):
+            self.db_manager.limpiar_cache()
             st.rerun()
+        
+        st.markdown("---")
+        
+        # Pestañas para facturas pendientes, urgentes y búsqueda por cliente
+        tab1, tab2, tab3 = st.tabs(["📋 Facturas Pendientes", "🚨 Urgentes", "👤 Buscar Cliente"])
+        
+        with tab1:
+            self._render_facturas_pendientes_radicacion()
+        
+        with tab2:
+            self._render_facturas_urgentes_radicacion()
+        
+        with tab3:
+            self._render_busqueda_cliente_mensaje()
+    
+    def _render_facturas_pendientes_radicacion(self):
+        """Renderiza facturas pendientes para generar mensajes"""
+        pendientes = self.invoice_radication.obtener_facturas_pendientes_radicacion()
+        
+        if pendientes.empty:
+            st.info("No hay facturas pendientes en este momento")
+            return
+        
+        st.markdown(f"### {len(pendientes)} Factura(s) Pendiente(s)")
+        
+        for index, (_, factura) in enumerate(pendientes.iterrows()):
+            factura_id = factura.get('id')
+            
+            with st.container(border=True):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.markdown(f"**{factura.get('cliente')}**")
+                    st.write(f"📋 Pedido: {factura.get('pedido')} | Factura: {factura.get('factura')}")
+                    st.write(f"💰 Valor: {format_currency(factura.get('valor', 0))} | Comisión: {format_currency(factura.get('comision', 0))}")
+                    st.write(f"📅 Fecha Factura: {factura.get('fecha_factura')}")
+                    
+                    # Calcular días desde facturación
+                    try:
+                        fecha_fac = pd.to_datetime(factura.get('fecha_factura'))
+                        dias_desde = (pd.Timestamp.now() - fecha_fac).days
+                        color_dias = "🟢" if dias_desde <= 3 else "🟡" if dias_desde <= 7 else "🔴"
+                        st.caption(f"{color_dias} {dias_desde} días desde la facturación")
+                    except:
+                        pass
+                
+                with col2:
+                    # Botón para generar mensaje al cliente
+                    if st.button("💬 Generar Mensaje", key=f"mensaje_{factura_id}", type="primary", use_container_width=True):
+                        st.session_state[f"show_mensaje_{factura_id}"] = True
+                        st.rerun()
+            
+            # Modal para mensaje al cliente
+            if st.session_state.get(f"show_mensaje_{factura_id}", False):
+                with st.expander(f"💬 Mensaje para Cliente: {factura.get('cliente')}", expanded=True):
+                    mensaje = self.invoice_radication.generar_mensaje_cliente(factura)
+                    
+                    st.markdown("### Mensaje generado:")
+                    st.text_area(
+                        "Copie este mensaje:",
+                        value=mensaje,
+                        height=400,
+                        key=f"textarea_mensaje_{factura_id}"
+                    )
+                    
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.success("✅ Listo para copiar y enviar al cliente")
+                    with col_b:
+                        if st.button("❌ Cerrar", key=f"cerrar_mensaje_{factura_id}"):
+                            del st.session_state[f"show_mensaje_{factura_id}"]
+                            st.rerun()
+    
+    def _render_facturas_urgentes_radicacion(self):
+        """Renderiza facturas vencidas - URGENTE"""
+        urgentes = self.invoice_radication.obtener_facturas_vencidas_sin_radicar()
+        
+        if urgentes.empty:
+            st.success("✅ No hay facturas urgentes")
+            return
+        
+        st.error(f"### 🚨 {len(urgentes)} Factura(s) URGENTE(S)")
+        st.warning("Estas facturas están vencidas. Envía el mensaje con urgencia para gestionar el cobro.")
+        
+        for index, (_, factura) in enumerate(urgentes.iterrows()):
+            factura_id = factura.get('id')
+            dias_vencida = abs(int(factura.get('dias_vencimiento', 0)))
+            
+            with st.container(border=True):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.markdown(f"**🚨 {factura.get('cliente')}**")
+                    st.write(f"📋 Pedido: {factura.get('pedido')} | Factura: {factura.get('factura')}")
+                    st.write(f"💰 Valor: {format_currency(factura.get('valor', 0))} | Comisión: {format_currency(factura.get('comision', 0))}")
+                    st.error(f"⏰ VENCIDA hace {dias_vencida} días")
+                
+                with col2:
+                    # Botón para generar mensaje al cliente
+                    if st.button("💬 Generar Mensaje", key=f"mensaje_urgente_{factura_id}", type="primary", use_container_width=True):
+                        st.session_state[f"show_mensaje_{factura_id}"] = True
+                        st.rerun()
+            
+            # Modal para mensaje al cliente
+            if st.session_state.get(f"show_mensaje_{factura_id}", False):
+                with st.expander(f"💬 Mensaje para Cliente: {factura.get('cliente')}", expanded=True):
+                    mensaje = self.invoice_radication.generar_mensaje_cliente(factura)
+                    
+                    st.markdown("### Mensaje generado:")
+                    st.text_area(
+                        "Copie este mensaje:",
+                        value=mensaje,
+                        height=400,
+                        key=f"textarea_mensaje_urgente_{factura_id}"
+                    )
+                    
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.success("✅ Listo para copiar y enviar al cliente")
+                    with col_b:
+                        if st.button("❌ Cerrar", key=f"cerrar_mensaje_urgente_{factura_id}"):
+                            del st.session_state[f"show_mensaje_{factura_id}"]
+                            st.rerun()
+    
+    def _render_busqueda_cliente_mensaje(self):
+        """Renderiza búsqueda de cliente para generar mensajes"""
+        st.markdown("### 👤 Buscar Cliente para Generar Mensaje")
+        st.info("Selecciona un cliente para ver sus facturas y generar mensajes personalizados")
+        
+        # Cargar todas las facturas
+        df = self.db_manager.cargar_datos()
+        
+        if df.empty:
+            st.warning("No hay facturas registradas")
+            return
+        
+        # Filtrar solo facturas no pagadas
+        df_no_pagadas = df[df['pagado'] == False].copy()
+        
+        if df_no_pagadas.empty:
+            st.success("✅ No hay facturas pendientes de pago")
+            return
+        
+        # Obtener lista de clientes únicos con facturas pendientes
+        clientes = sorted(df_no_pagadas['cliente'].unique())
+        
+        # Selectbox para elegir cliente
+        cliente_seleccionado = st.selectbox(
+            "📋 Seleccione un cliente:",
+            options=["-- Seleccione un cliente --"] + list(clientes),
+            key="select_cliente_mensaje"
+        )
+        
+        if cliente_seleccionado == "-- Seleccione un cliente --":
+            st.info("👆 Seleccione un cliente para ver sus facturas")
+            return
+        
+        # Filtrar facturas del cliente seleccionado
+        facturas_cliente = df_no_pagadas[df_no_pagadas['cliente'] == cliente_seleccionado].copy()
+        facturas_cliente = facturas_cliente.sort_values('fecha_factura', ascending=False)
+        
+        st.markdown(f"### 📊 Facturas de: **{cliente_seleccionado}**")
+        st.caption(f"Total de facturas pendientes: {len(facturas_cliente)}")
+        
+        # Mostrar cada factura
+        for index, (_, factura) in enumerate(facturas_cliente.iterrows()):
+            factura_id = factura.get('id')
+            
+            with st.container(border=True):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.write(f"📋 **Pedido:** {factura.get('pedido')} | **Factura:** {factura.get('factura')}")
+                    st.write(f"💰 Valor: {format_currency(factura.get('valor', 0))} | Comisión: {format_currency(factura.get('comision', 0))}")
+                    st.write(f"📅 Fecha Factura: {factura.get('fecha_factura')}")
+                    
+                    # Mostrar estado según días de vencimiento
+                    dias_venc = factura.get('dias_vencimiento')
+                    if dias_venc is not None:
+                        if dias_venc < 0:
+                            st.error(f"⚠️ VENCIDA hace {abs(int(dias_venc))} días")
+                        elif dias_venc <= 5:
+                            st.warning(f"⏰ Vence en {int(dias_venc)} días")
+                        else:
+                            st.success(f"✅ Vence en {int(dias_venc)} días")
+                
+                with col2:
+                    # Botón para generar mensaje
+                    if st.button("💬 Generar Mensaje", key=f"mensaje_busqueda_{factura_id}", type="primary", use_container_width=True):
+                        st.session_state[f"show_mensaje_busqueda_{factura_id}"] = True
+                        st.rerun()
+            
+            # Modal para mensaje al cliente
+            if st.session_state.get(f"show_mensaje_busqueda_{factura_id}", False):
+                with st.expander(f"💬 Mensaje para: {factura.get('cliente')}", expanded=True):
+                    mensaje = self.invoice_radication.generar_mensaje_cliente(factura)
+                    
+                    st.markdown("### Mensaje generado:")
+                    st.text_area(
+                        "Copie este mensaje:",
+                        value=mensaje,
+                        height=400,
+                        key=f"textarea_mensaje_busqueda_{factura_id}"
+                    )
+                    
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.success("✅ Listo para copiar y enviar al cliente")
+                    with col_b:
+                        if st.button("❌ Cerrar", key=f"cerrar_mensaje_busqueda_{factura_id}"):
+                            del st.session_state[f"show_mensaje_busqueda_{factura_id}"]
+                            st.rerun()

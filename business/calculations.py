@@ -65,11 +65,12 @@ class ComisionCalculator:
         base_final = base - valor_devuelto
         
         # 3. Determinar porcentaje
-        tiene_descuento_alto = descuento_aplicado > 15
+        # REGLA: CUALQUIER descuento adicional (> 0) reduce la comisión
+        tiene_descuento = descuento_aplicado > 0
         if cliente_propio:
-            porcentaje = 1.5 if tiene_descuento_alto else 2.5
+            porcentaje = 1.5 if tiene_descuento else 2.5
         else:
-            porcentaje = 0.5 if tiene_descuento_alto else 1.0
+            porcentaje = 0.5 if tiene_descuento else 1.0
         
         # 4. Verificar pérdida por +80 días
         if dias_pago and dias_pago > 80:

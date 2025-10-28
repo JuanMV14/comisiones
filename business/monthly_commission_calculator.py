@@ -12,13 +12,9 @@ class MonthlyCommissionCalculator:
         
         # Configuración de descuentos
         self.DESCUENTO_SALUD = 0.04  # 4%
+        self.DESCUENTO_PENSION = 0.04  # 4%
         self.DESCUENTO_RESERVA = 0.025  # 2.5%
-        self.DESCUENTO_TOTAL = self.DESCUENTO_SALUD + self.DESCUENTO_RESERVA  # 6.5%
-        
-        # Configuración de descuento automático
-        self.DESCUENTO_AUTOMATICO = 0.15  # 15%
-        self.DIAS_DESCUENTO_MIN = 35
-        self.DIAS_DESCUENTO_MAX = 45
+        self.DESCUENTO_TOTAL = self.DESCUENTO_SALUD + self.DESCUENTO_PENSION + self.DESCUENTO_RESERVA  # 10.5%
     
     def calcular_comisiones_mes(self, mes: str = None, año: int = None) -> Dict[str, Any]:
         """
@@ -52,6 +48,7 @@ class MonthlyCommissionCalculator:
                     "mes": mes_calculo,
                     "total_comisiones_brutas": 0,
                     "descuento_salud": 0,
+                    "descuento_pension": 0,
                     "descuento_reserva": 0,
                     "total_descuentos": 0,
                     "comisiones_netas": 0,
@@ -67,8 +64,9 @@ class MonthlyCommissionCalculator:
             # Calcular totales
             total_comisiones_brutas = facturas_con_comisiones['comision_final'].sum()
             descuento_salud = total_comisiones_brutas * self.DESCUENTO_SALUD
+            descuento_pension = total_comisiones_brutas * self.DESCUENTO_PENSION
             descuento_reserva = total_comisiones_brutas * self.DESCUENTO_RESERVA
-            total_descuentos = descuento_salud + descuento_reserva
+            total_descuentos = descuento_salud + descuento_pension + descuento_reserva
             comisiones_netas = total_comisiones_brutas - total_descuentos
             
             # Generar resumen por cliente
@@ -81,6 +79,7 @@ class MonthlyCommissionCalculator:
                 "mes": mes_calculo,
                 "total_comisiones_brutas": total_comisiones_brutas,
                 "descuento_salud": descuento_salud,
+                "descuento_pension": descuento_pension,
                 "descuento_reserva": descuento_reserva,
                 "total_descuentos": total_descuentos,
                 "comisiones_netas": comisiones_netas,
@@ -125,61 +124,17 @@ class MonthlyCommissionCalculator:
         return df_mes
     
     def _calcular_comisiones_con_descuento(self, facturas: pd.DataFrame) -> pd.DataFrame:
-        """Calcula comisiones aplicando descuento automático del 15%"""
+        """Calcula comisiones (sin descuento automático del 15%)"""
         facturas_calc = facturas.copy()
         
-        # Aplicar lógica de descuento automático
-        facturas_calc['aplica_descuento_15'] = facturas_calc.apply(
-            lambda row: self._debe_aplicar_descuento_15(row), axis=1
-        )
-        
-        # Recalcular comisiones
-        facturas_calc['comision_final'] = facturas_calc.apply(
-            lambda row: self._calcular_comision_final(row), axis=1
-        )
-        
-        # Calcular descuento aplicado
-        facturas_calc['descuento_aplicado'] = facturas_calc['comision'] - facturas_calc['comision_final']
+        # La comisión final es igual a la comisión calculada
+        # NO aplicamos descuento automático del 15%
+        facturas_calc['comision_final'] = facturas_calc['comision']
+        facturas_calc['aplica_descuento_15'] = False
+        facturas_calc['descuento_aplicado'] = 0
         
         return facturas_calc
     
-    def _debe_aplicar_descuento_15(self, factura: pd.Series) -> bool:
-        """
-        Determina si se debe aplicar el descuento del 15%
-        
-        Reglas:
-        1. Si el cliente NO tiene descuento a pie de factura
-        2. Y paga entre 35-45 días
-        3. Entonces se aplica el 15% de descuento automático
-        """
-        # Verificar si ya tiene descuento a pie de factura
-        if factura.get('descuento_pie_factura', False):
-            return False
-        
-        # Verificar días de pago
-        dias_pago = factura.get('dias_pago_real', 0)
-        
-        if self.DIAS_DESCUENTO_MIN <= dias_pago <= self.DIAS_DESCUENTO_MAX:
-            return True
-        
-        return False
-    
-    def _calcular_comision_final(self, factura: pd.Series) -> float:
-        """Calcula la comisión final aplicando descuentos"""
-        comision_original = factura.get('comision', 0)
-        
-        if self._debe_aplicar_descuento_15(factura):
-            # Aplicar descuento del 15% sobre la base de comisión
-            base_comision = factura.get('base_comision', 0)
-            porcentaje = factura.get('porcentaje', 0)
-            
-            # Recalcular con descuento del 15%
-            nueva_base = base_comision * (1 - self.DESCUENTO_AUTOMATICO)
-            comision_final = nueva_base * (porcentaje / 100)
-            
-            return comision_final
-        
-        return comision_original
     
     def _generar_resumen_por_cliente(self, facturas: pd.DataFrame) -> Dict[str, Any]:
         """Genera resumen de comisiones por cliente"""
@@ -212,11 +167,11 @@ class MonthlyCommissionCalculator:
         if not comisiones_perdidas.empty:
             alertas.append(f"⚠️ {len(comisiones_perdidas)} facturas con comisiones perdidas por pago tardío")
         
-        # Alertas de descuentos aplicados
-        facturas_con_descuento = facturas[facturas['aplica_descuento_15'] == True]
-        if not facturas_con_descuento.empty:
-            total_descuento = facturas_con_descuento['descuento_aplicado'].sum()
-            alertas.append(f"💰 {len(facturas_con_descuento)} facturas con descuento automático del 15% (${total_descuento:,.0f})")
+        # Alertas de descuentos aplicados (deshabilitado - ya no hay descuento automático del 15%)
+        # facturas_con_descuento = facturas[facturas['aplica_descuento_15'] == True]
+        # if not facturas_con_descuento.empty:
+        #     total_descuento = facturas_con_descuento['descuento_aplicado'].sum()
+        #     alertas.append(f"💰 {len(facturas_con_descuento)} facturas con descuento automático del 15% (${total_descuento:,.0f})")
         
         # Alertas de clientes con pagos tardíos
         pagos_tardios = facturas[facturas['dias_pago_real'] > 60]
@@ -231,56 +186,57 @@ class MonthlyCommissionCalculator:
         return alertas
     
     def calcular_proyeccion_mes_actual(self) -> Dict[str, Any]:
-        """Calcula proyección de comisiones para el mes actual"""
+        """Calcula comisiones de facturas PAGADAS en el mes actual"""
         try:
-            # Obtener facturas del mes actual
+            # Obtener facturas PAGADAS del mes actual
             hoy = date.today()
             inicio_mes = hoy.replace(day=1)
+            fin_mes = inicio_mes.replace(day=monthrange(inicio_mes.year, inicio_mes.month)[1])
             
             df = self.db_manager.cargar_datos()
-            df['fecha_factura'] = pd.to_datetime(df['fecha_factura'])
+            df['fecha_pago_real'] = pd.to_datetime(df['fecha_pago_real'])
             
+            # FACTURAS PAGADAS EN EL MES ACTUAL
             facturas_mes = df[
-                (df['fecha_factura'].dt.date >= inicio_mes) &
-                (df['fecha_factura'].dt.date <= hoy)
+                (df['pagado'] == True) &
+                (df['fecha_pago_real'].notna()) &
+                (df['fecha_pago_real'].dt.date >= inicio_mes) &
+                (df['fecha_pago_real'].dt.date <= fin_mes)
             ]
             
             if facturas_mes.empty:
                 return {
                     "mes": hoy.strftime('%Y-%m'),
-                    "proyeccion_comisiones": 0,
-                    "facturas_estimadas": 0,
-                    "dias_restantes": 0,
-                    "velocidad_actual": 0
+                    "total_comisiones_brutas": 0,
+                    "descuento_salud": 0,
+                    "descuento_pension": 0,
+                    "descuento_reserva": 0,
+                    "total_descuentos": 0,
+                    "comisiones_netas": 0,
+                    "facturas_procesadas": 0
                 }
             
-            # Calcular velocidad actual
-            dias_transcurridos = (hoy - inicio_mes).days + 1
-            comisiones_actuales = facturas_mes['comision'].sum()
-            velocidad_actual = comisiones_actuales / dias_transcurridos
+            # Calcular comisiones con descuento automático del 15%
+            facturas_con_comisiones = self._calcular_comisiones_con_descuento(facturas_mes)
             
-            # Proyectar para el mes completo
-            dias_mes = monthrange(hoy.year, hoy.month)[1]
-            dias_restantes = dias_mes - dias_transcurridos
-            proyeccion_total = velocidad_actual * dias_mes
-            
-            # Aplicar descuentos
-            descuento_salud = proyeccion_total * self.DESCUENTO_SALUD
-            descuento_reserva = proyeccion_total * self.DESCUENTO_RESERVA
-            proyeccion_neta = proyeccion_total - descuento_salud - descuento_reserva
+            # Calcular totales
+            total_comisiones_brutas = facturas_con_comisiones['comision_final'].sum()
+            descuento_salud = total_comisiones_brutas * self.DESCUENTO_SALUD
+            descuento_pension = total_comisiones_brutas * self.DESCUENTO_PENSION
+            descuento_reserva = total_comisiones_brutas * self.DESCUENTO_RESERVA
+            total_descuentos = descuento_salud + descuento_pension + descuento_reserva
+            comisiones_netas = total_comisiones_brutas - total_descuentos
             
             return {
                 "mes": hoy.strftime('%Y-%m'),
-                "comisiones_actuales": comisiones_actuales,
-                "proyeccion_comisiones_brutas": proyeccion_total,
+                "total_comisiones_brutas": total_comisiones_brutas,
                 "descuento_salud": descuento_salud,
+                "descuento_pension": descuento_pension,
                 "descuento_reserva": descuento_reserva,
-                "proyeccion_comisiones_netas": proyeccion_neta,
-                "facturas_actuales": len(facturas_mes),
-                "dias_transcurridos": dias_transcurridos,
-                "dias_restantes": dias_restantes,
-                "velocidad_actual": velocidad_actual,
-                "probabilidad_cumplimiento": min(100, (comisiones_actuales / proyeccion_total) * 100) if proyeccion_total > 0 else 0
+                "total_descuentos": total_descuentos,
+                "comisiones_netas": comisiones_netas,
+                "facturas_procesadas": len(facturas_con_comisiones),
+                "detalle_facturas": facturas_con_comisiones.to_dict('records')
             }
             
         except Exception as e:
@@ -293,6 +249,20 @@ class MonthlyCommissionCalculator:
         try:
             historial = []
             hoy = date.today()
+            df_completo = self.db_manager.cargar_datos()
+            
+            if df_completo.empty:
+                return {
+                    "historial": [],
+                    "tendencia_porcentaje": 0,
+                    "promedio_mensual": 0,
+                    "total_periodo": 0
+                }
+            
+            # Asegurar que mes_factura existe
+            if 'mes_factura' not in df_completo.columns:
+                df_completo['fecha_factura'] = pd.to_datetime(df_completo['fecha_factura'])
+                df_completo['mes_factura'] = df_completo['fecha_factura'].dt.to_period('M').astype(str)
             
             for i in range(meses):
                 # Calcular fecha del mes
@@ -306,18 +276,36 @@ class MonthlyCommissionCalculator:
                 fecha_mes = datetime(año_calculo, mes_calculo, 1)
                 mes_str = fecha_mes.strftime('%Y-%m')
                 
-                # Calcular comisiones del mes
-                comisiones_mes = self.calcular_comisiones_mes(mes_str)
+                # Obtener TODAS las facturas emitidas en el mes (no solo pagadas)
+                facturas_mes = df_completo[df_completo['mes_factura'] == mes_str].copy()
                 
-                if 'error' not in comisiones_mes:
+                if not facturas_mes.empty:
+                    # Calcular comisiones de todas las facturas emitidas
+                    comisiones_emitidas = facturas_mes['comision'].sum()
+                    
+                    # Calcular comisiones solo de facturas pagadas
+                    facturas_pagadas = facturas_mes[facturas_mes['pagado'] == True]
+                    comisiones_pagadas = facturas_pagadas['comision'].sum() if not facturas_pagadas.empty else 0
+                    
+                    # Aplicar descuentos solo a comisiones pagadas
+                    total_descuentos = comisiones_pagadas * (self.DESCUENTO_SALUD + self.DESCUENTO_RESERVA)
+                    comisiones_netas = comisiones_pagadas - total_descuentos
+                    
                     historial.append({
                         "mes": mes_str,
-                        "comisiones_netas": comisiones_mes['comisiones_netas'],
-                        "facturas_procesadas": comisiones_mes['facturas_procesadas'],
-                        "total_descuentos": comisiones_mes['total_descuentos']
+                        "comisiones_netas": comisiones_netas,
+                        "facturas_procesadas": len(facturas_mes),
+                        "total_descuentos": total_descuentos
+                    })
+                else:
+                    historial.append({
+                        "mes": mes_str,
+                        "comisiones_netas": 0,
+                        "facturas_procesadas": 0,
+                        "total_descuentos": 0
                     })
             
-            # Calcular tendencias
+            # Calcular tendencias (con protección contra división por cero)
             if len(historial) >= 2:
                 ultimo_mes = historial[0]['comisiones_netas']
                 mes_anterior = historial[1]['comisiones_netas']

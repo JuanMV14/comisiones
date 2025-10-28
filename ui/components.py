@@ -57,13 +57,30 @@ class UIComponents:
     def render_sidebar_filters(self):
         """Renderiza los filtros globales en el sidebar"""
         df_tmp = self.db_manager.cargar_datos()
-        meses_disponibles = ["Todos"] + (sorted(df_tmp["mes_factura"].dropna().unique().tolist()) if not df_tmp.empty else [])
+        
+        if not df_tmp.empty and "mes_factura" in df_tmp.columns:
+            meses_disponibles = ["Todos"] + sorted(df_tmp["mes_factura"].dropna().unique().tolist(), reverse=True)
+        else:
+            meses_disponibles = ["Todos"]
+        
+        # Obtener valor actual o default
+        valor_actual = st.session_state.get("mes_filter_sidebar", "Todos")
+        
+        # Si el valor actual no está en las opciones, usar "Todos"
+        if valor_actual not in meses_disponibles:
+            valor_actual = "Todos"
+        
+        try:
+            index_default = meses_disponibles.index(valor_actual)
+        except ValueError:
+            index_default = 0
         
         mes_seleccionado = st.selectbox(
             "📅 Filtrar por mes",
             meses_disponibles,
             key="mes_filter_sidebar",
-            index=0
+            index=index_default,
+            help="Filtra todas las pestañas por el mes seleccionado"
         )
         
         return {"mes_seleccionado": mes_seleccionado}
@@ -288,6 +305,26 @@ class UIComponents:
                 key=f"edit_fecha_{factura_id}"
             )
             
+            # Condición Especial
+            condicion_especial = st.checkbox(
+                "Condición Especial (Pago a 60 días)", 
+                value=bool(factura.get('condicion_especial', False)),
+                help="Normal: 35 días estimado, 45 límite / Especial: 60 días para ambas fechas",
+                key=f"edit_condicion_especial_{factura_id}"
+            )
+            
+            # Mostrar fechas calculadas
+            dias_pago = 60 if condicion_especial else 35
+            dias_max = 60 if condicion_especial else 45
+            fecha_calculada_est = nueva_fecha + timedelta(days=dias_pago)
+            fecha_calculada_max = nueva_fecha + timedelta(days=dias_max)
+            
+            st.info(f"""
+            **Fechas de pago calculadas:**
+            - Fecha estimada de pago: {fecha_calculada_est.strftime('%d/%m/%Y')} ({dias_pago} días)
+            - Fecha límite de pago: {fecha_calculada_max.strftime('%d/%m/%Y')} ({dias_max} días)
+            """)
+            
             # Recálculo de comisión
             st.markdown("#### Recálculo de Comisión")
             if nuevo_valor > 0:
@@ -320,13 +357,13 @@ class UIComponents:
             if guardar:
                 if nuevo_pedido and nuevo_cliente and nuevo_valor > 0:
                     self._procesar_guardar_edicion(factura, nuevo_pedido, nuevo_cliente, nueva_factura, 
-                                                 nuevo_valor, cliente_propio, descuento_adicional, nueva_fecha)
+                                                 nuevo_valor, cliente_propio, descuento_adicional, nueva_fecha, condicion_especial)
                 else:
                     st.error("Por favor completa todos los campos requeridos")
     
     def _procesar_guardar_edicion(self, factura: pd.Series, nuevo_pedido: str, nuevo_cliente: str, 
                                 nueva_factura: str, nuevo_valor: float, cliente_propio: bool, 
-                                descuento_adicional: float, nueva_fecha: date):
+                                descuento_adicional: float, nueva_fecha: date, condicion_especial: bool):
         """Procesa el guardado de la edición"""
         try:
             calc = self.comision_calc.calcular_comision_inteligente(
@@ -336,9 +373,9 @@ class UIComponents:
                 factura.get('descuento_pie_factura', False)
             )
             
-            # Recalcular fechas de pago
-            dias_pago = 60 if factura.get('condicion_especial', False) else 35
-            dias_max = 60 if factura.get('condicion_especial', False) else 45
+            # Recalcular fechas de pago según condición especial
+            dias_pago = 60 if condicion_especial else 35
+            dias_max = 60 if condicion_especial else 45
             fecha_pago_est = nueva_fecha + timedelta(days=dias_pago)
             fecha_pago_max = nueva_fecha + timedelta(days=dias_max)
             
@@ -356,7 +393,8 @@ class UIComponents:
                 "fecha_pago_est": fecha_pago_est.isoformat(),
                 "fecha_pago_max": fecha_pago_max.isoformat(),
                 "cliente_propio": cliente_propio,
-                "descuento_adicional": descuento_adicional
+                "descuento_adicional": descuento_adicional,
+                "condicion_especial": condicion_especial
             }
             
             with st.spinner("Guardando cambios..."):

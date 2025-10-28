@@ -75,10 +75,10 @@ class DatabaseManager:
         if df['iva'].sum() == 0 and df['valor'].sum() > 0:
             df['iva'] = df['valor'] - df['valor_neto']
             
-        if df['base_comision'].sum() == 0:
-            df['base_comision'] = df.apply(lambda row:
-                row['valor_neto'] if row.get('descuento_pie_factura', False)
-                else row['valor_neto'] * 0.85, axis=1)
+        # Siempre recalcular base_comision para asegurar consistencia
+        df['base_comision'] = df.apply(lambda row:
+            row['valor_neto'] if row.get('descuento_pie_factura', False)
+            else row['valor_neto'] * 0.85, axis=1)
 
     def _procesar_fechas(self, df: pd.DataFrame):
         """Procesa todas las columnas de fecha"""
@@ -94,9 +94,194 @@ class DatabaseManager:
             (row['fecha_pago_max'] - hoy).days if not row.get('pagado', False) and pd.notna(row['fecha_pago_max'])
             else None, axis=1)
 
+    def obtener_clientes_frecuentes(self) -> List[Dict[str, Any]]:
+        """Obtiene lista de clientes ordenados por frecuencia de compra con sus configuraciones típicas"""
+        df = self.cargar_datos()
+        
+        if df.empty:
+            return []
+        
+        # Filtrar solo clientes con al menos una factura
+        df_clientes = df[df['cliente'].notna() & (df['cliente'] != '')]
+        
+        if df_clientes.empty:
+            return []
+        
+        # Agrupar por cliente y calcular estadísticas
+        clientes_stats = df_clientes.groupby('cliente').agg({
+            'id': 'count',  # Número de facturas
+            'valor': 'sum',  # Valor total
+            'cliente_propio': lambda x: self._calcular_valor_mas_comun(x, False),  # Valor más común
+            'descuento_pie_factura': lambda x: self._calcular_valor_mas_comun(x, False),
+            'descuento_adicional': lambda x: x.mean() if len(x) > 0 else 0.0,  # Promedio de descuentos
+            'condicion_especial': lambda x: self._calcular_valor_mas_comun(x, False),
+            'fecha_factura': 'max'  # Última compra
+        }).reset_index()
+        
+        # Renombrar columnas
+        clientes_stats.columns = ['cliente', 'num_facturas', 'valor_total', 'cliente_propio_usual', 
+                                  'descuento_pie_usual', 'descuento_adicional_promedio', 
+                                  'condicion_especial_usual', 'ultima_compra']
+        
+        # Filtrar clientes con al menos 2 facturas para tener datos más confiables
+        clientes_stats = clientes_stats[clientes_stats['num_facturas'] >= 2]
+        
+        # Ordenar por número de facturas (más frecuentes primero)
+        clientes_stats = clientes_stats.sort_values('num_facturas', ascending=False)
+        
+        # Convertir a lista de diccionarios
+        return clientes_stats.to_dict('records')
+    
+    def crear_tabla_prospectos(self):
+        """Crea la tabla de clientes prospectos si no existe"""
+        try:
+            # Definir la estructura de la tabla de prospectos
+            tabla_prospectos = {
+                "id": "bigserial PRIMARY KEY",
+                "nombre": "varchar(255) NOT NULL",
+                "empresa": "varchar(255)",
+                "telefono": "varchar(20)",
+                "email": "varchar(255)",
+                "ciudad": "varchar(100)",
+                "tipo_negocio": "varchar(100)",  # Almacén, Serviteca, Concesionario, etc.
+                "origen": "varchar(100)",  # Referido, web, llamada, etc.
+                "estado": "varchar(50) DEFAULT 'Nuevo'",  # Nuevo, En seguimiento, Calificado, Convertido, Perdido
+                "prioridad": "varchar(20) DEFAULT 'Media'",  # Alta, Media, Baja
+                "notas": "text",
+                "fecha_creacion": "timestamp DEFAULT NOW()",
+                "ultimo_contacto": "timestamp",
+                "proximo_contacto": "timestamp",
+                "tipo_proximo_contacto": "varchar(50)",
+                "tipo_ultimo_contacto": "varchar(50)",
+                "created_at": "timestamp DEFAULT NOW()",
+                "updated_at": "timestamp DEFAULT NOW()"
+            }
+            
+            # Crear tabla usando Supabase
+            for columna, tipo in tabla_prospectos.items():
+                try:
+                    # Esta es una operación de creación de tabla que se hace manualmente en Supabase
+                    # Por ahora solo registramos que necesitamos esta tabla
+                    pass
+                except Exception as e:
+                    print(f"Error creando tabla prospectos: {e}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error en crear_tabla_prospectos: {e}")
+            return False
+    
+    def cargar_prospectos(self) -> pd.DataFrame:
+        """Carga todos los clientes prospectos de la base de datos"""
+        try:
+            result = self.supabase.table('prospectos').select('*').execute()
+            df = pd.DataFrame(result.data) if result.data else pd.DataFrame()
+            return df
+        except Exception as e:
+            print(f"Error cargando prospectos: {e}")
+            return pd.DataFrame()
+    
+    def agregar_prospecto(self, datos_prospecto: Dict[str, Any]) -> bool:
+        """Agrega un nuevo cliente prospecto"""
+        try:
+            result = self.supabase.table('prospectos').insert(datos_prospecto).execute()
+            return len(result.data) > 0
+        except Exception as e:
+            print(f"Error agregando prospecto: {e}")
+            return False
+    
+    def actualizar_prospecto(self, id_prospecto: int, datos_actualizacion: Dict[str, Any]) -> bool:
+        """Actualiza un cliente prospecto existente"""
+        try:
+            datos_actualizacion['updated_at'] = datetime.now().isoformat()
+            result = self.supabase.table('prospectos').update(datos_actualizacion).eq('id', id_prospecto).execute()
+            return len(result.data) > 0
+        except Exception as e:
+            print(f"Error actualizando prospecto: {e}")
+            return False
+    
+    def eliminar_prospecto(self, id_prospecto: int) -> bool:
+        """Elimina un cliente prospecto"""
+        try:
+            result = self.supabase.table('prospectos').delete().eq('id', id_prospecto).execute()
+            return True
+        except Exception as e:
+            print(f"Error eliminando prospecto: {e}")
+            return False
+    
+    def _calcular_valor_mas_comun(self, series, default_value=False):
+        """Calcula el valor más común en una serie, con manejo de errores"""
+        try:
+            # Filtrar valores no nulos
+            clean_series = series.dropna()
+            if len(clean_series) == 0:
+                return default_value
+            
+            # Calcular moda
+            mode_values = clean_series.mode()
+            if len(mode_values) > 0:
+                return bool(mode_values[0])
+            else:
+                return default_value
+        except Exception:
+            return default_value
+    
+    def obtener_lista_clientes(self) -> List[str]:
+        """Obtiene lista única de todos los clientes ordenados alfabéticamente"""
+        df = self.cargar_datos()
+        
+        if df.empty:
+            return []
+        
+        # Obtener clientes únicos y ordenarlos
+        clientes = df['cliente'].dropna().unique().tolist()
+        clientes_ordenados = sorted([c for c in clientes if c and str(c).strip()])
+        
+        return clientes_ordenados
+    
+    def obtener_patron_cliente(self, nombre_cliente: str) -> Dict[str, Any]:
+        """Obtiene el patrón de configuración de un cliente basado en su historial"""
+        df = self.cargar_datos()
+        
+        if df.empty or not nombre_cliente:
+            return {
+                'existe': False,
+                'cliente_propio': False,
+                'descuento_pie_factura': False,
+                'descuento_adicional': 0.0,
+                'condicion_especial': False,
+                'num_compras': 0
+            }
+        
+        # Filtrar facturas del cliente
+        df_cliente = df[df['cliente'] == nombre_cliente]
+        
+        if df_cliente.empty:
+            return {
+                'existe': False,
+                'cliente_propio': False,
+                'descuento_pie_factura': False,
+                'descuento_adicional': 0.0,
+                'condicion_especial': False,
+                'num_compras': 0
+            }
+        
+        # Calcular patrones
+        return {
+            'existe': True,
+            'cliente_propio': self._calcular_valor_mas_comun(df_cliente['cliente_propio'], False),
+            'descuento_pie_factura': self._calcular_valor_mas_comun(df_cliente['descuento_pie_factura'], False),
+            'descuento_adicional': float(df_cliente['descuento_adicional'].mean()) if 'descuento_adicional' in df_cliente.columns else 0.0,
+            'condicion_especial': self._calcular_valor_mas_comun(df_cliente['condicion_especial'], False),
+            'num_compras': len(df_cliente),
+            'ultima_compra': df_cliente['fecha_factura'].max() if 'fecha_factura' in df_cliente.columns else None,
+            'valor_promedio': float(df_cliente['valor'].mean()) if 'valor' in df_cliente.columns else 0.0
+        }
+    
     def _asegurar_tipos_columnas(self, df: pd.DataFrame):
         """Asegura tipos correctos para columnas boolean y string"""
-        columnas_boolean = ['pagado', 'condicion_especial', 'cliente_propio', 'descuento_pie_factura', 'comision_perdida', 'descuentos_multiples']
+        columnas_boolean = ['pagado', 'condicion_especial', 'cliente_propio', 'descuento_pie_factura', 'comision_perdida', 'descuentos_multiples', 'cliente_nuevo']
         for col in columnas_boolean:
             if col in df.columns:
                 df[col] = df[col].fillna(False).astype(bool)
@@ -419,8 +604,6 @@ class DatabaseManager:
                     "mes": mes_actual,
                     "meta_ventas": 10000000,
                     "meta_clientes_nuevos": 5,
-                    "ventas_actuales": 0,
-                    "clientes_nuevos_actuales": 0,
                     "created_at": datetime.now().isoformat(),
                     "updated_at": datetime.now().isoformat()
                 }
@@ -522,3 +705,113 @@ class DatabaseManager:
         """Limpia todos los caches de datos"""
         st.cache_data.clear()
         self._columnas_cache = None  # Limpiar cache de columnas también
+    
+    def obtener_factura_por_id(self, factura_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene una factura específica por su ID
+        
+        Args:
+            factura_id: ID de la factura
+            
+        Returns:
+            Dict con los datos de la factura o None si no existe
+        """
+        try:
+            response = self.supabase.table("comisiones").select("*").eq("id", factura_id).execute()
+            
+            if not response.data:
+                return None
+            
+            factura = response.data[0]
+            
+            # Procesar la factura individual
+            df_temp = pd.DataFrame([factura])
+            df_procesado = self._procesar_datos_comisiones(df_temp)
+            
+            if df_procesado.empty:
+                return None
+            
+            return df_procesado.iloc[0].to_dict()
+            
+        except Exception as e:
+            st.error(f"Error obteniendo factura {factura_id}: {str(e)}")
+            return None
+    
+    def obtener_facturas_mes(self, mes: str) -> pd.DataFrame:
+        """
+        Obtiene todas las facturas de un mes específico
+        
+        Args:
+            mes: Mes en formato YYYY-MM
+            
+        Returns:
+            DataFrame con las facturas del mes
+        """
+        try:
+            # Convertir mes a fecha de inicio y fin
+            fecha_inicio = datetime.strptime(f"{mes}-01", "%Y-%m-%d")
+            
+            # Calcular último día del mes
+            if fecha_inicio.month == 12:
+                fecha_fin = datetime(fecha_inicio.year + 1, 1, 1) - timedelta(days=1)
+            else:
+                fecha_fin = datetime(fecha_inicio.year, fecha_inicio.month + 1, 1) - timedelta(days=1)
+            
+            # Consultar facturas del mes
+            response = self.supabase.table("comisiones").select("*").gte("fecha_factura", fecha_inicio.strftime("%Y-%m-%d")).lte("fecha_factura", fecha_fin.strftime("%Y-%m-%d")).execute()
+            
+            if not response.data:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(response.data)
+            
+            # Procesar datos
+            df = self._procesar_datos_comisiones(df)
+            
+            # Agregar columna de estado si no existe
+            if 'estado' not in df.columns:
+                df['estado'] = df.apply(self._determinar_estado_factura, axis=1)
+            
+            return df
+            
+        except Exception as e:
+            st.error(f"Error obteniendo facturas del mes {mes}: {str(e)}")
+            return pd.DataFrame()
+    
+    def _determinar_estado_factura(self, row) -> str:
+        """
+        Determina el estado de una factura basado en fechas y pagos
+        
+        Args:
+            row: Fila del DataFrame
+            
+        Returns:
+            Estado de la factura: 'Pagada', 'Pendiente', 'Vencida'
+        """
+        try:
+            # Si ya está pagada
+            if row.get('pagado', False):
+                return 'Pagada'
+            
+            # Si tiene fecha de pago real
+            if pd.notna(row.get('fecha_pago_real')) and row.get('fecha_pago_real') != '':
+                return 'Pagada'
+            
+            # Verificar si está vencida
+            fecha_vencimiento = row.get('fecha_pago_max')
+            if pd.notna(fecha_vencimiento) and fecha_vencimiento != '':
+                try:
+                    if isinstance(fecha_vencimiento, str):
+                        fecha_vencimiento = datetime.strptime(fecha_vencimiento, "%Y-%m-%d").date()
+                    elif hasattr(fecha_vencimiento, 'date'):
+                        fecha_vencimiento = fecha_vencimiento.date()
+                    
+                    if fecha_vencimiento < date.today():
+                        return 'Vencida'
+                except:
+                    pass
+            
+            return 'Pendiente'
+            
+        except Exception:
+            return 'Pendiente'
