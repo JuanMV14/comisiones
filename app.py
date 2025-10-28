@@ -15,6 +15,8 @@ from supabase import create_client, Client
 from database.queries import DatabaseManager
 from ui.components import UIComponents
 from ui.tabs import TabRenderer
+from ui.theme_manager import ThemeManager
+from ui.modern_components import ModernComponents
 from business.calculations import ComisionCalculator, MetricsCalculator
 from business.ai_recommendations import AIRecommendations
 from business.client_classification import ClientClassifier
@@ -73,6 +75,7 @@ def initialize_systems():
     
     # Sistema de UI
     ui_components = UIComponents(db_manager)
+    modern_components = ModernComponents()
     tab_renderer = TabRenderer(db_manager, ui_components)
     
     return {
@@ -85,6 +88,7 @@ def initialize_systems():
         "invoice_alerts": invoice_alerts,
         "product_recommendations": product_recommendations,
         "ui_components": ui_components,
+        "modern_components": modern_components,
         "tab_renderer": tab_renderer
     }
 
@@ -589,7 +593,14 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.title("CRM Inteligente")
+        st.title("🧠 CRM Inteligente 2.0")
+        st.caption("Sistema Inteligente de Gestión")
+        
+        st.markdown("---")
+        
+        # Toggle de tema
+        ThemeManager.render_theme_toggle()
+        
         st.markdown("---")
         
         # Meta mensual
@@ -600,29 +611,57 @@ def main():
         # Filtros globales
         filtros = systems["ui_components"].render_sidebar_filters()
         
-        # Botón de limpieza
-        if st.button("Limpiar Estados"):
-            keys_to_delete = [key for key in st.session_state.keys() if key.startswith('show_')]
-            for key in keys_to_delete:
-                del st.session_state[key]
-            st.cache_data.clear()
-            st.rerun()
+        st.markdown("---")
+        
+        # Botones de acción
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Actualizar", use_container_width=True):
+                st.cache_data.clear()
+                st.rerun()
+        with col2:
+            if st.button("🧹 Limpiar", use_container_width=True):
+                keys_to_delete = [key for key in st.session_state.keys() if key.startswith('show_')]
+                for key in keys_to_delete:
+                    del st.session_state[key]
+                st.rerun()
     
-    # Layout principal
-    st.title("CRM Inteligente - Versión Optimizada")
+    # Layout principal - Título con gradiente
+    theme = ThemeManager.get_theme()
+    st.markdown(
+        f"""
+        <div style='text-align: center; padding: 2rem 0;'>
+            <h1 style='
+                font-size: 3rem;
+                font-weight: 800;
+                background: {theme['gradient_1']};
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                margin-bottom: 0.5rem;
+            '>
+                CRM Inteligente 2.0
+            </h1>
+            <p style='color: {theme['text_secondary']}; font-size: 1.1rem;'>
+                Sistema Avanzado de Gestión con IA y Analytics
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
     
-    # Tabs principales
+    # Tabs principales con emojis
     tabs = st.tabs([
-        "Dashboard",
-        "Comisiones",
-        "Nueva Venta",
-        "Devoluciones",
-        "Mensajes Clientes",
-        "Clientes",
-        "Clasificación IA",
-        "Comisiones Mensuales",
-        "Alertas Facturas",
-        "IA & Recomendaciones"
+        "📊 Dashboard",
+        "💰 Comisiones",
+        "➕ Nueva Venta",
+        "↩️ Devoluciones",
+        "📧 Mensajes",
+        "👥 Clientes",
+        "🤖 IA Clasificación",
+        "📅 Comis. Mensuales",
+        "🔔 Alertas",
+        "🎯 IA & Recomendaciones"
     ])
     
     # Tabs principales
@@ -662,36 +701,40 @@ def main():
         systems["tab_renderer"].render_ia_alertas()
 
 def load_css():
-    """Carga estilos CSS para fondo oscuro"""
+    """Carga estilos CSS modernos con sistema de temas"""
+    # Aplicar tema moderno
+    ThemeManager.apply_theme()
+    
+    # CSS adicional específico de la app
     st.markdown("""
     <style>
         .main .block-container {
-            background-color: #0f1419 !important;
-            color: #ffffff !important;
-        }
-        
-        .stMarkdown, .stMarkdown p, .stMarkdown div, .stText, p, span, div {
-            color: #ffffff !important;
-            font-weight: 600 !important;
+            padding-top: 2rem !important;
+            padding-bottom: 2rem !important;
         }
         
         h1, h2, h3, h4, h5, h6 {
-            color: #ffffff !important;
-            font-weight: 800 !important;
-            text-shadow: 0 0 10px rgba(255,255,255,0.3) !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.5px !important;
         }
         
         div[data-testid="metric-container"] {
-            background: rgba(255, 255, 255, 0.1) !important;
-            border: 2px solid #ffffff !important;
-            border-radius: 0.75rem !important;
+            background: var(--bg-surface) !important;
+            border: 2px solid var(--border) !important;
+            border-radius: 16px !important;
             padding: 1.5rem !important;
-            box-shadow: 0 4px 20px rgba(255, 255, 255, 0.1) !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
             backdrop-filter: blur(10px) !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        div[data-testid="metric-container"]:hover {
+            transform: translateY(-4px) !important;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12) !important;
         }
         
         div[data-testid="metric-container"] > div {
-            color: #ffffff !important;
+            color: var(--text-primary) !important;
             font-weight: 800 !important;
             font-size: 16px !important;
         }
