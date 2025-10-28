@@ -9,10 +9,15 @@ ADD COLUMN IF NOT EXISTS ciudad_destino TEXT DEFAULT 'Resto';
 ALTER TABLE comisiones 
 ADD COLUMN IF NOT EXISTS recogida_local BOOLEAN DEFAULT FALSE;
 
--- 3. Agregar comentarios
+-- 3. Agregar campo valor_flete
+ALTER TABLE comisiones 
+ADD COLUMN IF NOT EXISTS valor_flete NUMERIC DEFAULT 0;
+
+-- 4. Agregar comentarios
 COMMENT ON COLUMN comisiones.ciudad_destino IS 'Ciudad de destino del envío: Medellín, Bogotá, Resto';
 COMMENT ON COLUMN comisiones.recogida_local IS 'Indica si el cliente recoge el pedido localmente (solo aplica para Medellín)';
+COMMENT ON COLUMN comisiones.valor_flete IS 'Valor del flete cobrado al cliente (NO afecta la base de comisión)';
 
--- 4. Crear índice para búsquedas
+-- 5. Crear índice para búsquedas
 CREATE INDEX IF NOT EXISTS idx_comisiones_ciudad_destino ON comisiones(ciudad_destino);
 

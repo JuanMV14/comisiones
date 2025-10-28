@@ -292,12 +292,44 @@ class UIComponents:
             with col1:
                 nuevo_pedido = st.text_input("Pedido", value=str(factura.get('pedido', '')), key=f"edit_pedido_{factura_id}")
                 nuevo_cliente = st.text_input("Cliente", value=str(factura.get('cliente', '')), key=f"edit_cliente_{factura_id}")
-                nuevo_valor = st.number_input("Valor Total", value=float(factura.get('valor', 0)), min_value=0.0, key=f"edit_valor_{factura_id}")
+                nuevo_valor = st.number_input("Valor Total (con flete)", value=float(factura.get('valor', 0)), min_value=0.0, key=f"edit_valor_{factura_id}")
             
             with col2:
                 nueva_factura = st.text_input("Número Factura", value=str(factura.get('factura', '')), key=f"edit_factura_{factura_id}")
                 cliente_propio = st.checkbox("Cliente Propio", value=bool(factura.get('cliente_propio', False)), key=f"edit_cliente_propio_{factura_id}")
                 descuento_adicional = st.number_input("Descuento %", value=float(factura.get('descuento_adicional', 0)), key=f"edit_descuento_{factura_id}")
+            
+            # Información de envío
+            st.markdown("#### Información de Envío")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                ciudad_destino = st.selectbox(
+                    "Ciudad Destino",
+                    options=["Medellín", "Bogotá", "Resto"],
+                    index=["Medellín", "Bogotá", "Resto"].index(factura.get('ciudad_destino', 'Resto')),
+                    key=f"edit_ciudad_{factura_id}"
+                )
+            
+            with col2:
+                if ciudad_destino == "Medellín":
+                    recogida_local = st.checkbox(
+                        "Recogida Local",
+                        value=bool(factura.get('recogida_local', False)),
+                        key=f"edit_recogida_{factura_id}"
+                    )
+                else:
+                    recogida_local = False
+            
+            with col3:
+                valor_flete = st.number_input(
+                    "Valor Flete",
+                    value=float(factura.get('valor_flete', 0)),
+                    min_value=0.0,
+                    step=10000.0,
+                    format="%.0f",
+                    key=f"edit_flete_{factura_id}"
+                )
             
             nueva_fecha = st.date_input(
                 "Fecha Factura", 
@@ -328,20 +360,45 @@ class UIComponents:
             # Recálculo de comisión
             st.markdown("#### Recálculo de Comisión")
             if nuevo_valor > 0:
+                # IMPORTANTE: Restar el flete antes de calcular comisión
+                valor_productos = nuevo_valor - valor_flete
+                
                 calc = self.comision_calc.calcular_comision_inteligente(
-                    nuevo_valor, 
+                    valor_productos, 
                     cliente_propio, 
                     descuento_adicional, 
                     factura.get('descuento_pie_factura', False)
                 )
                 
-                col1, col2, col3 = st.columns(3)
+                # Validación de flete
+                from business.freight_validator import FreightValidator
+                debe_tener_flete, razon_flete = FreightValidator.debe_tener_flete(
+                    calc['base_comision'], ciudad_destino, recogida_local
+                )
+                
+                # Mostrar alerta de flete
+                if debe_tener_flete:
+                    if valor_flete > 0:
+                        st.success(f"✅ Flete incluido: {format_currency(valor_flete)}")
+                    else:
+                        st.warning(f"⚠️ Este pedido debe incluir flete - {razon_flete}")
+                else:
+                    if valor_flete > 0:
+                        st.info(f"ℹ️ Flete opcional: {format_currency(valor_flete)}")
+                    else:
+                        st.success(f"✅ Sin flete - {razon_flete}")
+                
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Nueva Comisión", format_currency(calc['comision']))
+                    st.metric("Valor Productos", format_currency(valor_productos))
                 with col2:
-                    st.metric("Porcentaje", f"{calc['porcentaje']}%")
+                    st.metric("Flete", format_currency(valor_flete))
                 with col3:
-                    st.metric("Base", format_currency(calc['base_comision']))
+                    st.metric("Total Cliente", format_currency(nuevo_valor))
+                with col4:
+                    st.metric("Nueva Comisión", format_currency(calc['comision']))
+                
+                st.caption(f"Base: {format_currency(calc['base_comision'])} | Porcentaje: {calc['porcentaje']}% | **El flete NO afecta la comisión**")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -357,17 +414,23 @@ class UIComponents:
             if guardar:
                 if nuevo_pedido and nuevo_cliente and nuevo_valor > 0:
                     self._procesar_guardar_edicion(factura, nuevo_pedido, nuevo_cliente, nueva_factura, 
-                                                 nuevo_valor, cliente_propio, descuento_adicional, nueva_fecha, condicion_especial)
+                                                 nuevo_valor, cliente_propio, descuento_adicional, nueva_fecha, condicion_especial,
+                                                 ciudad_destino, recogida_local, valor_flete)
                 else:
                     st.error("Por favor completa todos los campos requeridos")
     
     def _procesar_guardar_edicion(self, factura: pd.Series, nuevo_pedido: str, nuevo_cliente: str, 
                                 nueva_factura: str, nuevo_valor: float, cliente_propio: bool, 
-                                descuento_adicional: float, nueva_fecha: date, condicion_especial: bool):
+                                descuento_adicional: float, nueva_fecha: date, condicion_especial: bool,
+                                ciudad_destino: str = "Resto", recogida_local: bool = False, valor_flete: float = 0):
         """Procesa el guardado de la edición"""
         try:
+            # IMPORTANTE: Restar el flete antes de calcular la comisión
+            # El flete NO se incluye en la base de comisión
+            valor_productos = nuevo_valor - valor_flete
+            
             calc = self.comision_calc.calcular_comision_inteligente(
-                nuevo_valor, 
+                valor_productos, 
                 cliente_propio, 
                 descuento_adicional,
                 factura.get('descuento_pie_factura', False)
@@ -394,7 +457,10 @@ class UIComponents:
                 "fecha_pago_max": fecha_pago_max.isoformat(),
                 "cliente_propio": cliente_propio,
                 "descuento_adicional": descuento_adicional,
-                "condicion_especial": condicion_especial
+                "condicion_especial": condicion_especial,
+                "ciudad_destino": ciudad_destino,
+                "recogida_local": recogida_local,
+                "valor_flete": valor_flete
             }
             
             with st.spinner("Guardando cambios..."):

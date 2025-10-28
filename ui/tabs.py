@@ -659,7 +659,7 @@ class TabRenderer:
             
             st.markdown("### Información de Envío")
             
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 ciudad_destino = st.selectbox(
@@ -681,6 +681,39 @@ class TabRenderer:
                     )
                 else:
                     recogida_local = False
+            
+            # Determinar si debe tener flete (para mostrar el campo)
+            if valor_total > 0:
+                from business.freight_validator import FreightValidator
+                valor_neto_temp = valor_total / 1.19
+                debe_tener_flete, _ = FreightValidator.debe_tener_flete(
+                    valor_neto_temp, ciudad_destino, recogida_local
+                )
+            else:
+                debe_tener_flete = False
+            
+            with col3:
+                # Campo de flete (siempre visible pero con ayuda contextual)
+                if debe_tener_flete:
+                    valor_flete = st.number_input(
+                        "Valor Flete ⚠️",
+                        min_value=0.0,
+                        step=10000.0,
+                        format="%.0f",
+                        value=0.0,
+                        key="nueva_venta_flete",
+                        help="⚠️ Este pedido DEBE incluir flete"
+                    )
+                else:
+                    valor_flete = st.number_input(
+                        "Valor Flete (opcional)",
+                        min_value=0.0,
+                        step=10000.0,
+                        format="%.0f",
+                        value=0.0,
+                        key="nueva_venta_flete",
+                        help="✅ Este pedido NO requiere flete"
+                    )
             
             st.markdown("### Configuración de Comisión")
             
@@ -705,16 +738,32 @@ class TabRenderer:
                 st.markdown("---")
                 st.markdown("### Preview de Comisión")
                 
-                calc = self.comision_calc.calcular_comision_inteligente(valor_total, cliente_propio, descuento_adicional, descuento_pie_factura)
+                # IMPORTANTE: Restar el flete antes de calcular la comisión
+                # El flete NO se incluye en la base de comisión
+                valor_productos = valor_total - valor_flete
                 
-                col1, col2, col3, col4 = st.columns(4)
+                calc = self.comision_calc.calcular_comision_inteligente(valor_productos, cliente_propio, descuento_adicional, descuento_pie_factura)
+                
+                col1, col2, col3, col4, col5 = st.columns(5)
                 with col1:
-                    st.metric("Valor Neto", format_currency(calc['valor_neto']))
+                    st.metric("Valor Productos", format_currency(valor_productos))
                 with col2:
-                    st.metric("IVA (19%)", format_currency(calc['iva']))
+                    st.metric("Flete", format_currency(valor_flete))
                 with col3:
-                    st.metric("Base Comisión", format_currency(calc['base_comision']))
+                    st.metric("Subtotal Cliente", format_currency(calc['valor_neto'] + valor_flete))
                 with col4:
+                    st.metric("IVA (19%)", format_currency(calc['iva']))
+                with col5:
+                    st.metric("TOTAL CLIENTE", format_currency(valor_total))
+                
+                st.markdown("---")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Base Comisión", format_currency(calc['base_comision']))
+                with col2:
+                    st.metric("Porcentaje", f"{calc['porcentaje']}%")
+                with col3:
                     st.metric("Comisión Final", format_currency(calc['comision']))
                 
                 # Validación de flete
@@ -725,9 +774,15 @@ class TabRenderer:
                 
                 # Mostrar alerta de flete
                 if debe_tener_flete:
-                    st.warning(f"⚠️ **Este pedido debe incluir flete**\n\n{razon_flete}")
+                    if valor_flete > 0:
+                        st.success(f"✅ **Flete incluido correctamente: {format_currency(valor_flete)}**")
+                    else:
+                        st.warning(f"⚠️ **Este pedido debe incluir flete**\n\n{razon_flete}")
                 else:
-                    st.success(f"✅ **Este pedido NO debe tener flete**\n\n{razon_flete}")
+                    if valor_flete > 0:
+                        st.info(f"ℹ️ **Flete opcional agregado: {format_currency(valor_flete)}**\n\n{razon_flete}")
+                    else:
+                        st.success(f"✅ **Este pedido NO requiere flete**\n\n{razon_flete}")
                 
                 st.info(f"""
                 **Detalles del cálculo:**
@@ -735,6 +790,7 @@ class TabRenderer:
                 - Porcentaje comisión: {calc['porcentaje']}%
                 - {'Descuento aplicado en factura' if descuento_pie_factura else 'Sin descuento a pie'}
                 - Descuento adicional: {descuento_adicional}%
+                - **Nota:** El flete NO afecta la base de comisión
                 """)
             
             st.markdown("---")
@@ -760,12 +816,12 @@ class TabRenderer:
             if submit:
                 self._procesar_nueva_venta(pedido, cliente, factura, fecha_factura, valor_total, 
                                          condicion_especial, cliente_propio, descuento_pie_factura, 
-                                         descuento_adicional, es_cliente_nuevo, ciudad_destino, recogida_local)
+                                         descuento_adicional, es_cliente_nuevo, ciudad_destino, recogida_local, valor_flete)
     
     def _procesar_nueva_venta(self, pedido: str, cliente: str, factura: str, fecha_factura: date,
                              valor_total: float, condicion_especial: bool, cliente_propio: bool,
                              descuento_pie_factura: bool, descuento_adicional: float, es_cliente_nuevo: bool = False,
-                             ciudad_destino: str = "Resto", recogida_local: bool = False):
+                             ciudad_destino: str = "Resto", recogida_local: bool = False, valor_flete: float = 0):
         """Procesa el registro de una nueva venta"""
         if pedido and cliente and valor_total > 0:
             try:
@@ -775,8 +831,12 @@ class TabRenderer:
                 fecha_pago_est = fecha_factura + timedelta(days=dias_pago)
                 fecha_pago_max = fecha_factura + timedelta(days=dias_max)
                 
+                # IMPORTANTE: Restar el flete antes de calcular la comisión
+                # El flete NO se incluye en la base de comisión
+                valor_productos = valor_total - valor_flete
+                
                 # Calcular comisión
-                calc = self.comision_calc.calcular_comision_inteligente(valor_total, cliente_propio, descuento_adicional, descuento_pie_factura)
+                calc = self.comision_calc.calcular_comision_inteligente(valor_productos, cliente_propio, descuento_adicional, descuento_pie_factura)
                 
                 # Preparar datos
                 data = {
@@ -799,6 +859,7 @@ class TabRenderer:
                     "cliente_nuevo": es_cliente_nuevo,
                     "ciudad_destino": ciudad_destino,
                     "recogida_local": recogida_local,
+                    "valor_flete": float(valor_flete),
                     "pagado": False
                 }
                 
