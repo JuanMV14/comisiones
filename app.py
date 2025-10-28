@@ -662,6 +662,7 @@ def main():
         "🤖 IA Clasificación",
         "📅 Comis. Mensuales",
         "🔔 Alertas",
+        "📲 Notificaciones",
         "🎯 IA & Recomendaciones"
     ])
     
@@ -705,8 +706,12 @@ def main():
     with tabs[9]:
         render_invoice_alerts_tab(systems)
     
-    # Tab 10: IA y Recomendaciones
+    # Tab 10: Notificaciones (NUEVO)
     with tabs[10]:
+        systems["tab_renderer"].render_notifications()
+    
+    # Tab 11: IA y Recomendaciones
+    with tabs[11]:
         systems["tab_renderer"].render_ia_alertas()
 
 def load_css():

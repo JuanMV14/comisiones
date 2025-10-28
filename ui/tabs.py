@@ -6,10 +6,12 @@ from typing import Dict, Any
 from database.queries import DatabaseManager
 from ui.components import UIComponents
 from ui.executive_components import ExecutiveComponents
+from ui.notification_components import NotificationUI
 from business.calculations import ComisionCalculator, MetricsCalculator
 from business.ai_recommendations import AIRecommendations
 from business.invoice_radication import InvoiceRadicationSystem
 from business.executive_dashboard import ExecutiveDashboard
+from business.notification_system import NotificationSystem
 from utils.formatting import format_currency
 
 class TabRenderer:
@@ -23,6 +25,8 @@ class TabRenderer:
         self.ai_recommendations = AIRecommendations(db_manager)
         self.invoice_radication = InvoiceRadicationSystem(db_manager)
         self.executive_dashboard = ExecutiveDashboard(db_manager)
+        self.notification_system = NotificationSystem(db_manager)
+        self.notification_ui = NotificationUI(self.notification_system)
     
     # ========================
     # TAB DASHBOARD EJECUTIVO
@@ -1199,6 +1203,14 @@ class TabRenderer:
                     st.metric("Compras", int(row['Número Compras']))
                 with col4:
                     st.metric("Comisiones", format_currency(row['Total Comisiones']))
+    
+    # ========================
+    # TAB NOTIFICACIONES
+    # ========================
+    
+    def render_notifications(self):
+        """Renderiza la pestaña de notificaciones"""
+        self.notification_ui.render_notification_dashboard()
     
     # ========================
     # TAB IA & ALERTAS

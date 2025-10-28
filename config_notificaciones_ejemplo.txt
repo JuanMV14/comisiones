@@ -1,0 +1,58 @@
+# ================================================
+# CRM INTELIGENTE 2.0 - Configuración de Notificaciones
+# ================================================
+# 
+# Copia este contenido a tu archivo .env
+#
+# ================================================
+
+# =====================================
+# EMAIL (SMTP)
+# =====================================
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+EMAIL_FROM=tu_email@gmail.com
+EMAIL_PASSWORD=tu_contraseña_o_app_password
+EMAIL_TO_DEFAULT=destinatario@ejemplo.com
+
+# =====================================
+# WHATSAPP (Twilio)
+# =====================================
+TWILIO_ACCOUNT_SID=tu_account_sid_de_twilio
+TWILIO_AUTH_TOKEN=tu_auth_token_de_twilio
+TWILIO_WHATSAPP_FROM=+14155238886
+WHATSAPP_TO_DEFAULT=+573001234567
+
+# =====================================
+# GUÍA DE CONFIGURACIÓN
+# =====================================
+
+# Para Gmail:
+# 1. Si usas autenticación de dos factores:
+#    - Ve a: https://myaccount.google.com/apppasswords
+#    - Crea una "App Password" para Mail
+#    - Usa esa contraseña en EMAIL_PASSWORD
+# 2. Si NO usas 2FA:
+#    - Habilita "Acceso de aplicaciones menos seguras"
+#    - Ve a: https://myaccount.google.com/lesssecureapps
+
+# Para Twilio (WhatsApp):
+# 1. Crea cuenta gratis: https://www.twilio.com/try-twilio
+# 2. Copia tu Account SID y Auth Token del dashboard
+# 3. Activa WhatsApp en Twilio Console > Messaging
+# 4. Usa el número sandbox de prueba: +14155238886
+# 5. Envía mensaje de prueba para activar tu número
+# 6. Formato números: +57 (código país) + número
+
+# =====================================
+# INSTALACIÓN TWILIO
+# =====================================
+# pip install twilio
+
+# =====================================
+# IMPORTANTE
+# =====================================
+# - Agrega estas variables a tu archivo .env
+# - NUNCA subas .env a Git
+# - Reinicia la app después de cambiar configuración
+
