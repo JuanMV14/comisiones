@@ -28,8 +28,8 @@ function App() {
         {/* Rutas con Layout (Sidebar) */}
         <Route path="/" element={<Layout />}>
           {/* ZONA 1: ASISTENTE PARA VENDEDORES */}
-          <Route index element={<DashboardView />} />
-          <Route path="panel-vendedor" element={<DashboardView />} />
+          <Route index element={<CRMCorporativo />} />
+          <Route path="panel-vendedor" element={<CRMCorporativo />} />
           <Route path="clientes" element={<ClientesView />} />
           <Route path="nueva-venta" element={<NuevaVentaView />} />
           <Route path="catalogo" element={<CatalogView />} />
