@@ -11,7 +11,10 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
 if (!supabaseUrl || !supabaseKey) {
-  console.warn('⚠️ Variables de Supabase no configuradas. Usando datos de ejemplo.')
+  console.warn('⚠️ Variables de Supabase no configuradas.')
+  console.warn('VITE_SUPABASE_URL:', supabaseUrl ? '✓ Configurada' : '✗ Faltante')
+  console.warn('VITE_SUPABASE_ANON_KEY:', supabaseKey ? '✓ Configurada' : '✗ Faltante')
+  console.warn('Por favor, configura ambas variables en Vercel → Settings → Environment Variables')
 }
 
 export const supabase = supabaseUrl && supabaseKey 
@@ -48,7 +51,8 @@ export const getClientesDirecto = async () => {
       ventas: 0
     }))
   } catch (error) {
-    console.error('Error obteniendo clientes:', error)
+    console.error('❌ Error obteniendo clientes desde Supabase:', error)
+    console.error('Detalles:', error.message)
     return []
   }
 }
@@ -90,7 +94,8 @@ export const getMetricsDirecto = async () => {
       pedidosMes: pedidosMes
     }
   } catch (error) {
-    console.error('Error obteniendo métricas:', error)
+    console.error('❌ Error obteniendo métricas desde Supabase:', error)
+    console.error('Detalles:', error.message)
     return {
       totalVentas: 0,
       comisiones: 0,
