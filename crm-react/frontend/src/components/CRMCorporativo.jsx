@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Users, TrendingUp, DollarSign, Search, Plus, Mail, Phone, Eye, BarChart3, Package, ShoppingCart, FileText, Bell, ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
 import { getClientes } from '../api/clientes';
 import { getDashboardMetrics } from '../api/dashboard';
+import { getClientesDirecto, getMetricsDirecto } from '../utils/supabaseClient';
 
 const CRMCorporativo = () => {
   const [activeTab, setActiveTab] = useState('panel');
@@ -27,22 +28,33 @@ const CRMCorporativo = () => {
         setLoading(true);
         setError(null);
         
-        // Cargar clientes y métricas en paralelo
-        const [clientesData, metricsData] = await Promise.all([
-          getClientes().catch(err => {
-            console.error('Error cargando clientes:', err);
-            return [];
-          }),
-          getDashboardMetrics().catch(err => {
-            console.error('Error cargando métricas:', err);
-            return {
-              totalVentas: 0,
-              comisiones: 0,
-              clientesActivos: 0,
-              pedidosMes: 0
-            };
-          })
-        ]);
+        // Intentar cargar desde el backend primero, si falla usar Supabase directo
+        let clientesData = [];
+        let metricsData = {
+          totalVentas: 0,
+          comisiones: 0,
+          clientesActivos: 0,
+          pedidosMes: 0
+        };
+        
+        try {
+          // Intentar backend primero
+          const [backendClientes, backendMetrics] = await Promise.all([
+            getClientes(),
+            getDashboardMetrics()
+          ]);
+          clientesData = backendClientes;
+          metricsData = backendMetrics;
+        } catch (backendError) {
+          console.warn('Backend no disponible, usando conexión directa a Supabase:', backendError);
+          // Si el backend falla, usar Supabase directo
+          const [supabaseClientes, supabaseMetrics] = await Promise.all([
+            getClientesDirecto(),
+            getMetricsDirecto()
+          ]);
+          clientesData = supabaseClientes;
+          metricsData = supabaseMetrics;
+        }
 
         // Mapear clientes del backend al formato esperado
         const clientesMapeados = clientesData.map((cliente, index) => ({
