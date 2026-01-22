@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { TrendingUp, DollarSign, Users, Package, ArrowUpRight, MapPin } from 'lucide-react'
+import { TrendingUp, DollarSign, Users, Package, ArrowUpRight, MapPin, Loader2 } from 'lucide-react'
 import { getDashboardMetrics, getSalesChart, getColombiaMap } from '../api/dashboard'
+import { getMetricsDirecto } from '../utils/supabaseClient'
 
 const DashboardView = () => {
   const [metrics, setMetrics] = useState({
@@ -10,6 +11,7 @@ const DashboardView = () => {
     pedidosMes: 0
   })
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     loadDashboardData()
@@ -18,13 +20,57 @@ const DashboardView = () => {
   const loadDashboardData = async () => {
     try {
       setLoading(true)
-      const data = await getDashboardMetrics()
-      setMetrics(data)
+      setError(null)
+      
+      // Intentar backend primero, si falla usar Supabase directo
+      try {
+        const data = await getDashboardMetrics()
+        setMetrics(data)
+      } catch (backendError) {
+        console.warn('Backend no disponible, usando conexión directa a Supabase:', backendError)
+        // Si el backend falla, usar Supabase directo
+        const data = await getMetricsDirecto()
+        setMetrics({
+          totalVentas: data.totalVentas || 0,
+          comisiones: data.comisiones || 0,
+          clientesActivos: data.clientesActivos || 0,
+          pedidosMes: data.pedidosMes || 0
+        })
+      }
     } catch (error) {
       console.error('Error loading dashboard:', error)
+      setError('Error al cargar los datos. Verifica la consola para más detalles.')
     } finally {
       setLoading(false)
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto mb-4" />
+          <p className="text-slate-400">Cargando datos...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center bg-red-500/10 border border-red-500/20 rounded-lg p-6 max-w-md">
+          <p className="text-red-400 mb-2">⚠️ Error</p>
+          <p className="text-slate-300 text-sm">{error}</p>
+          <button 
+            onClick={loadDashboardData} 
+            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
