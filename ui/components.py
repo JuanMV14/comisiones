@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, List
 from database.queries import DatabaseManager
 from business.calculations import ComisionCalculator, MetricsCalculator
 from utils.formatting import format_currency
+from utils.streamlit_helpers import safe_rerun
 
 class UIComponents:
     """Componentes reutilizables de la interfaz de usuario"""
@@ -125,14 +126,14 @@ class UIComponents:
                     if self.db_manager.actualizar_meta(mes_actual_str, nueva_meta, nueva_meta_clientes):
                         st.success("Meta actualizada correctamente")
                         st.session_state.show_meta_config = False
-                        st.rerun()
+                        safe_rerun()
                     else:
                         st.error("Error al guardar la meta")
             
             with col2:
                 if st.form_submit_button("Cancelar"):
                     st.session_state.show_meta_config = False
-                    st.rerun()
+                    safe_rerun()
     
     # ========================
     # FACTURA COMPONENTS
@@ -409,7 +410,7 @@ class UIComponents:
             if cancelar:
                 if f"show_edit_{factura_id}" in st.session_state:
                     del st.session_state[f"show_edit_{factura_id}"]
-                st.rerun()
+                safe_rerun()
             
             if guardar:
                 if nuevo_pedido and nuevo_cliente and nuevo_valor > 0:
@@ -470,7 +471,7 @@ class UIComponents:
                 st.success("Factura actualizada exitosamente!")
                 if f"show_edit_{factura.get('id')}" in st.session_state:
                     del st.session_state[f"show_edit_{factura.get('id')}"]
-                st.rerun()
+                safe_rerun()
             else:
                 st.error("Error actualizando la factura")
                 
@@ -516,7 +517,8 @@ class UIComponents:
             if cancelar:
                 if f"show_pago_{factura_id}" in st.session_state:
                     del st.session_state[f"show_pago_{factura_id}"]
-                st.rerun()
+                # Usar función helper segura para rerun
+                safe_rerun()
             
             if procesar:
                 self._procesar_pago(factura, fecha_pago, metodo, referencia, observaciones, archivo)
@@ -566,7 +568,7 @@ class UIComponents:
                     
                     if f"show_pago_{factura.get('id')}" in st.session_state:
                         del st.session_state[f"show_pago_{factura.get('id')}"]
-                    st.rerun()
+                    safe_rerun()
                 else:
                     st.error("Error procesando el pago")
                     
@@ -695,7 +697,7 @@ class UIComponents:
             if cancelar:
                 if 'show_nueva_devolucion' in st.session_state:
                     del st.session_state['show_nueva_devolucion']
-                st.rerun()
+                safe_rerun()
             
             if registrar:
                 if factura_seleccionada is not None and valor_devuelto > 0:
@@ -752,7 +754,7 @@ class UIComponents:
                 if 'show_nueva_devolucion' in st.session_state:
                     del st.session_state['show_nueva_devolucion']
                 
-                st.rerun()
+                safe_rerun()
             else:
                 st.error("Error registrando la devolución")
                 

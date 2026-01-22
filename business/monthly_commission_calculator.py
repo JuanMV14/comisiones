@@ -244,6 +244,102 @@ class MonthlyCommissionCalculator:
                 "error": f"Error calculando proyección: {str(e)}"
             }
     
+    def calcular_potencial_mes_actual(self) -> Dict[str, Any]:
+        """Calcula comisiones potenciales de facturas con fecha límite en el mes actual"""
+        try:
+            hoy = date.today()
+            inicio_mes = hoy.replace(day=1)
+            fin_mes = inicio_mes.replace(day=monthrange(inicio_mes.year, inicio_mes.month)[1])
+
+            df = self.db_manager.cargar_datos()
+
+            if df.empty:
+                return {
+                    "mes": hoy.strftime('%Y-%m'),
+                    "facturas_objetivo": 0,
+                    "valor_total_facturas": 0,
+                    "comisiones_brutas": 0,
+                    "descuento_salud": 0,
+                    "descuento_pension": 0,
+                    "descuento_reserva": 0,
+                    "total_descuentos": 0,
+                    "comisiones_netas": 0,
+                    "detalle_facturas": []
+                }
+
+            df = df[df['pagado'] == False].copy()
+
+            if df.empty:
+                return {
+                    "mes": hoy.strftime('%Y-%m'),
+                    "facturas_objetivo": 0,
+                    "valor_total_facturas": 0,
+                    "comisiones_brutas": 0,
+                    "descuento_salud": 0,
+                    "descuento_pension": 0,
+                    "descuento_reserva": 0,
+                    "total_descuentos": 0,
+                    "comisiones_netas": 0,
+                    "detalle_facturas": []
+                }
+
+            df['fecha_pago_est'] = pd.to_datetime(df['fecha_pago_est'], errors='coerce')
+
+            facturas_mes = df[
+                (df['fecha_pago_est'].notna()) &
+                (df['fecha_pago_est'].dt.date >= inicio_mes) &
+                (df['fecha_pago_est'].dt.date <= fin_mes)
+            ].copy()
+
+            if facturas_mes.empty:
+                return {
+                    "mes": hoy.strftime('%Y-%m'),
+                    "facturas_objetivo": 0,
+                    "valor_total_facturas": 0,
+                    "comisiones_brutas": 0,
+                    "descuento_salud": 0,
+                    "descuento_pension": 0,
+                    "descuento_reserva": 0,
+                    "total_descuentos": 0,
+                    "comisiones_netas": 0,
+                    "detalle_facturas": []
+                }
+
+            if 'valor_devuelto' in facturas_mes.columns:
+                facturas_mes['valor_devuelto'] = pd.to_numeric(
+                    facturas_mes['valor_devuelto'], errors='coerce'
+                ).fillna(0)
+            else:
+                facturas_mes['valor_devuelto'] = 0
+
+            facturas_mes['comision_ajustada'] = facturas_mes['comision'] - facturas_mes['valor_devuelto']
+            facturas_mes['comision_ajustada'] = facturas_mes['comision_ajustada'].clip(lower=0)
+
+            total_comisiones_brutas = facturas_mes['comision_ajustada'].sum()
+            descuento_salud = total_comisiones_brutas * self.DESCUENTO_SALUD
+            descuento_pension = total_comisiones_brutas * self.DESCUENTO_PENSION
+            descuento_reserva = total_comisiones_brutas * self.DESCUENTO_RESERVA
+            total_descuentos = descuento_salud + descuento_pension + descuento_reserva
+            comisiones_netas = total_comisiones_brutas - total_descuentos
+
+            return {
+                "mes": hoy.strftime('%Y-%m'),
+                "facturas_objetivo": len(facturas_mes),
+                "valor_total_facturas": facturas_mes['valor'].sum(),
+                "comisiones_brutas": total_comisiones_brutas,
+                "descuento_salud": descuento_salud,
+                "descuento_pension": descuento_pension,
+                "descuento_reserva": descuento_reserva,
+                "total_descuentos": total_descuentos,
+                "comisiones_netas": comisiones_netas,
+                "detalle_facturas": facturas_mes.to_dict('records')
+            }
+
+        except Exception as e:
+            return {
+                "error": f"Error calculando potencial del mes actual: {str(e)}"
+            }
+
     def obtener_historial_comisiones(self, meses: int = 12) -> Dict[str, Any]:
         """Obtiene historial de comisiones de los últimos meses"""
         try:

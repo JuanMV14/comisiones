@@ -102,10 +102,18 @@ class MetricsCalculator:
         mes_actual_str = date.today().strftime("%Y-%m")
         
         # FILTRAR SOLO CLIENTES PROPIOS
-        ventas_mes = df[
+        df_mes = df[
             (df["mes_factura"] == mes_actual_str) & 
             (df["cliente_propio"] == True)
-        ]["valor_neto"].sum()
+        ].copy()
+        
+        # Calcular ventas restando devoluciones (valor_devuelto incluye IVA, se divide por 1.19)
+        if "valor_devuelto" in df_mes.columns:
+            df_mes["valor_neto_ajustado"] = df_mes["valor_neto"] - (df_mes["valor_devuelto"].fillna(0) / 1.19)
+        else:
+            df_mes["valor_neto_ajustado"] = df_mes["valor_neto"]
+        
+        ventas_mes = df_mes["valor_neto_ajustado"].sum()
         
         meta_ventas = meta_actual.get("meta_ventas", 0)
         progreso = (ventas_mes / meta_ventas * 100) if meta_ventas > 0 else 0
@@ -130,12 +138,24 @@ class MetricsCalculator:
             }
         
         # Separar por tipo de cliente
-        clientes_propios = df[df["cliente_propio"] == True]
-        clientes_externos = df[df["cliente_propio"] == False]
+        clientes_propios = df[df["cliente_propio"] == True].copy()
+        clientes_externos = df[df["cliente_propio"] == False].copy()
         
-        # Calcular métricas
-        ventas_propios = clientes_propios["valor_neto"].sum()
-        ventas_externos = clientes_externos["valor_neto"].sum()
+        # Calcular ventas restando devoluciones (valor_devuelto incluye IVA, se divide por 1.19)
+        # Si valor_devuelto no existe o es NaN, se usa 0
+        if "valor_devuelto" in clientes_propios.columns:
+            clientes_propios["valor_neto_ajustado"] = clientes_propios["valor_neto"] - (clientes_propios["valor_devuelto"].fillna(0) / 1.19)
+        else:
+            clientes_propios["valor_neto_ajustado"] = clientes_propios["valor_neto"]
+        
+        if "valor_devuelto" in clientes_externos.columns:
+            clientes_externos["valor_neto_ajustado"] = clientes_externos["valor_neto"] - (clientes_externos["valor_devuelto"].fillna(0) / 1.19)
+        else:
+            clientes_externos["valor_neto_ajustado"] = clientes_externos["valor_neto"]
+        
+        # Calcular métricas (ventas con devoluciones restadas)
+        ventas_propios = clientes_propios["valor_neto_ajustado"].sum()
+        ventas_externos = clientes_externos["valor_neto_ajustado"].sum()
         comision_propios = clientes_propios["comision"].sum()
         comision_externos = clientes_externos["comision"].sum()
         
@@ -163,13 +183,24 @@ class MetricsCalculator:
         df_mes = df[
             (df["mes_factura"] == mes_actual) & 
             (df["cliente_propio"] == True)
-        ]
+        ].copy()
         
         if df_mes.empty:
             return {"probabilidad": 0, "tendencia": "Sin ventas de clientes propios", "dias_necesarios": 0}
         
-        # Calcular progreso actual
-        ventas_actuales = df_mes["valor"].sum()
+        # Calcular progreso actual restando devoluciones
+        # Usar valor_neto en lugar de valor para consistencia
+        if "valor_neto" in df_mes.columns:
+            base_ventas = df_mes["valor_neto"]
+        else:
+            # Si no hay valor_neto, calcular desde valor
+            base_ventas = df_mes["valor"] / 1.19
+        
+        # Restar devoluciones (valor_devuelto incluye IVA, se divide por 1.19)
+        if "valor_devuelto" in df_mes.columns:
+            ventas_actuales = (base_ventas - (df_mes["valor_devuelto"].fillna(0) / 1.19)).sum()
+        else:
+            ventas_actuales = base_ventas.sum()
         meta_ventas = meta_actual.get("meta_ventas", 0)
         
         if meta_ventas == 0:

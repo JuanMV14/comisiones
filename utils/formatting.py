@@ -276,6 +276,74 @@ def format_percentage_change(old_value: float, new_value: float, show_sign: bool
     else:
         return f"{abs(change):.1f}%"
 
+class CalculationHelpers:
+    """Funciones helper para cálculos comunes y evitar duplicación de código"""
+    
+    @staticmethod
+    def calcular_valor_neto_desde_total(valor_total: float, valor_flete: float = 0) -> float:
+        """
+        Calcula valor_neto desde valor_total considerando flete
+        
+        Args:
+            valor_total: Valor total incluyendo IVA y flete
+            valor_flete: Valor del flete (opcional)
+        
+        Returns:
+            Valor neto (sin IVA, sin flete)
+        """
+        valor_sin_flete = valor_total - valor_flete
+        return valor_sin_flete / 1.19
+    
+    @staticmethod
+    def calcular_iva_desde_total(valor_total: float, valor_flete: float = 0) -> float:
+        """
+        Calcula IVA desde valor_total considerando flete
+        
+        Args:
+            valor_total: Valor total incluyendo IVA y flete
+            valor_flete: Valor del flete (opcional)
+        
+        Returns:
+            Valor del IVA
+        """
+        valor_sin_flete = valor_total - valor_flete
+        valor_neto = valor_sin_flete / 1.19
+        return valor_sin_flete - valor_neto
+    
+    @staticmethod
+    def calcular_valor_neto_ajustado_por_devoluciones(valor_neto: float, valor_devuelto: float) -> float:
+        """
+        Calcula valor_neto ajustado restando devoluciones
+        (valor_devuelto incluye IVA, se divide por 1.19)
+        
+        Args:
+            valor_neto: Valor neto original
+            valor_devuelto: Valor devuelto (incluye IVA)
+        
+        Returns:
+            Valor neto ajustado
+        """
+        return valor_neto - (valor_devuelto / 1.19)
+    
+    @staticmethod
+    def validar_consistencia_valores(valor: float, valor_neto: float, iva: float, valor_flete: float = 0) -> bool:
+        """
+        Valida que valor = valor_neto + IVA + flete
+        
+        Args:
+            valor: Valor total
+            valor_neto: Valor neto
+            iva: IVA
+            valor_flete: Flete (opcional)
+        
+        Returns:
+            True si son consistentes (diferencia <= 1), False en caso contrario
+        """
+        valor_calculado = valor_neto + iva + valor_flete
+        diferencia = abs(valor - valor_calculado)
+        return diferencia <= 1
+
+
 class DataValidator:
     """Clase para validar estructuras de datos"""
     

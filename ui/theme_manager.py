@@ -4,26 +4,28 @@ Sistema de Gestión de Temas (Dark/Light Mode)
 
 import streamlit as st
 from typing import Dict, Any
+from utils.streamlit_helpers import safe_rerun
 
 class ThemeManager:
     """Gestor de temas para la aplicación"""
     
-    # Paleta de colores para Dark Mode
+    # Paleta de colores para Dark Mode - Diseño Corporativo Moderno
     DARK_THEME = {
-        "primary": "#6366f1",           # Indigo
-        "secondary": "#8b5cf6",         # Violet
+        "primary": "#2563EB",           # Azul primario corporativo
+        "secondary": "#334155",         # Gris oscuro secundario
         "success": "#10b981",           # Green
         "warning": "#f59e0b",           # Amber
         "error": "#ef4444",             # Red
         "info": "#3b82f6",              # Blue
         
-        "background": "#0f172a",        # Slate 900
+        "background": "#0F172A",        # Fondo principal
         "surface": "#1e293b",           # Slate 800
         "surface_light": "#334155",     # Slate 700
+        "sidebar": "#020617",           # Sidebar específico
         
-        "text_primary": "#f1f5f9",      # Slate 100
-        "text_secondary": "#cbd5e1",    # Slate 300
-        "text_tertiary": "#94a3b8",     # Slate 400
+        "text_primary": "#E5E7EB",      # Texto principal blanco
+        "text_secondary": "#94A3B8",    # Texto secundario gris claro
+        "text_tertiary": "#64748b",     # Slate 500
         
         "border": "#334155",            # Slate 700
         "border_light": "#475569",      # Slate 600
@@ -97,7 +99,16 @@ class ThemeManager:
         with col2:
             if st.button("🔄", key="toggle_theme", help="Cambiar tema"):
                 ThemeManager.toggle_theme()
-                st.rerun()
+                safe_rerun()
+
+    @staticmethod
+    def render_theme_switch():
+        """Renderiza un switch tipo ON/OFF para activar/desactivar modo oscuro"""
+        current = st.session_state.get("dark_mode", True)
+        choice = st.toggle("🌙 Modo oscuro", value=current, help="Activa/Desactiva el tema oscuro")
+        if choice != current:
+            st.session_state.dark_mode = choice
+            safe_rerun()
     
     @staticmethod
     def get_css() -> str:

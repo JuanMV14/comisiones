@@ -375,5 +375,101 @@ Aproveche este descuento y realice su pago antes de la fecha de vencimiento."""
             
         except Exception as e:
             return f"Error generando mensaje: {str(e)}"
+    
+    def generar_mensaje_cliente_unificado(self, facturas: List[Dict[str, Any]]) -> str:
+        """
+        Genera un mensaje unificado para múltiples facturas del mismo cliente que vencen el mismo día
+        
+        Args:
+            facturas: Lista de diccionarios con los datos de las facturas (mismo cliente, misma fecha de vencimiento)
+        
+        Returns:
+            String con el mensaje unificado formateado listo para copiar
+        """
+        try:
+            if not facturas:
+                return "Error: No hay facturas para generar mensaje"
+            
+            # Extraer datos comunes (todas las facturas son del mismo cliente)
+            primera_factura = facturas[0]
+            cliente = primera_factura.get('cliente', 'Cliente')
+            
+            # Obtener fecha de vencimiento (debe ser la misma para todas)
+            fecha_pago_est = primera_factura.get('fecha_pago_est', '')
+            fecha_pago_max = primera_factura.get('fecha_pago_max', '')
+            
+            # Convertir fechas si son strings
+            if isinstance(fecha_pago_est, str):
+                from datetime import datetime
+                try:
+                    fecha_pago_est = datetime.fromisoformat(fecha_pago_est.replace('Z', '+00:00')).date()
+                except:
+                    fecha_pago_est = date.today()
+            
+            if isinstance(fecha_pago_max, str):
+                from datetime import datetime
+                try:
+                    fecha_pago_max = datetime.fromisoformat(fecha_pago_max.replace('Z', '+00:00')).date()
+                except:
+                    fecha_pago_max = date.today()
+            
+            # Sumar todos los valores
+            total_valor = sum(float(f.get('valor', 0)) for f in facturas)
+            total_valor_neto = sum(float(f.get('valor_neto', 0)) for f in facturas)
+            total_iva = sum(float(f.get('iva', 0)) for f in facturas)
+            
+            # Calcular descuento del 15% por pago puntual (solo sobre el subtotal)
+            descuento_15 = total_valor_neto * 0.15
+            subtotal_con_descuento = total_valor_neto - descuento_15
+            total_con_descuento = subtotal_con_descuento + total_iva  # IVA original sin cambios
+            
+            # Obtener números de facturas y pedidos
+            numeros_facturas = [f.get('factura', 'N/A') for f in facturas]
+            numeros_pedidos = [f.get('pedido', 'N/A') for f in facturas]
+            
+            # Formatear montos
+            def format_money(value):
+                return f"${value:,.0f}".replace(",", ".")
+            
+            # Formatear fechas
+            def format_date(fecha):
+                if isinstance(fecha, date):
+                    return fecha.strftime('%d/%m/%Y')
+                return str(fecha)
+            
+            # Construir lista de facturas
+            num_facturas = len(facturas)
+            lista_facturas = "\n".join([f"• Factura #{num_fact} (Pedido: {pedido})" for num_fact, pedido in zip(numeros_facturas, numeros_pedidos)])
+            
+            # Construir mensaje unificado
+            mensaje = f"""Estimado/a {cliente},
+
+Le informamos que tiene {num_facturas} factura(s) pendiente(s) de pago que vencen el {format_date(fecha_pago_est)}.
+
+Facturas pendientes:
+{lista_facturas}
+
+Desglose consolidado:
+• Subtotal: {format_money(total_valor_neto)}
+• IVA (19%): {format_money(total_iva)}
+• Total facturas: {format_money(total_valor)}
+
+¡BENEFICIO ESPECIAL!
+Si paga a tiempo (antes del vencimiento), recibirá un descuento del 15% sobre el total:
+• Descuento por pago puntual (15% sobre subtotal): -{format_money(descuento_15)}
+• Nuevo subtotal: {format_money(subtotal_con_descuento)}
+• IVA (19%): {format_money(total_iva)}
+• TOTAL A PAGAR: {format_money(total_con_descuento)}
+
+Fechas importantes:
+• Fecha de vencimiento: {format_date(fecha_pago_est)}
+• Fecha límite de pago: {format_date(fecha_pago_max)}
+
+Aproveche este descuento y realice su pago antes de la fecha de vencimiento."""
+            
+            return mensaje
+            
+        except Exception as e:
+            return f"Error generando mensaje unificado: {str(e)}"
 
 

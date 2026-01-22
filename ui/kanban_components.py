@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from business.sales_pipeline import SalesPipeline, Deal
 from ui.theme_manager import ThemeManager
 from utils.formatting import format_currency
+from utils.streamlit_helpers import safe_rerun
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -259,17 +260,17 @@ class KanbanUI:
             with col1:
                 if st.button("✏️ Editar", key=f"edit_{deal.id}", use_container_width=True):
                     st.session_state[f"editing_{deal.id}"] = True
-                    st.rerun()
+                    safe_rerun()
             
             with col2:
                 if st.button("➡️ Mover", key=f"move_{deal.id}", use_container_width=True):
                     st.session_state[f"moving_{deal.id}"] = True
-                    st.rerun()
+                    safe_rerun()
             
             with col3:
                 if st.button("📜 Historial", key=f"history_{deal.id}", use_container_width=True):
                     st.session_state[f"show_history_{deal.id}"] = True
-                    st.rerun()
+                    safe_rerun()
             
             # Modal de edición
             if st.session_state.get(f"editing_{deal.id}", False):
@@ -406,14 +407,14 @@ class KanbanUI:
                         if key.startswith("new_deal_"):
                             del st.session_state[key]
                     
-                    st.rerun()
+                    safe_rerun()
         
         with col2:
             if st.button("🔄 Limpiar", use_container_width=True):
                 for key in st.session_state.keys():
                     if key.startswith("new_deal_"):
                         del st.session_state[key]
-                st.rerun()
+                safe_rerun()
     
     def _render_metricas(self):
         """Renderiza métricas del pipeline"""
@@ -794,14 +795,14 @@ class KanbanUI:
         st.info("💡 Funcionalidad de edición disponible próximamente")
         if st.button("Cerrar", key=f"close_edit_{deal.id}"):
             del st.session_state[f"editing_{deal.id}"]
-            st.rerun()
+            safe_rerun()
     
     def _render_move_deal_modal(self, deal: Deal):
         """Renderiza modal para mover deal"""
         st.info("💡 Funcionalidad de mover deal disponible próximamente")
         if st.button("Cerrar", key=f"close_move_{deal.id}"):
             del st.session_state[f"moving_{deal.id}"]
-            st.rerun()
+            safe_rerun()
     
     def _render_history_modal(self, deal: Deal):
         """Renderiza modal de historial"""
@@ -816,5 +817,5 @@ class KanbanUI:
         
         if st.button("Cerrar", key=f"close_history_{deal.id}"):
             del st.session_state[f"show_history_{deal.id}"]
-            st.rerun()
+            safe_rerun()
 

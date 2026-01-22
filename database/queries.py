@@ -62,23 +62,63 @@ class DatabaseManager:
         df['mes_factura'] = df['fecha_factura'].dt.to_period('M').astype(str)
         self._calcular_dias_vencimiento(df)
         
+        # Normalizar identificadores de factura
+        self._normalizar_facturas(df)
+        
         # Asegurar tipos de columnas
         self._asegurar_tipos_columnas(df)
         
         return df
 
     def _calcular_campos_derivados(self, df: pd.DataFrame):
-        """Calcula campos derivados como valor_neto, iva, base_comision"""
-        if df['valor_neto'].sum() == 0 and df['valor'].sum() > 0:
-            df['valor_neto'] = df['valor'] / 1.19
+        """Calcula campos derivados como valor_neto, iva, base_comision y valida consistencia"""
+        if df.empty:
+            return
             
-        if df['iva'].sum() == 0 and df['valor'].sum() > 0:
-            df['iva'] = df['valor'] - df['valor_neto']
+        # Calcular o corregir valor_neto si está vacío o inconsistente
+        if 'valor' in df.columns and 'valor_neto' in df.columns:
+            # Restar flete del valor total antes de calcular valor_neto
+            if 'valor_flete' in df.columns:
+                valor_sin_flete = df['valor'] - df['valor_flete'].fillna(0)
+            else:
+                valor_sin_flete = df['valor']
+            
+            # Si valor_neto es 0 o está vacío, calcularlo del valor total
+            mask_valor_neto_vacio = (df['valor_neto'].fillna(0) == 0) & (valor_sin_flete > 0)
+            df.loc[mask_valor_neto_vacio, 'valor_neto'] = valor_sin_flete[mask_valor_neto_vacio] / 1.19
+            
+            # Validar y corregir consistencia: valor = valor_neto + iva + flete
+            if 'iva' in df.columns:
+                if 'valor_flete' in df.columns:
+                    valor_calculado = df['valor_neto'] + df['iva'].fillna(0) + df['valor_flete'].fillna(0)
+                else:
+                    valor_calculado = df['valor_neto'] + df['iva'].fillna(0)
+                
+                # Si hay diferencia significativa (más de 1 peso), corregir
+                diferencia = abs(df['valor'] - valor_calculado)
+                mask_inconsistente = diferencia > 1
+                
+                if mask_inconsistente.any():
+                    # Recalcular valor_neto e IVA para hacerlos consistentes
+                    if 'valor_flete' in df.columns:
+                        valor_para_calcular = df.loc[mask_inconsistente, 'valor'] - df.loc[mask_inconsistente, 'valor_flete'].fillna(0)
+                    else:
+                        valor_para_calcular = df.loc[mask_inconsistente, 'valor']
+                    
+                    df.loc[mask_inconsistente, 'valor_neto'] = valor_para_calcular / 1.19
+                    df.loc[mask_inconsistente, 'iva'] = valor_para_calcular - df.loc[mask_inconsistente, 'valor_neto']
+            
+        # Calcular IVA si está vacío o inconsistente
+        if 'iva' in df.columns and 'valor_neto' in df.columns:
+            mask_iva_vacio = df['iva'].fillna(0) == 0
+            if mask_iva_vacio.any():
+                df.loc[mask_iva_vacio, 'iva'] = df.loc[mask_iva_vacio, 'valor_neto'] * 0.19
             
         # Siempre recalcular base_comision para asegurar consistencia
-        df['base_comision'] = df.apply(lambda row:
-            row['valor_neto'] if row.get('descuento_pie_factura', False)
-            else row['valor_neto'] * 0.85, axis=1)
+        if 'base_comision' in df.columns and 'valor_neto' in df.columns:
+            df['base_comision'] = df.apply(lambda row:
+                row['valor_neto'] if row.get('descuento_pie_factura', False)
+                else row['valor_neto'] * 0.85, axis=1)
 
     def _procesar_fechas(self, df: pd.DataFrame):
         """Procesa todas las columnas de fecha"""
@@ -93,6 +133,22 @@ class DatabaseManager:
         df['dias_vencimiento'] = df.apply(lambda row:
             (row['fecha_pago_max'] - hoy).days if not row.get('pagado', False) and pd.notna(row['fecha_pago_max'])
             else None, axis=1)
+
+    def _normalizar_facturas(self, df: pd.DataFrame):
+        """Genera columnas auxiliares para identificar facturas únicas"""
+        if 'factura' not in df.columns:
+            df['factura_base'] = None
+            return
+        
+        facturas = df['factura'].astype(str).str.strip().fillna("")
+        # Reemplazar sufijos tipo -1, -2 manteniendo el número base
+        factura_base = facturas.str.replace(r"-\d+$", "", regex=True)
+        
+        # Cuando el campo queda vacío, conservar el valor original
+        factura_base = factura_base.where(factura_base != "", facturas)
+        
+        df['factura'] = facturas.replace("", pd.NA)
+        df['factura_base'] = factura_base.replace("", pd.NA)
 
     def obtener_clientes_frecuentes(self) -> List[Dict[str, Any]]:
         """Obtiene lista de clientes ordenados por frecuencia de compra con sus configuraciones típicas"""
