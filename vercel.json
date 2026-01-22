@@ -1,7 +1,7 @@
 {
-  "buildCommand": "cd crm-react/frontend && npm install && npm run build",
-  "outputDirectory": "crm-react/frontend/dist",
-  "installCommand": "cd crm-react/frontend && npm install",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm install",
   "framework": "vite",
   "rewrites": [
     {
