@@ -22,24 +22,41 @@ const DashboardView = () => {
       setLoading(true)
       setError(null)
       
+      console.log('🔄 Iniciando carga de datos del dashboard...')
+      
       // Intentar backend primero, si falla usar Supabase directo
+      let data = null
       try {
-        const data = await getDashboardMetrics()
-        setMetrics(data)
+        console.log('📡 Intentando conectar con backend...')
+        data = await getDashboardMetrics()
+        console.log('✅ Datos cargados desde backend:', data)
       } catch (backendError) {
-        console.warn('Backend no disponible, usando conexión directa a Supabase:', backendError)
+        console.warn('⚠️ Backend no disponible, usando conexión directa a Supabase:', backendError)
         // Si el backend falla, usar Supabase directo
-        const data = await getMetricsDirecto()
+        console.log('📡 Intentando conectar directamente con Supabase...')
+        data = await getMetricsDirecto()
+        console.log('✅ Datos cargados desde Supabase:', data)
+      }
+      
+      if (data) {
         setMetrics({
           totalVentas: data.totalVentas || 0,
           comisiones: data.comisiones || 0,
           clientesActivos: data.clientesActivos || 0,
           pedidosMes: data.pedidosMes || 0
         })
+        console.log('✅ Métricas actualizadas:', {
+          totalVentas: data.totalVentas || 0,
+          comisiones: data.comisiones || 0,
+          clientesActivos: data.clientesActivos || 0,
+          pedidosMes: data.pedidosMes || 0
+        })
+      } else {
+        throw new Error('No se pudieron cargar los datos')
       }
     } catch (error) {
-      console.error('Error loading dashboard:', error)
-      setError('Error al cargar los datos. Verifica la consola para más detalles.')
+      console.error('❌ Error loading dashboard:', error)
+      setError(`Error al cargar los datos: ${error.message}. Abre la consola (F12) para más detalles.`)
     } finally {
       setLoading(false)
     }
