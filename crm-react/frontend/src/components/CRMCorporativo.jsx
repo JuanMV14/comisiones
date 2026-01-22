@@ -1,20 +1,86 @@
-import React, { useState, useMemo } from 'react';
-import { Users, TrendingUp, DollarSign, Search, Plus, Mail, Phone, Eye, BarChart3, Package, ShoppingCart, FileText, Bell, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Users, TrendingUp, DollarSign, Search, Plus, Mail, Phone, Eye, BarChart3, Package, ShoppingCart, FileText, Bell, ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
+import { getClientes } from '../api/clientes';
+import { getDashboardMetrics } from '../api/dashboard';
 
 const CRMCorporativo = () => {
   const [activeTab, setActiveTab] = useState('panel');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('todos');
   const [selectedClient, setSelectedClient] = useState(null);
+  
+  // Estados para datos
+  const [clientes, setClientes] = useState([]);
+  const [estadisticas, setEstadisticas] = useState({
+    ventasTotal: 0,
+    clientesActivos: 0,
+    comisionEstimada: 0,
+    facturasCobrar: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const clientes = [
-    { id: 1, nombre: 'AUTOFRANCO', contacto: 'Andrés Mejía', email: 'andres@autofranco.com', telefono: '+57 300 123 4567', ciudad: 'Bogotá', credito: 500000000, creditoUsado: 44, ultimaCompra: '2 días', ventas: 80934200, estado: 'activo', promedioPago: 2 },
-    { id: 2, nombre: 'Andrade S.A.', contacto: 'Sebastián Quintero', email: 'sebastian@andrade.com', telefono: '+57 301 234 5678', ciudad: 'Medellín', credito: 700000000, creditoUsado: 72, ultimaCompra: '35 días', ventas: 60000000, estado: 'inactivo', promedioPago: 6 },
-    { id: 3, nombre: 'SistemaAuto', contacto: 'Cristina Méndez', email: 'cristina@sistemaauto.com', telefono: '+57 302 345 6789', ciudad: 'Bogotá', credito: 285000000, creditoUsado: 85, ultimaCompra: '6 días', ventas: 92785300, estado: 'activo', promedioPago: 15 },
-    { id: 4, nombre: 'Commercial Vega', contacto: 'Luis Hernández', email: 'luis@cvega.com', telefono: '+57 303 456 7890', ciudad: 'Bucaramanga', credito: 450000000, creditoUsado: 20, ultimaCompra: '6 días', ventas: 34500000, estado: 'activo', promedioPago: 6 },
-    { id: 5, nombre: 'FerreMovil', contacto: 'María González', email: 'maria@ferremovil.com', telefono: '+57 304 567 8901', ciudad: 'Medellín', credito: 300000000, creditoUsado: 72, ultimaCompra: '10 días', ventas: 45200000, estado: 'activo', promedioPago: 10 },
-  ];
+  // Cargar datos del backend
+  useEffect(() => {
+    const cargarDatos = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Cargar clientes y métricas en paralelo
+        const [clientesData, metricsData] = await Promise.all([
+          getClientes().catch(err => {
+            console.error('Error cargando clientes:', err);
+            return [];
+          }),
+          getDashboardMetrics().catch(err => {
+            console.error('Error cargando métricas:', err);
+            return {
+              totalVentas: 0,
+              comisiones: 0,
+              clientesActivos: 0,
+              pedidosMes: 0
+            };
+          })
+        ]);
 
+        // Mapear clientes del backend al formato esperado
+        const clientesMapeados = clientesData.map((cliente, index) => ({
+          id: cliente.id || index + 1,
+          nombre: cliente.nombre || 'Sin nombre',
+          contacto: cliente.contacto || cliente.nombre || 'Sin contacto',
+          email: cliente.email || '',
+          telefono: cliente.telefono || '',
+          ciudad: cliente.ciudad || 'N/A',
+          credito: cliente.credito || 0,
+          creditoUsado: cliente.creditoUsado || 0,
+          ultimaCompra: cliente.ultimaCompra || 'N/A',
+          ventas: cliente.ventas || 0,
+          estado: cliente.estado || 'activo',
+          promedioPago: cliente.promedioPago || 0
+        }));
+
+        setClientes(clientesMapeados);
+        
+        // Actualizar estadísticas
+        setEstadisticas({
+          ventasTotal: metricsData.totalVentas || 0,
+          clientesActivos: metricsData.clientesActivos || clientesMapeados.filter(c => c.estado === 'activo').length,
+          comisionEstimada: metricsData.comisiones || 0,
+          facturasCobrar: 0 // TODO: Implementar cuando esté disponible en la API
+        });
+      } catch (err) {
+        console.error('Error cargando datos:', err);
+        setError('Error al cargar los datos. Por favor, verifica que el backend esté funcionando.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    cargarDatos();
+  }, []);
+
+  // Datos de ejemplo para gráficos (hasta que la API los proporcione)
   const ventasMensuales = [
     { mes: 'Ene', ventas: 3300000, comisiones: 320000 },
     { mes: 'Feb', ventas: 4200000, comisiones: 380000 },
@@ -23,15 +89,6 @@ const CRMCorporativo = () => {
     { mes: 'May', ventas: 5200000, comisiones: 410000 },
     { mes: 'Jun', ventas: 4500000, comisiones: 395000 },
   ];
-
-  const estadisticas = useMemo(() => {
-    const ventasTotal = clientes.reduce((sum, c) => sum + c.ventas, 0);
-    const clientesActivos = clientes.filter(c => c.estado === 'activo').length;
-    const comisionEstimada = 3200250;
-    const facturasCobrar = 12850391;
-    
-    return { ventasTotal, clientesActivos, comisionEstimada, facturasCobrar };
-  }, [clientes]);
 
   const clientesFiltrados = useMemo(() => {
     return clientes.filter(cliente => {
@@ -63,18 +120,47 @@ const CRMCorporativo = () => {
     </div>
   );
 
-  const PanelVendedor = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-white mb-1">Panel del Vendedor</h2>
-        <p className="text-sm text-slate-400">Resumen rápido de tu gestión comercial</p>
-      </div>
+  const PanelVendedor = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto mb-4" />
+            <p className="text-slate-400">Cargando datos...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center bg-red-500/10 border border-red-500/20 rounded-lg p-6 max-w-md">
+            <p className="text-red-400 mb-2">⚠️ Error</p>
+            <p className="text-slate-300 text-sm">{error}</p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              Reintentar
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold text-white mb-1">Panel del Vendedor</h2>
+          <p className="text-sm text-slate-400">Resumen rápido de tu gestión comercial</p>
+        </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={DollarSign} title="Ventas del Mes" value={`$${(estadisticas.ventasTotal / 1000000).toFixed(1)}M`} subtitle="Facturación del mes" trend={8.5} color="bg-gradient-to-br from-blue-500 to-blue-600" />
         <StatCard icon={TrendingUp} title="Comisión Estimada" value={`$${(estadisticas.comisionEstimada / 1000).toFixed(0)}K`} subtitle="Este mes" trend={12.3} color="bg-gradient-to-br from-emerald-500 to-emerald-600" />
-        <StatCard icon={Users} title="Clientes Activos" value={estadisticas.clientesActivos} subtitle="259 clientes totales" color="bg-gradient-to-br from-purple-500 to-purple-600" />
-        <StatCard icon={FileText} title="Facturas por Cobrar" value={`$${(estadisticas.facturasCobrar / 1000000).toFixed(1)}M`} subtitle="72 facturas" trend={-3.2} color="bg-gradient-to-br from-orange-500 to-orange-600" />
+        <StatCard icon={Users} title="Clientes Activos" value={estadisticas.clientesActivos} subtitle={`${clientes.length} clientes totales`} color="bg-gradient-to-br from-purple-500 to-purple-600" />
+        <StatCard icon={FileText} title="Facturas por Cobrar" value={`$${(estadisticas.facturasCobrar / 1000000).toFixed(1)}M`} subtitle={estadisticas.facturasCobrar > 0 ? "Facturas pendientes" : "Sin facturas pendientes"} trend={estadisticas.facturasCobrar > 0 ? -3.2 : null} color="bg-gradient-to-br from-orange-500 to-orange-600" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -165,9 +251,39 @@ const CRMCorporativo = () => {
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
-  const ClientesView = () => (
+  const ClientesView = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto mb-4" />
+            <p className="text-slate-400">Cargando clientes...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center bg-red-500/10 border border-red-500/20 rounded-lg p-6 max-w-md">
+            <p className="text-red-400 mb-2">⚠️ Error</p>
+            <p className="text-slate-300 text-sm">{error}</p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              Reintentar
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white mb-1">Clientes</h2>
@@ -217,15 +333,21 @@ const CRMCorporativo = () => {
                     <span className="text-sm text-slate-300">{cliente.ciudad}</span>
                   </td>
                   <td className="px-4 py-4">
-                    <p className="text-sm font-semibold text-white">${(cliente.credito / 1000000).toFixed(0)}M</p>
+                    <p className="text-sm font-semibold text-white">
+                      {cliente.credito > 0 ? `$${(cliente.credito / 1000000).toFixed(0)}M` : 'N/A'}
+                    </p>
                   </td>
                   <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 max-w-24 bg-slate-700 rounded-full h-2">
-                        <div className={`h-2 rounded-full ${cliente.creditoUsado > 80 ? 'bg-red-500' : cliente.creditoUsado > 60 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${cliente.creditoUsado}%` }} />
+                    {cliente.credito > 0 ? (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 max-w-24 bg-slate-700 rounded-full h-2">
+                          <div className={`h-2 rounded-full ${cliente.creditoUsado > 80 ? 'bg-red-500' : cliente.creditoUsado > 60 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(cliente.creditoUsado, 100)}%` }} />
+                        </div>
+                        <span className={`text-xs font-semibold ${cliente.creditoUsado > 80 ? 'text-red-400' : cliente.creditoUsado > 60 ? 'text-amber-400' : 'text-emerald-400'}`}>{cliente.creditoUsado}%</span>
                       </div>
-                      <span className={`text-xs font-semibold ${cliente.creditoUsado > 80 ? 'text-red-400' : cliente.creditoUsado > 60 ? 'text-amber-400' : 'text-emerald-400'}`}>{cliente.creditoUsado}%</span>
-                    </div>
+                    ) : (
+                      <span className="text-xs text-slate-500">N/A</span>
+                    )}
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-2">
@@ -266,25 +388,34 @@ const CRMCorporativo = () => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-slate-700/30 rounded-lg p-4">
               <p className="text-xs text-slate-400 mb-1">Crédito Aprobado</p>
-              <p className="text-xl font-bold text-white">${(selectedClient.credito / 1000000).toFixed(0)}M</p>
+              <p className="text-xl font-bold text-white">
+                {selectedClient.credito > 0 ? `$${(selectedClient.credito / 1000000).toFixed(0)}M` : 'N/A'}
+              </p>
             </div>
             <div className="bg-slate-700/30 rounded-lg p-4">
               <p className="text-xs text-slate-400 mb-1">Crédito Disponible</p>
-              <p className="text-xl font-bold text-emerald-400">${((selectedClient.credito * (100 - selectedClient.creditoUsado) / 100) / 1000000).toFixed(1)}M</p>
+              <p className="text-xl font-bold text-emerald-400">
+                {selectedClient.credito > 0 ? `$${((selectedClient.credito * (100 - selectedClient.creditoUsado) / 100) / 1000000).toFixed(1)}M` : 'N/A'}
+              </p>
             </div>
             <div className="bg-slate-700/30 rounded-lg p-4">
               <p className="text-xs text-slate-400 mb-1">Porcentaje Usado</p>
-              <p className="text-xl font-bold text-white">{selectedClient.creditoUsado}%</p>
+              <p className="text-xl font-bold text-white">
+                {selectedClient.credito > 0 ? `${selectedClient.creditoUsado}%` : 'N/A'}
+              </p>
             </div>
             <div className="bg-slate-700/30 rounded-lg p-4">
               <p className="text-xs text-slate-400 mb-1">Estado</p>
-              <p className="text-sm font-semibold text-emerald-400">Adecuado ✓</p>
+              <p className={`text-sm font-semibold ${selectedClient.estado === 'activo' ? 'text-emerald-400' : 'text-red-400'}`}>
+                {selectedClient.estado === 'activo' ? 'Activo ✓' : 'Inactivo'}
+              </p>
             </div>
           </div>
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
