@@ -3,13 +3,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import sys
 import os
+from dotenv import load_dotenv
+
+# Agregar el directorio actual (backend) al path para que Python encuentre 'app'
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, backend_dir)
 
 # Agregar el directorio raíz del proyecto original al path
-# Esto permite importar los módulos existentes
+# Esto permite importar los módulos existentes (database, config, etc.)
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-sys.path.insert(0, project_root)
+# Importante: NO ponerlo en sys.path[0] porque en la raíz existe un `app.py`
+# que colisiona con el paquete `app/` del backend (FastAPI).
+sys.path.append(project_root)
 
-from app.api import dashboard, clientes, ventas, comisiones
+from app.api import dashboard, clientes, ventas, comisiones, analytics, devoluciones, catalogo
+from config.settings import AppConfig
+
+# Cargar variables de entorno (busca .env si existe; en este repo se recomienda usar env.example como plantilla)
+load_dotenv()
 
 app = FastAPI(
     title="CRM API",
@@ -18,12 +29,29 @@ app = FastAPI(
 )
 
 # CORS - Permitir llamadas desde el frontend React
+# Obtener URL del frontend desde variable de entorno o usar valores por defecto
+frontend_urls_str = os.getenv("FRONTEND_URLS", "http://localhost:3000,http://localhost:5173")
+frontend_urls = [url.strip() for url in frontend_urls_str.split(",") if url.strip()]
+
+# Agregar URLs de Vercel si están configuradas
+vercel_url = os.getenv("VERCEL_URL")
+if vercel_url:
+    frontend_urls.append(f"https://{vercel_url}")
+    frontend_urls.append("https://comisiones-g6hi.vercel.app")  # Tu URL actual
+
+# En desarrollo, permitir todos los orígenes para evitar problemas de CORS
+# En producción, usar solo los orígenes específicos
+allow_origins = ["*"] if os.getenv("ENVIRONMENT", "development") == "development" else frontend_urls
+
+print(f"🌐 CORS configurado. Orígenes permitidos: {allow_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # Vite dev server
+    allow_origins=allow_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Incluir routers
@@ -31,6 +59,9 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"]
 app.include_router(clientes.router, prefix="/api/clientes", tags=["clientes"])
 app.include_router(ventas.router, prefix="/api/ventas", tags=["ventas"])
 app.include_router(comisiones.router, prefix="/api/comisiones", tags=["comisiones"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
+app.include_router(devoluciones.router, prefix="/api/devoluciones", tags=["devoluciones"])
+app.include_router(catalogo.router, prefix="/api/catalogo", tags=["catalogo"])
 
 @app.get("/")
 def root():
@@ -39,6 +70,36 @@ def root():
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
+
+@app.get("/api/health/db")
+def health_check_db():
+    """
+    Verifica conexión a Supabase con una consulta mínima.
+    Útil para diagnosticar si el problema es de variables de entorno / credenciales / red.
+    """
+    env_status = AppConfig.validate_environment()
+    if not env_status["valid"]:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": "Faltan variables de entorno para conectar a Supabase.",
+                "errors": env_status["errors"],
+            },
+        )
+
+    try:
+        from supabase import create_client
+
+        supabase = create_client(AppConfig.SUPABASE_URL, AppConfig.SUPABASE_KEY)
+        # Consulta mínima: 1 fila de la tabla comisiones (si no existe, igual sirve para ver el tipo de error)
+        res = supabase.table("comisiones").select("id").limit(1).execute()
+        return {"status": "ok", "supabase": "connected", "sample_rows": len(res.data or [])}
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "supabase": "not_connected", "detail": str(e)},
+        )
 
 if __name__ == "__main__":
     import uvicorn
