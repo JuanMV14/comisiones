@@ -436,15 +436,36 @@ const DashboardEjecutivoView = () => {
                 lon: ciudadesConCoords.map(c => c.lon),
                 text: ciudadesConCoords.map(c => {
                   let texto = `<b>${c.ciudad}</b><br>`
-                  texto += `Clientes: ${c.num_clientes || 0}<br>`
-                  texto += `Ventas: $${(c.total_ventas || 0).toLocaleString('es-CO')}<br>`
-                  if (c.top_cliente) {
-                    texto += `<br>👑 Cliente Top:<br>${c.top_cliente.nombre || c.top_cliente.nit}<br>`
-                    texto += `$${(c.top_cliente.total_ventas || 0).toLocaleString('es-CO')}`
-                  }
-                  if (c.top_referencia && !referenciaSeleccionada) {
-                    texto += `<br><br>📦 Ref. Top: ${c.top_referencia.codigo}<br>`
-                    texto += `$${(c.top_referencia.total_ventas || 0).toLocaleString('es-CO')}`
+                  
+                  if (referenciaSeleccionada) {
+                    // Si hay una referencia seleccionada, mostrar información específica
+                    texto += `📦 Referencia: ${referenciaSeleccionada}<br>`
+                    texto += `Clientes que compran: ${c.num_clientes || 0}<br>`
+                    texto += `Ventas totales: $${(c.total_ventas || 0).toLocaleString('es-CO')}<br>`
+                    
+                    // Mostrar todos los clientes que compran esta referencia
+                    if (c.clientes_referencia && c.clientes_referencia.length > 0) {
+                      texto += `<br><b>👥 Clientes:</b><br>`
+                      c.clientes_referencia.slice(0, 5).forEach((cliente, idx) => {
+                        texto += `${idx + 1}. ${cliente.nombre || cliente.nit}<br>`
+                        texto += `   $${(cliente.total_ventas || 0).toLocaleString('es-CO')}<br>`
+                      })
+                      if (c.clientes_referencia.length > 5) {
+                        texto += `... y ${c.clientes_referencia.length - 5} más`
+                      }
+                    }
+                  } else {
+                    // Sin referencia seleccionada, mostrar información general
+                    texto += `Clientes: ${c.num_clientes || 0}<br>`
+                    texto += `Ventas: $${(c.total_ventas || 0).toLocaleString('es-CO')}<br>`
+                    if (c.top_cliente) {
+                      texto += `<br>👑 Cliente Top:<br>${c.top_cliente.nombre || c.top_cliente.nit}<br>`
+                      texto += `$${(c.top_cliente.total_ventas || 0).toLocaleString('es-CO')}`
+                    }
+                    if (c.top_referencia) {
+                      texto += `<br><br>📦 Ref. Top: ${c.top_referencia.codigo}<br>`
+                      texto += `$${(c.top_referencia.total_ventas || 0).toLocaleString('es-CO')}`
+                    }
                   }
                   return texto
                 }),
@@ -732,10 +753,32 @@ const DashboardEjecutivoView = () => {
           {/* Top Referencias por Ciudad */}
           {referenciasData?.referencias_por_ciudad && referenciasData.referencias_por_ciudad.length > 0 && (
             <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
-              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                <Package className="w-5 h-5 text-orange-400" />
-                Top Referencias por Ciudad
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <Package className="w-5 h-5 text-orange-400" />
+                  Top Referencias por Ciudad
+                </h3>
+                {referenciaSeleccionada && (
+                  <button
+                    onClick={() => {
+                      setReferenciaSeleccionada(null)
+                      setCiudadSeleccionada(null)
+                    }}
+                    className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1 transition-colors"
+                    title="Limpiar filtro de referencia"
+                  >
+                    <X className="w-3 h-3" />
+                    Limpiar
+                  </button>
+                )}
+              </div>
+              {referenciaSeleccionada && (
+                <div className="mb-3 p-2 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                  <p className="text-xs text-orange-400">
+                    📍 Mostrando en el mapa: <span className="font-semibold">{referenciaSeleccionada}</span>
+                  </p>
+                </div>
+              )}
               <div className="space-y-3 max-h-96 overflow-y-auto">
                 {referenciasData.referencias_por_ciudad
                   .flatMap(ciudadRef => 
@@ -750,8 +793,16 @@ const DashboardEjecutivoView = () => {
                   .map((ref, idx) => (
                     <div
                       key={idx}
-                      className="p-3 bg-slate-700/30 rounded-lg border border-slate-700/50 hover:border-orange-500/50 transition-colors cursor-pointer"
-                      onClick={() => setCiudadSeleccionada(ref.ciudad)}
+                      className={`p-3 rounded-lg border transition-colors cursor-pointer ${
+                        referenciaSeleccionada === ref.referencia
+                          ? 'bg-orange-500/20 border-orange-500/50'
+                          : 'bg-slate-700/30 border-slate-700/50 hover:border-orange-500/50'
+                      }`}
+                      onClick={() => {
+                        setReferenciaSeleccionada(ref.referencia)
+                        setCiudadSeleccionada(null) // Limpiar ciudad seleccionada al cambiar referencia
+                      }}
+                      title={`Click para ver en el mapa dónde se compra ${ref.referencia}`}
                     >
                       <div className="flex items-center justify-between mb-2">
                         <p className="font-semibold text-white text-xs">{ref.referencia}</p>

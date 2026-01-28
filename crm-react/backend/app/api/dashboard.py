@@ -1142,6 +1142,25 @@ async def get_mapa_interactivo(referencia: Optional[str] = Query(None, descripti
                     'cantidad': float(top_ref_ciudad['cantidad'])
                 }
         
+        # Si hay una referencia seleccionada, obtener TODOS los clientes que la compran por ciudad
+        clientes_por_referencia_ciudad = {}
+        if referencia:
+            clientes_ref = df_compras.groupby(['ciudad', 'nit_cliente']).agg({
+                'total': 'sum',
+                'nombre_cliente': 'first'
+            }).reset_index().sort_values(['ciudad', 'total'], ascending=[True, False])
+            
+            for ciudad in clientes_ref['ciudad'].unique():
+                clientes_ciudad = clientes_ref[clientes_ref['ciudad'] == ciudad]
+                clientes_por_referencia_ciudad[ciudad] = [
+                    {
+                        'nit': row['nit_cliente'],
+                        'nombre': row['nombre_cliente'] if pd.notna(row['nombre_cliente']) else row['nit_cliente'],
+                        'total_ventas': float(row['total'])
+                    }
+                    for _, row in clientes_ciudad.iterrows()
+                ]
+        
         # Construir resultado final
         ciudades_data = []
         for _, row in stats_por_ciudad.iterrows():
@@ -1161,11 +1180,14 @@ async def get_mapa_interactivo(referencia: Optional[str] = Query(None, descripti
             # Obtener top referencia
             top_referencia = top_refs_por_ciudad.get(ciudad) if not referencia else None
             
+            # Obtener todos los clientes que compran la referencia (si hay filtro)
+            clientes_referencia = clientes_por_referencia_ciudad.get(ciudad, []) if referencia else None
+            
             # Buscar coordenadas (optimizado)
             ciudad_lower = ciudad.lower().strip()
             coords = ciudad_a_coordenadas_lower.get(ciudad_lower) or ciudad_a_coordenadas.get(ciudad) or ciudad_a_coordenadas.get(ciudad.title()) or {}
             
-            ciudades_data.append({
+            ciudad_data = {
                 'ciudad': ciudad,
                 'departamento': coords.get('departamento', '') if coords else '',
                 'lat': coords.get('lat') if coords else None,
@@ -1175,7 +1197,13 @@ async def get_mapa_interactivo(referencia: Optional[str] = Query(None, descripti
                 'num_referencias': int(row['num_referencias']),
                 'top_cliente': top_cliente,
                 'top_referencia': top_referencia
-            })
+            }
+            
+            # Si hay una referencia seleccionada, agregar todos los clientes que la compran
+            if referencia and clientes_referencia:
+                ciudad_data['clientes_referencia'] = clientes_referencia
+            
+            ciudades_data.append(ciudad_data)
         
         # Ordenar por ventas descendente
         ciudades_data.sort(key=lambda x: x['total_ventas'], reverse=True)
