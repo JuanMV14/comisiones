@@ -11,6 +11,15 @@ export const getDevoluciones = async (facturaId = null, cliente = null, mes = nu
   return response.data
 }
 
+export const getDevolucionesComprasClientes = async (mes = null, cliente = null) => {
+  const params = {}
+  if (mes) params.mes = mes
+  if (cliente) params.cliente = cliente
+  
+  const response = await apiClient.get('/devoluciones/compras-clientes', { params })
+  return response.data
+}
+
 export const getFacturasDisponibles = async () => {
   const response = await apiClient.get('/devoluciones/facturas-disponibles')
   return response.data

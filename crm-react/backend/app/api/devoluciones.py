@@ -28,6 +28,187 @@ class DevolucionUpdate(BaseModel):
     motivo: Optional[str] = None
     afecta_comision: Optional[bool] = None
 
+@router.get("/compras-clientes")
+async def get_devoluciones_compras_clientes(
+    mes: Optional[str] = Query(None, description="Mes en formato YYYY-MM"),
+    cliente: Optional[str] = Query(None, description="Filtrar por NIT o nombre de cliente")
+) -> Dict[str, Any]:
+    """
+    Obtiene devoluciones desde la tabla compras_clientes organizadas por mes, año y cliente
+    """
+    try:
+        from supabase import create_client
+        from config.settings import AppConfig
+        import pandas as pd
+
+        env_status = AppConfig.validate_environment()
+        if not env_status["valid"]:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": "Faltan variables de entorno para conectar a Supabase.",
+                    "errors": env_status["errors"],
+                },
+            )
+        
+        supabase = create_client(AppConfig.SUPABASE_URL, AppConfig.SUPABASE_KEY)
+        
+        # Cargar devoluciones desde compras_clientes
+        query = supabase.table("compras_clientes").select("*").eq("es_devolucion", True)
+        
+        # Si se especifica un mes, filtrar por mes
+        if mes:
+            # Convertir mes a rango de fechas
+            try:
+                fecha_inicio = pd.to_datetime(f"{mes}-01")
+                fecha_fin = fecha_inicio + pd.offsets.MonthEnd(0)
+                query = query.gte("fecha", fecha_inicio.strftime('%Y-%m-%d'))
+                query = query.lte("fecha", fecha_fin.strftime('%Y-%m-%d'))
+            except Exception as e:
+                print(f"⚠️ Error aplicando filtro de fecha: {e}")
+        
+        # Si se especifica un cliente, filtrar por NIT o nombre
+        if cliente:
+            # Primero buscar el NIT en clientes_b2b
+            try:
+                clientes_result = supabase.table("clientes_b2b").select("nit, nombre").or_(f"nit.ilike.%{cliente}%,nombre.ilike.%{cliente}%").execute()
+                if clientes_result.data:
+                    nits = [c['nit'] for c in clientes_result.data]
+                    query = query.in_("nit_cliente", nits)
+            except Exception as e:
+                print(f"⚠️ Error filtrando por cliente: {e}")
+        
+        # Ejecutar consulta con paginación
+        all_devoluciones = []
+        page_size = 1000
+        offset = 0
+        
+        while True:
+            try:
+                result = query.range(offset, offset + page_size - 1).execute()
+                if not result.data:
+                    break
+                all_devoluciones.extend(result.data)
+                if len(result.data) < page_size:
+                    break
+                offset += page_size
+            except Exception as e:
+                print(f"⚠️ Error cargando página {offset}: {e}")
+                break
+        
+        if not all_devoluciones:
+            return {
+                "devoluciones": [],
+                "resumen_por_mes": {},
+                "resumen_por_cliente": {},
+                "total_devoluciones": 0,
+                "total_valor_devuelto": 0
+            }
+        
+        # Convertir a DataFrame para procesamiento
+        df = pd.DataFrame(all_devoluciones)
+        
+        # Asegurar que total sea numérico y negativo
+        if 'total' in df.columns:
+            df['total'] = pd.to_numeric(df['total'], errors='coerce').fillna(0)
+            # Asegurar que los totales sean negativos (devoluciones)
+            df['total'] = df['total'].abs() * -1
+        
+        # Convertir fecha a datetime
+        if 'fecha' in df.columns:
+            df['fecha'] = pd.to_datetime(df['fecha'], errors='coerce')
+            df['mes'] = df['fecha'].dt.to_period('M').astype(str)
+            df['año'] = df['fecha'].dt.year
+            df['mes_nombre'] = df['fecha'].dt.strftime('%B %Y')
+        
+        # Obtener información de clientes
+        nits_unicos = df['nit_cliente'].unique().tolist() if 'nit_cliente' in df.columns else []
+        clientes_info = {}
+        if nits_unicos:
+            try:
+                clientes_result = supabase.table("clientes_b2b").select("nit, nombre").in_("nit", nits_unicos).execute()
+                if clientes_result.data:
+                    clientes_info = {c['nit']: c['nombre'] for c in clientes_result.data}
+            except Exception as e:
+                print(f"⚠️ Error obteniendo información de clientes: {e}")
+        
+        # Agregar nombre de cliente al DataFrame
+        if 'nit_cliente' in df.columns:
+            df['nombre_cliente'] = df['nit_cliente'].map(clientes_info).fillna(df['nit_cliente'])
+        
+        # Resumen por mes
+        resumen_mes = {}
+        if 'mes' in df.columns and 'total' in df.columns:
+            resumen_mes_df = df.groupby('mes').agg({
+                'total': ['sum', 'count'],
+                'año': 'first',
+                'mes_nombre': 'first'
+            }).reset_index()
+            resumen_mes_df.columns = ['mes', 'valor_total', 'cantidad', 'año', 'mes_nombre']
+            
+            for _, row in resumen_mes_df.iterrows():
+                resumen_mes[row['mes']] = {
+                    "mes": row['mes'],
+                    "mes_nombre": row['mes_nombre'],
+                    "año": int(row['año']) if pd.notna(row['año']) else None,
+                    "cantidad": int(row['cantidad']),
+                    "valor_total": abs(float(row['valor_total']))
+                }
+        
+        # Resumen por cliente
+        resumen_cliente = {}
+        if 'nit_cliente' in df.columns and 'total' in df.columns:
+            resumen_cliente_df = df.groupby(['nit_cliente', 'nombre_cliente']).agg({
+                'total': ['sum', 'count']
+            }).reset_index()
+            resumen_cliente_df.columns = ['nit_cliente', 'nombre_cliente', 'valor_total', 'cantidad']
+            
+            for _, row in resumen_cliente_df.iterrows():
+                resumen_cliente[row['nit_cliente']] = {
+                    "nit": row['nit_cliente'],
+                    "nombre": row['nombre_cliente'],
+                    "cantidad": int(row['cantidad']),
+                    "valor_total": abs(float(row['valor_total']))
+                }
+        
+        # Formatear devoluciones para respuesta
+        devoluciones_lista = []
+        for _, row in df.iterrows():
+            fecha_str = row['fecha'].strftime('%Y-%m-%d') if pd.notna(row['fecha']) else None
+            
+            devolucion = {
+                "id": int(row.get('id', 0)),
+                "nit_cliente": str(row.get('nit_cliente', 'N/A')),
+                "nombre_cliente": str(row.get('nombre_cliente', row.get('nit_cliente', 'N/A'))),
+                "num_documento": str(row.get('num_documento', 'N/A')),
+                "cod_articulo": str(row.get('cod_articulo', 'N/A')),
+                "referencia": str(row.get('referencia', 'N/A')),
+                "cantidad": float(row.get('cantidad', 0)),
+                "total": abs(float(row.get('total', 0))),  # Valor absoluto para mostrar positivo
+                "fecha": fecha_str,
+                "mes": str(row.get('mes', 'N/A')),
+                "año": int(row.get('año', 0)) if pd.notna(row.get('año')) else None,
+                "fuente": str(row.get('fuente', 'DV')) if 'fuente' in row else 'DV'
+            }
+            devoluciones_lista.append(devolucion)
+        
+        # Calcular totales
+        total_valor = abs(df['total'].sum()) if 'total' in df.columns else 0
+        
+        return {
+            "devoluciones": devoluciones_lista,
+            "resumen_por_mes": resumen_mes,
+            "resumen_por_cliente": resumen_cliente,
+            "total_devoluciones": len(devoluciones_lista),
+            "total_valor_devuelto": float(total_valor)
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"❌ Error obteniendo devoluciones de compras_clientes: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error obteniendo devoluciones: {str(e)}")
+
 @router.get("")
 async def get_devoluciones(
     factura_id: Optional[int] = Query(None, description="Filtrar por ID de factura"),

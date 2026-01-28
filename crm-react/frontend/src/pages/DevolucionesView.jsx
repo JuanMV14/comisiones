@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { ArrowLeftRight, Search, Calendar, DollarSign, Loader2, Eye, Edit, Trash2, Plus, X, Save, FileText, AlertCircle } from 'lucide-react'
-import { getDevoluciones, getFacturasDisponibles, crearDevolucion, actualizarDevolucion, eliminarDevolucion } from '../api/devoluciones'
+import { getDevoluciones, getDevolucionesComprasClientes, getFacturasDisponibles, crearDevolucion, actualizarDevolucion, eliminarDevolucion } from '../api/devoluciones'
 import { getMesesDisponibles } from '../api/dashboard'
 
 const DevolucionesView = () => {
   const [devoluciones, setDevoluciones] = useState([])
+  const [devolucionesCompras, setDevolucionesCompras] = useState([])
+  const [resumenPorMes, setResumenPorMes] = useState({})
+  const [resumenPorCliente, setResumenPorCliente] = useState({})
+  const [mostrarComprasClientes, setMostrarComprasClientes] = useState(true) // Por defecto mostrar desde compras_clientes
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -40,17 +44,31 @@ const DevolucionesView = () => {
   }, [])
 
   useEffect(() => {
-    if (mesSeleccionado) {
+    if (mesSeleccionado || mostrarComprasClientes) {
       cargarDevoluciones()
     }
-  }, [mesSeleccionado, searchTerm])
+  }, [mesSeleccionado, searchTerm, mostrarComprasClientes])
 
   const cargarDevoluciones = async () => {
     try {
       setLoading(true)
       setError(null)
-      const data = await getDevoluciones(null, searchTerm || null, mesSeleccionado, null)
-      setDevoluciones(data.devoluciones || [])
+      
+      if (mostrarComprasClientes) {
+        // Cargar desde compras_clientes
+        const data = await getDevolucionesComprasClientes(mesSeleccionado || null, searchTerm || null)
+        setDevolucionesCompras(data.devoluciones || [])
+        setResumenPorMes(data.resumen_por_mes || {})
+        setResumenPorCliente(data.resumen_por_cliente || {})
+        setDevoluciones([]) // Limpiar devoluciones tradicionales
+      } else {
+        // Cargar desde tabla devoluciones tradicional
+        const data = await getDevoluciones(null, searchTerm || null, mesSeleccionado, null)
+        setDevoluciones(data.devoluciones || [])
+        setDevolucionesCompras([]) // Limpiar devoluciones de compras_clientes
+        setResumenPorMes({})
+        setResumenPorCliente({})
+      }
     } catch (err) {
       console.error('Error cargando devoluciones:', err)
       setError(`Error al cargar las devoluciones: ${err.message}`)
