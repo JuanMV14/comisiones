@@ -813,9 +813,12 @@ const GestionClientesB2BView = () => {
                     <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
                       <p className="text-xs text-slate-400 mb-1">Devoluciones</p>
                       <p className="text-2xl font-bold text-red-400">{comprasCliente.resumen.total_devoluciones || 0}</p>
+                      {comprasCliente.resumen.valor_devoluciones > 0 && (
+                        <p className="text-xs text-red-300 mt-1">{formatCurrency(comprasCliente.resumen.valor_devoluciones)}</p>
+                      )}
                     </div>
                     <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
-                      <p className="text-xs text-slate-400 mb-1">Valor Total</p>
+                      <p className="text-xs text-slate-400 mb-1">Valor Total Compras</p>
                       <p className="text-2xl font-bold text-emerald-400">{formatCurrency(comprasCliente.resumen.valor_total || 0)}</p>
                     </div>
                     <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">

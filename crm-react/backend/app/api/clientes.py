@@ -728,13 +728,25 @@ async def get_compras_cliente(
         else:
             compras_paginadas = compras_formateadas
 
+        # Contar documentos únicos de devoluciones (no items)
+        if not devoluciones.empty and 'num_documento' in devoluciones.columns:
+            total_devoluciones_docs = devoluciones['num_documento'].nunique()
+        else:
+            total_devoluciones_docs = len(devoluciones)
+        
+        # Contar documentos únicos de compras (no items)
+        if not compras_sin_devol.empty and 'num_documento' in compras_sin_devol.columns:
+            total_compras_docs = compras_sin_devol['num_documento'].nunique()
+        else:
+            total_compras_docs = len(compras_sin_devol)
+        
         return {
             "compras": compras_paginadas,
             "total": total_compras,
             "cliente": cliente,
             "resumen": {
-                "total_compras": len(compras_sin_devol),
-                "total_devoluciones": len(devoluciones),
+                "total_compras": total_compras_docs,  # Documentos únicos de compras
+                "total_devoluciones": total_devoluciones_docs,  # Documentos únicos de devoluciones
                 "valor_total": valor_total,
                 "valor_devoluciones": valor_devoluciones,
                 "valor_neto": valor_total - valor_devoluciones
