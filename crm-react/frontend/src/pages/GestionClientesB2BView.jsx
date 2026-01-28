@@ -141,6 +141,35 @@ const GestionClientesB2BView = () => {
     }
   }
 
+  const handleCargarExcel = async (e) => {
+    e.preventDefault()
+    if (!archivoExcel) {
+      alert('Por favor selecciona un archivo Excel')
+      return
+    }
+
+    try {
+      setLoadingExcel(true)
+      setResultadoExcel(null)
+      const resultado = await cargarComprasExcel(archivoExcel, nitClienteExcel || null)
+      setResultadoExcel(resultado)
+      
+      if (resultado.success) {
+        // Recargar datos después de cargar
+        setTimeout(() => {
+          cargarDatos()
+          setMostrarCargarExcel(false)
+          setArchivoExcel(null)
+          setNitClienteExcel('')
+        }, 2000)
+      }
+    } catch (err) {
+      alert(`Error cargando archivo: ${err.response?.data?.detail || err.message}`)
+    } finally {
+      setLoadingExcel(false)
+    }
+  }
+
   const abrirEditar = (cliente) => {
     setClienteSeleccionado(cliente)
     setFormData({
