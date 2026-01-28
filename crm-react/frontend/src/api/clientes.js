@@ -1,20 +1,33 @@
-import axios from 'axios'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+import apiClient from './client'
 
 export const getClientes = async () => {
-  const response = await axios.get(`${API_URL}/clientes`)
+  const response = await apiClient.get('/clientes')
   return response.data
 }
 
 export const getClienteById = async (id) => {
-  const response = await axios.get(`${API_URL}/clientes/${id}`)
+  const response = await apiClient.get(`/clientes/${id}`)
   return response.data
 }
 
 export const getClienteDetalle = async (clienteNombre) => {
-  const response = await axios.get(`${API_URL}/clientes/detalle`, {
+  const response = await apiClient.get('/clientes/detalle', {
     params: { nombre: clienteNombre }
   })
+  return response.data
+}
+
+export const crearCliente = async (clienteData) => {
+  const response = await apiClient.post('/clientes', clienteData)
+  return response.data
+}
+
+export const actualizarCliente = async (clienteId, clienteData) => {
+  const response = await apiClient.put(`/clientes/${clienteId}`, clienteData)
+  return response.data
+}
+
+export const eliminarCliente = async (clienteId) => {
+  const response = await apiClient.delete(`/clientes/${clienteId}`)
   return response.data
 }

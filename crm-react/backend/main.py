@@ -29,21 +29,34 @@ app = FastAPI(
 )
 
 # CORS - Permitir llamadas desde el frontend React
+# Detectar si estamos en producción (Vercel)
+is_production = os.getenv("VERCEL") == "1" or os.getenv("ENVIRONMENT") == "production"
+
 # Obtener URL del frontend desde variable de entorno o usar valores por defecto
 frontend_urls_str = os.getenv("FRONTEND_URLS", "http://localhost:3000,http://localhost:5173")
 frontend_urls = [url.strip() for url in frontend_urls_str.split(",") if url.strip()]
 
-# Agregar URLs de Vercel si están configuradas
+# Agregar URLs de Vercel automáticamente si estamos en Vercel
 vercel_url = os.getenv("VERCEL_URL")
 if vercel_url:
     frontend_urls.append(f"https://{vercel_url}")
-    frontend_urls.append("https://comisiones-g6hi.vercel.app")  # Tu URL actual
+
+# Agregar URL específica del frontend si está configurada
+frontend_prod_url = os.getenv("FRONTEND_PROD_URL")
+if frontend_prod_url:
+    frontend_urls.append(frontend_prod_url.strip())
 
 # En desarrollo, permitir todos los orígenes para evitar problemas de CORS
-# En producción, usar solo los orígenes específicos
-allow_origins = ["*"] if os.getenv("ENVIRONMENT", "development") == "development" else frontend_urls
+# En producción, usar solo los orígenes específicos + permitir todos temporalmente para facilitar despliegue
+if is_production:
+    # En producción, permitir los orígenes específicos + wildcard para facilitar despliegue inicial
+    # TODO: Restringir a solo los orígenes específicos una vez que tengas la URL definitiva
+    allow_origins = ["*"]  # Cambiar a frontend_urls cuando tengas la URL definitiva
+else:
+    allow_origins = ["*"]
 
-print(f"🌐 CORS configurado. Orígenes permitidos: {allow_origins}")
+print(f"🌐 CORS configurado. Modo: {'PRODUCCIÓN' if is_production else 'DESARROLLO'}")
+print(f"🌐 Orígenes permitidos: {allow_origins}")
 
 app.add_middleware(
     CORSMiddleware,

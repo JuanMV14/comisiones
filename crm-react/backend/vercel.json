@@ -14,5 +14,10 @@
   ],
   "env": {
     "PYTHON_VERSION": "3.11"
+  },
+  "functions": {
+    "main.py": {
+      "maxDuration": 30
+    }
   }
 }
