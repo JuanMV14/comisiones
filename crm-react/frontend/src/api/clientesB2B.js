@@ -46,10 +46,33 @@ export const cargarComprasExcel = async (archivo, nitCliente = null) => {
     url += `?nit_cliente=${encodeURIComponent(nitCliente.trim())}`
   }
   
-  const response = await apiClient.post(url, formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  })
-  return response.data
+  console.log('📡 Enviando archivo a:', url)
+  
+  try {
+    const response = await apiClient.post(url, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 60000, // 60 segundos de timeout para archivos grandes
+    })
+    return response.data
+  } catch (error) {
+    console.error('❌ Error en cargarComprasExcel:', error)
+    if (error.response) {
+      // El servidor respondió con un código de error
+      throw {
+        ...error,
+        message: error.response.data?.detail || error.response.data?.message || error.message || 'Error desconocido'
+      }
+    } else if (error.request) {
+      // La petición se hizo pero no hubo respuesta
+      throw {
+        ...error,
+        message: 'No se pudo conectar con el servidor. Verifica que el backend esté corriendo.'
+      }
+    } else {
+      // Algo más causó el error
+      throw error
+    }
+  }
 }
