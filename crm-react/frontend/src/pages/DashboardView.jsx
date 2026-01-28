@@ -258,17 +258,11 @@ const DashboardView = () => {
           </div>
           
           {/* Información adicional */}
-          <div className="grid grid-cols-2 gap-4 mt-4">
+          <div className="mt-4">
             <div className="bg-slate-900/50 rounded-lg p-3">
               <p className="text-xs text-slate-400 mb-1">Faltante</p>
               <p className="text-lg font-semibold text-amber-400">
                 {formatCurrency(metrics.faltanteMeta)}
-              </p>
-            </div>
-            <div className="bg-slate-900/50 rounded-lg p-3">
-              <p className="text-xs text-slate-400 mb-1">Porcentaje</p>
-              <p className="text-lg font-semibold text-white">
-                {metrics.progresoMeta.toFixed(1)}%
               </p>
             </div>
           </div>
