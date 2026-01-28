@@ -20,13 +20,25 @@ apiClient.interceptors.response.use(
   (error) => {
     if (!error.response) {
       // Error de red o CORS
+      const apiUrl = API_URL || 'no configurada'
       console.error('❌ Error de conexión:', error.message)
+      console.error('📍 URL del backend:', apiUrl)
+      
       if (error.message.includes('Network Error') || error.code === 'ERR_NETWORK') {
         console.error('⚠️ No se puede conectar al backend. Verifica:')
         console.error('   1. Que el backend esté desplegado y funcionando')
         console.error('   2. Que VITE_API_URL esté configurada correctamente en producción')
         console.error('   3. Que CORS esté configurado en el backend')
+        console.error('')
+        console.error('🔧 Para solucionarlo:')
+        console.error('   - Ve a Vercel Dashboard → Tu proyecto frontend')
+        console.error('   - Settings → Environment Variables')
+        console.error('   - Agrega: VITE_API_URL=https://tu-backend.vercel.app/api')
+        console.error('   - Redesplegar el frontend')
       }
+    } else {
+      // Error de respuesta del servidor
+      console.error('❌ Error del servidor:', error.response.status, error.response.statusText)
     }
     return Promise.reject(error)
   }
