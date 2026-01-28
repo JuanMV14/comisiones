@@ -120,17 +120,55 @@ const DashboardEjecutivoView = () => {
   // Obtener datos de la ciudad seleccionada para insights
   const obtenerInsightsCiudad = () => {
     try {
-      if (!ciudadSeleccionada || !mapaData) return null
+      if (!ciudadSeleccionada) return null
 
-      const porCiudad = mapaData.por_ciudad || []
-      const ciudadData = porCiudad.find(c => c && c.ciudad === ciudadSeleccionada)
+      let ciudadData = null
+      
+      // Si hay referencia seleccionada, buscar en mapaInteractivoData
+      if (referenciaSeleccionada && mapaInteractivoData?.ciudades) {
+        ciudadData = mapaInteractivoData.ciudades.find(c => c && c.ciudad === ciudadSeleccionada)
+        if (ciudadData) {
+          const ventas = parseFloat(ciudadData.total_ventas) || 0
+          const clientes = parseInt(ciudadData.num_clientes) || 0
+          const variacion = null
+          
+          // Obtener top referencia de esta ciudad para la referencia seleccionada
+          let topReferencia = null
+          if (ciudadData.clientes_referencia && ciudadData.clientes_referencia.length > 0) {
+            // La referencia seleccionada es la top en esta ciudad
+            topReferencia = {
+              referencia: referenciaSeleccionada,
+              valor_total: ventas,
+              num_clientes: clientes
+            }
+          }
+          
+          const sugerencia = generarSugerenciaIA({ ciudad: ciudadSeleccionada }, ventas, clientes, variacion)
+          
+          return {
+            ciudad: ciudadSeleccionada,
+            ventas: ventas,
+            clientes: clientes,
+            variacion: variacion,
+            sugerencia: sugerencia,
+            topReferencia: topReferencia,
+            clientes_referencia: ciudadData.clientes_referencia
+          }
+        }
+      }
+      
+      // Si no hay referencia seleccionada o no se encontró en mapaInteractivoData, buscar en mapaData
+      if (!ciudadData && mapaData) {
+        const porCiudad = mapaData.por_ciudad || []
+        ciudadData = porCiudad.find(c => c && c.ciudad === ciudadSeleccionada)
+      }
 
       if (!ciudadData) {
         console.warn(`Ciudad ${ciudadSeleccionada} no encontrada en los datos`)
         return null
       }
 
-      const ventas = parseFloat(ciudadData.total_compras) || 0
+      const ventas = parseFloat(ciudadData.total_compras || ciudadData.total_ventas) || 0
       const clientes = parseInt(ciudadData.num_clientes) || 0
 
       // Si no hay ventas, no hay variación (no tiene sentido decir que está creciendo)
@@ -431,6 +469,7 @@ const DashboardEjecutivoView = () => {
                 )
               }
               
+              // Preparar datos del mapa con resaltado de ciudad seleccionada
               const datosMapa = {
                 lat: ciudadesConCoords.map(c => c.lat),
                 lon: ciudadesConCoords.map(c => c.lon),
@@ -467,11 +506,31 @@ const DashboardEjecutivoView = () => {
                       texto += `$${(c.top_referencia.total_ventas || 0).toLocaleString('es-CO')}`
                     }
                   }
+                  texto += `<br><br><i>Click para ver detalles</i>`
                   return texto
                 }),
-                size: ciudadesConCoords.map(c => Math.max(10, Math.min(50, (c.total_ventas || 0) / 100000))),
+                size: ciudadesConCoords.map(c => {
+                  const baseSize = Math.max(10, Math.min(50, (c.total_ventas || 0) / 100000))
+                  // Resaltar ciudad seleccionada con tamaño mayor
+                  return ciudadSeleccionada === c.ciudad ? baseSize * 1.5 : baseSize
+                }),
                 color: ciudadesConCoords.map(c => c.num_clientes || 0),
-                ciudades: ciudadesConCoords.map(c => c.ciudad)
+                ciudades: ciudadesConCoords.map(c => c.ciudad),
+                // Colores especiales para ciudad seleccionada
+                markerColors: ciudadesConCoords.map(c => 
+                  ciudadSeleccionada === c.ciudad ? 'rgba(59, 130, 246, 0.8)' : undefined
+                )
+              }
+              
+              // Handler para clicks en el mapa
+              const handleMapClick = (event) => {
+                if (event && event.points && event.points.length > 0) {
+                  const pointIndex = event.points[0].pointNumber
+                  const ciudadClicked = datosMapa.ciudades[pointIndex]
+                  if (ciudadClicked) {
+                    setCiudadSeleccionada(ciudadClicked)
+                  }
+                }
               }
               
               return (
@@ -532,9 +591,18 @@ const DashboardEjecutivoView = () => {
                           sizeref: 2,
                           sizemin: 10,
                           line: {
-                            color: 'rgba(255, 255, 255, 0.3)',
-                            width: 1
-                          }
+                            color: ciudadesConCoords.map(c => 
+                              ciudadSeleccionada === c.ciudad 
+                                ? 'rgba(59, 130, 246, 1)' 
+                                : 'rgba(255, 255, 255, 0.3)'
+                            ),
+                            width: ciudadesConCoords.map(c => 
+                              ciudadSeleccionada === c.ciudad ? 3 : 1
+                            )
+                          },
+                          opacity: ciudadesConCoords.map(c => 
+                            ciudadSeleccionada && ciudadSeleccionada !== c.ciudad ? 0.4 : 1
+                          )
                         }
                       }
                     ]}
@@ -568,6 +636,10 @@ const DashboardEjecutivoView = () => {
                       responsive: true
                     }}
                     style={{ width: '100%', height: '500px' }}
+                    onUpdate={(figure) => {
+                      // Este callback se ejecuta cuando el gráfico se actualiza
+                    }}
+                    onClick={handleMapClick}
                   />
                 </div>
               )
@@ -641,8 +713,23 @@ const DashboardEjecutivoView = () => {
               </div>
 
               {/* Top Referencia */}
-              {referenciasCiudad && referenciasCiudad.referencias && referenciasCiudad.referencias.length > 0 && (
-                (() => {
+              {(() => {
+                // Si hay referencia seleccionada, mostrar información de esa referencia
+                if (referenciaSeleccionada && insightsCiudad?.topReferencia) {
+                  const topRef = insightsCiudad.topReferencia
+                  return (
+                    <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
+                      <p className="text-xs text-slate-400 mb-2">Referencia Seleccionada</p>
+                      <p className="font-semibold text-white text-sm mb-2">{topRef.referencia}</p>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">{formatCurrency(topRef.valor_total || 0)}</span>
+                        <span className="text-slate-300">{topRef.num_clientes || 0} Clientes</span>
+                      </div>
+                    </div>
+                  )
+                }
+                // Si no hay referencia seleccionada, mostrar top referencia de la ciudad
+                if (referenciasCiudad && referenciasCiudad.referencias && referenciasCiudad.referencias.length > 0) {
                   const topRef = referenciasCiudad.referencias.find(r => r.referencia && r.referencia !== 'N/A' && r.referencia.trim() !== '')
                   return topRef ? (
                     <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
@@ -654,8 +741,9 @@ const DashboardEjecutivoView = () => {
                       </div>
                     </div>
                   ) : null
-                })()
-              )}
+                }
+                return null
+              })()}
 
               <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/5 rounded-lg p-4 border border-purple-500/20">
                 <div className="flex items-center gap-2 mb-2">
@@ -697,13 +785,25 @@ const DashboardEjecutivoView = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/50">
-                {mapaData?.por_ciudad?.slice(0, 10).map((ciudad, idx) => {
+                {(referenciaSeleccionada && mapaInteractivoData?.ciudades 
+                  ? mapaInteractivoData.ciudades
+                      .filter(c => c.total_ventas > 0)
+                      .sort((a, b) => (b.total_ventas || 0) - (a.total_ventas || 0))
+                      .slice(0, 10)
+                      .map(c => ({
+                        ciudad: c.ciudad,
+                        departamento: c.departamento || 'N/A',
+                        total_compras: c.total_ventas || 0,
+                        num_clientes: c.num_clientes || 0
+                      }))
+                  : mapaData?.por_ciudad?.slice(0, 10) || []
+                ).map((ciudad, idx) => {
                   const tendencia = calcularTendencia(ciudad)
                   
                   return (
                     <tr 
                       key={idx} 
-                      className={`hover:bg-slate-700/30 transition-colors cursor-pointer ${ciudadSeleccionada === ciudad.ciudad ? 'bg-blue-500/10' : ''}`}
+                      className={`hover:bg-slate-700/30 transition-colors cursor-pointer ${ciudadSeleccionada === ciudad.ciudad ? 'bg-blue-500/10 border-l-4 border-blue-500' : ''}`}
                       onClick={() => setCiudadSeleccionada(ciudad.ciudad)}
                     >
                       <td className="px-4 py-3">
@@ -800,7 +900,7 @@ const DashboardEjecutivoView = () => {
                       }`}
                       onClick={() => {
                         setReferenciaSeleccionada(ref.referencia)
-                        setCiudadSeleccionada(null) // Limpiar ciudad seleccionada al cambiar referencia
+                        // No limpiar ciudad seleccionada, mantenerla si existe
                       }}
                       title={`Click para ver en el mapa dónde se compra ${ref.referencia}`}
                     >
