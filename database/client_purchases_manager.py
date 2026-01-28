@@ -167,9 +167,22 @@ class ClientPurchasesManager:
             
             cliente_id = cliente['id']
             
-            # Separar compras (FE) y devoluciones (DV)
-            df_compras = df[df['FUENTE'].astype(str).str.upper() == 'FE'].copy()
-            df_devoluciones = df[df['FUENTE'].astype(str).str.upper() == 'DV'].copy()
+            # Detectar devoluciones: FUENTE='DV' O Total negativo
+            # Normalizar columna Total para detectar negativos
+            if 'Total' in df.columns:
+                df['Total_numeric'] = pd.to_numeric(df['Total'], errors='coerce')
+            else:
+                df['Total_numeric'] = 0
+            
+            # Separar compras y devoluciones
+            # Devoluciones: FUENTE='DV' O Total negativo
+            mask_devoluciones = (
+                (df['FUENTE'].astype(str).str.upper() == 'DV') |
+                (df['Total_numeric'] < 0)
+            )
+            
+            df_devoluciones = df[mask_devoluciones].copy()
+            df_compras = df[~mask_devoluciones].copy()
             
             # Preparar datos para inserción
             compras_nuevas = 0
@@ -177,7 +190,7 @@ class ClientPurchasesManager:
             devoluciones_nuevas = 0
             devoluciones_actualizadas = 0
             
-            # Procesar COMPRAS (FE)
+            # Procesar COMPRAS (FE y Total positivo)
             for _, row in df_compras.iterrows():
                 try:
                     # Parsear fecha
@@ -190,23 +203,28 @@ class ClientPurchasesManager:
                     else:
                         fecha = datetime.now().isoformat()
                     
+                    # Asegurar que el total sea positivo para compras
+                    total_valor = float(row.get('Total', 0)) if pd.notna(row.get('Total')) else 0
+                    if total_valor < 0:
+                        total_valor = abs(total_valor)  # Convertir a positivo si es negativo
+                    
                     data = {
                         'cliente_id': cliente_id,
                         'nit_cliente': nit_cliente,
-                        'fuente': str(row.get('FUENTE', '')),
+                        'fuente': str(row.get('FUENTE', 'FE')),
                         'num_documento': str(row.get('NUM_DCTO', '')),
                         'fecha': fecha,
                         'cod_articulo': str(row.get('COD_ARTICULO', '')),
                         'detalle': str(row.get('DETALLE', '')),
                         'cantidad': int(row.get('CANTIDAD', 0)) if pd.notna(row.get('CANTIDAD')) else 0,
-                        'valor_unitario': float(row.get('valor_Unitario', 0)) if pd.notna(row.get('valor_Unitario')) else 0,
+                        'valor_unitario': abs(float(row.get('valor_Unitario', 0))) if pd.notna(row.get('valor_Unitario')) else 0,
                         'descuento': float(row.get('dcto', 0)) if pd.notna(row.get('dcto')) else 0,
-                        'total': float(row.get('Total', 0)) if pd.notna(row.get('Total')) else 0,
+                        'total': total_valor,  # Positivo para compras
                         'familia': str(row.get('FAMILIA', '')),
                         'marca': str(row.get('Marca', '')),
                         'subgrupo': str(row.get('SUBGRUPO', '')),
                         'grupo': str(row.get('GRUPO', '')),
-                        'es_devolucion': False,  # FE = compra
+                        'es_devolucion': False,  # Compra
                         'fecha_carga': datetime.now().isoformat()
                     }
                     
@@ -225,7 +243,7 @@ class ClientPurchasesManager:
                 except Exception as e:
                     continue
             
-            # Procesar DEVOLUCIONES (DV)
+            # Procesar DEVOLUCIONES (DV o Total negativo)
             for _, row in df_devoluciones.iterrows():
                 try:
                     # Parsear fecha
@@ -238,26 +256,37 @@ class ClientPurchasesManager:
                     else:
                         fecha = datetime.now().isoformat()
                     
-                    # Para devoluciones, el total es negativo
-                    total_devolucion = abs(float(row.get('Total', 0))) if pd.notna(row.get('Total')) else 0
+                    # Para devoluciones, el total debe ser negativo
+                    # Si viene negativo del Excel, mantenerlo negativo; si viene positivo, hacerlo negativo
+                    total_devolucion = float(row.get('Total', 0)) if pd.notna(row.get('Total')) else 0
+                    if total_devolucion > 0:
+                        total_devolucion = -abs(total_devolucion)  # Asegurar que sea negativo
+                    else:
+                        total_devolucion = abs(total_devolucion)  # Si ya es negativo, convertirlo a positivo primero
+                        total_devolucion = -total_devolucion  # Luego hacerlo negativo
+                    
+                    # Determinar fuente: si FUENTE='DV' usar 'DV', sino usar 'FE' pero marcarlo como devolución
+                    fuente_valor = str(row.get('FUENTE', 'FE'))
+                    if fuente_valor.upper() != 'DV' and total_devolucion < 0:
+                        fuente_valor = 'DV'  # Cambiar a DV si el total es negativo
                     
                     data = {
                         'cliente_id': cliente_id,
                         'nit_cliente': nit_cliente,
-                        'fuente': str(row.get('FUENTE', '')),
+                        'fuente': fuente_valor,
                         'num_documento': str(row.get('NUM_DCTO', '')),
                         'fecha': fecha,
                         'cod_articulo': str(row.get('COD_ARTICULO', '')),
                         'detalle': str(row.get('DETALLE', '')),
                         'cantidad': int(row.get('CANTIDAD', 0)) if pd.notna(row.get('CANTIDAD')) else 0,
-                        'valor_unitario': float(row.get('valor_Unitario', 0)) if pd.notna(row.get('valor_Unitario')) else 0,
+                        'valor_unitario': abs(float(row.get('valor_Unitario', 0))) if pd.notna(row.get('valor_Unitario')) else 0,
                         'descuento': float(row.get('dcto', 0)) if pd.notna(row.get('dcto')) else 0,
-                        'total': -total_devolucion,  # Negativo para devoluciones
+                        'total': total_devolucion,  # Negativo para devoluciones
                         'familia': str(row.get('FAMILIA', '')),
                         'marca': str(row.get('Marca', '')),
                         'subgrupo': str(row.get('SUBGRUPO', '')),
                         'grupo': str(row.get('GRUPO', '')),
-                        'es_devolucion': True,  # DV = devolución
+                        'es_devolucion': True,  # Devolución (DV o Total negativo)
                         'fecha_carga': datetime.now().isoformat()
                     }
                     
