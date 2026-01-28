@@ -474,12 +474,22 @@ async def get_clientes_b2b_listado(
                 compras_cliente = pd.DataFrame()
 
             # Calcular estadísticas
-            total_compras = len(compras_cliente[compras_cliente.get('es_devolucion', False) == False]) if not compras_cliente.empty else 0
-            total_devoluciones = len(compras_cliente[compras_cliente.get('es_devolucion', False) == True]) if not compras_cliente.empty else 0
-            
-            # Calcular valor total de compras (sin devoluciones)
+            # Contar documentos/facturas únicos, no referencias individuales
             if not compras_cliente.empty:
                 compras_sin_devol = compras_cliente[compras_cliente.get('es_devolucion', False) == False]
+                devoluciones = compras_cliente[compras_cliente.get('es_devolucion', False) == True]
+                
+                # Contar documentos únicos (facturas), no items/referencias
+                if 'num_documento' in compras_sin_devol.columns:
+                    total_compras = compras_sin_devol['num_documento'].nunique() if not compras_sin_devol.empty else 0
+                else:
+                    total_compras = 0
+                
+                if 'num_documento' in devoluciones.columns:
+                    total_devoluciones = devoluciones['num_documento'].nunique() if not devoluciones.empty else 0
+                else:
+                    total_devoluciones = 0
+                
                 valor_total_compras = float(compras_sin_devol['total'].sum()) if 'total' in compras_sin_devol.columns else 0
                 
                 # Última compra
@@ -493,6 +503,8 @@ async def get_clientes_b2b_listado(
                 else:
                     dias_desde_compra = None
             else:
+                total_compras = 0
+                total_devoluciones = 0
                 valor_total_compras = 0
                 ultima_compra_str = None
                 dias_desde_compra = None
