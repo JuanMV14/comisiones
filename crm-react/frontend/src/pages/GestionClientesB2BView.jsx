@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Users, Search, Plus, Edit2, Trash2, Filter, X, Loader2, AlertCircle, CheckCircle, DollarSign, ShoppingCart, Calendar, MapPin, CreditCard, TrendingUp, Eye } from 'lucide-react'
-import { getClientesB2B, getComprasCliente, getResumenClientesB2B, crearClienteB2B, actualizarClienteB2B, eliminarClienteB2B } from '../api/clientesB2B'
+import { Users, Search, Plus, Edit2, Trash2, Filter, X, Loader2, AlertCircle, CheckCircle, DollarSign, ShoppingCart, Calendar, MapPin, CreditCard, TrendingUp, Eye, Upload, FileSpreadsheet } from 'lucide-react'
+import { getClientesB2B, getComprasCliente, getResumenClientesB2B, crearClienteB2B, actualizarClienteB2B, eliminarClienteB2B, cargarComprasExcel } from '../api/clientesB2B'
 
 const GestionClientesB2BView = () => {
   const [clientes, setClientes] = useState([])
@@ -17,9 +17,14 @@ const GestionClientesB2BView = () => {
   const [mostrarCrear, setMostrarCrear] = useState(false)
   const [mostrarEditar, setMostrarEditar] = useState(false)
   const [mostrarDetalle, setMostrarDetalle] = useState(false)
+  const [mostrarCargarExcel, setMostrarCargarExcel] = useState(false)
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
   const [comprasCliente, setComprasCliente] = useState(null)
   const [loadingCompras, setLoadingCompras] = useState(false)
+  const [archivoExcel, setArchivoExcel] = useState(null)
+  const [nitClienteExcel, setNitClienteExcel] = useState('')
+  const [loadingExcel, setLoadingExcel] = useState(false)
+  const [resultadoExcel, setResultadoExcel] = useState(null)
   
   // Formulario
   const [formData, setFormData] = useState({
@@ -222,16 +227,25 @@ const GestionClientesB2BView = () => {
           <h2 className="text-2xl font-bold text-white mb-1">Gestión Clientes B2B</h2>
           <p className="text-sm text-slate-400">Administración de clientes y seguimiento de compras</p>
         </div>
-        <button
-          onClick={() => {
-            resetForm()
-            setMostrarCrear(true)
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Nuevo Cliente
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setMostrarCargarExcel(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            Cargar Compras Excel
+          </button>
+          <button
+            onClick={() => {
+              resetForm()
+              setMostrarCrear(true)
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Nuevo Cliente
+          </button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -889,6 +903,171 @@ const GestionClientesB2BView = () => {
                 <p className="text-slate-500">No se pudieron cargar las compras</p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cargar Excel */}
+      {mostrarCargarExcel && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <FileSpreadsheet className="w-6 h-6 text-emerald-400" />
+                  <h3 className="text-xl font-semibold text-white">Cargar Compras desde Excel</h3>
+                </div>
+                <button
+                  onClick={() => {
+                    setMostrarCargarExcel(false)
+                    setArchivoExcel(null)
+                    setNitClienteExcel('')
+                    setResultadoExcel(null)
+                  }}
+                  className="text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={handleCargarExcel} className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-semibold text-slate-300 mb-2">
+                  Archivo Excel (.xlsx o .xls)
+                </label>
+                <div className="border-2 border-dashed border-slate-600 rounded-lg p-6 text-center hover:border-emerald-500 transition-colors">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    onChange={(e) => setArchivoExcel(e.target.files[0])}
+                    className="hidden"
+                    id="archivo-excel"
+                  />
+                  <label
+                    htmlFor="archivo-excel"
+                    className="cursor-pointer flex flex-col items-center gap-2"
+                  >
+                    <Upload className="w-8 h-8 text-slate-400" />
+                    {archivoExcel ? (
+                      <span className="text-emerald-400 font-semibold">{archivoExcel.name}</span>
+                    ) : (
+                      <>
+                        <span className="text-slate-400">Haz clic para seleccionar archivo</span>
+                        <span className="text-xs text-slate-500">Formatos: .xlsx, .xls</span>
+                      </>
+                    )}
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-300 mb-2">
+                  NIT del Cliente (Opcional)
+                </label>
+                <p className="text-xs text-slate-400 mb-2">
+                  Si el Excel contiene múltiples clientes, déjalo vacío. Si el Excel tiene columna 'NIT_CLIENTE' o 'NIT', se detectará automáticamente.
+                </p>
+                <input
+                  type="text"
+                  value={nitClienteExcel}
+                  onChange={(e) => setNitClienteExcel(e.target.value)}
+                  placeholder="Ej: 901234567"
+                  className="w-full px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
+                <p className="text-xs font-semibold text-slate-300 mb-2">Formato requerido del Excel:</p>
+                <ul className="text-xs text-slate-400 space-y-1 list-disc list-inside">
+                  <li><strong>FUENTE:</strong> 'FE' para compras, 'DV' para devoluciones</li>
+                  <li><strong>NUM_DCTO:</strong> Número de documento/factura</li>
+                  <li><strong>FECHA:</strong> Fecha de la compra</li>
+                  <li><strong>COD_ARTICULO:</strong> Código del artículo</li>
+                  <li><strong>DETALLE:</strong> Descripción del producto</li>
+                  <li><strong>CANTIDAD:</strong> Cantidad comprada</li>
+                  <li><strong>valor_Unitario:</strong> Precio unitario</li>
+                  <li><strong>dcto:</strong> Porcentaje de descuento</li>
+                  <li><strong>Total:</strong> Total del item</li>
+                  <li><strong>FAMILIA, Marca, SUBGRUPO, GRUPO:</strong> Categorías del producto</li>
+                </ul>
+              </div>
+
+              {resultadoExcel && (
+                <div className={`p-4 rounded-lg border ${
+                  resultadoExcel.success 
+                    ? 'bg-emerald-500/10 border-emerald-500/30' 
+                    : 'bg-red-500/10 border-red-500/30'
+                }`}>
+                  {resultadoExcel.success ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-emerald-400">
+                        <CheckCircle className="w-5 h-5" />
+                        <span className="font-semibold">Archivo procesado correctamente</span>
+                      </div>
+                      {resultadoExcel.cliente && (
+                        <p className="text-sm text-slate-300">Cliente: {resultadoExcel.cliente}</p>
+                      )}
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-slate-400">Compras nuevas:</p>
+                          <p className="text-white font-semibold">{resultadoExcel.compras_nuevas || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Compras actualizadas:</p>
+                          <p className="text-white font-semibold">{resultadoExcel.compras_actualizadas || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Devoluciones nuevas:</p>
+                          <p className="text-white font-semibold">{resultadoExcel.devoluciones_nuevas || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Devoluciones actualizadas:</p>
+                          <p className="text-white font-semibold">{resultadoExcel.devoluciones_actualizadas || 0}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-red-400">
+                      <AlertCircle className="w-5 h-5" />
+                      <span>{resultadoExcel.error || 'Error procesando archivo'}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 pt-4">
+                <button
+                  type="submit"
+                  disabled={!archivoExcel || loadingExcel}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingExcel ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Procesando...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      Cargar Compras
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMostrarCargarExcel(false)
+                    setArchivoExcel(null)
+                    setNitClienteExcel('')
+                    setResultadoExcel(null)
+                  }}
+                  className="px-4 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

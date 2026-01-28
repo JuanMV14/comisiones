@@ -1,9 +1,12 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import sys
 import os
 from dotenv import load_dotenv
+import tempfile
+import pandas as pd
+from datetime import datetime
 
 # Agregar el directorio raíz al path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
@@ -860,3 +863,102 @@ async def eliminar_cliente(cliente_id: int) -> Dict[str, Any]:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error eliminando cliente: {str(e)}")
+
+@router.post("/b2b/cargar-compras-excel")
+async def cargar_compras_desde_excel(
+    archivo: UploadFile = File(..., description="Archivo Excel con compras de clientes"),
+    nit_cliente: Optional[str] = Query(None, description="NIT del cliente (opcional, si el Excel tiene múltiples clientes se procesarán todos)")
+) -> Dict[str, Any]:
+    """
+    Carga compras de clientes desde un archivo Excel.
+    El archivo debe tener las columnas: FUENTE, NUM_DCTO, FECHA, COD_ARTICULO, DETALLE, CANTIDAD, valor_Unitario, dcto, Total, FAMILIA, Marca, SUBGRUPO, GRUPO
+    Si FUENTE = 'FE' es compra, si FUENTE = 'DV' es devolución.
+    """
+    try:
+        from database.client_purchases_manager import ClientPurchasesManager
+        from supabase import create_client
+        from config.settings import AppConfig
+        
+        env_status = AppConfig.validate_environment()
+        if not env_status["valid"]:
+            raise HTTPException(status_code=500, detail="Faltan variables de entorno")
+        
+        supabase = create_client(AppConfig.SUPABASE_URL, AppConfig.SUPABASE_KEY)
+        client_manager = ClientPurchasesManager(supabase)
+        
+        # Validar que sea un archivo Excel
+        if not archivo.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="El archivo debe ser Excel (.xlsx o .xls)")
+        
+        # Guardar archivo temporalmente
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            contenido = await archivo.read()
+            tmp_file.write(contenido)
+            tmp_path = tmp_file.name
+        
+        try:
+            # Leer Excel para detectar clientes si no se especificó NIT
+            df = pd.read_excel(tmp_path)
+            df.columns = df.columns.str.strip()
+            
+            # Si no se especificó NIT, intentar detectar desde el Excel o procesar todos los clientes únicos
+            if not nit_cliente:
+                # Intentar leer el NIT desde una columna del Excel si existe
+                if 'NIT_CLIENTE' in df.columns or 'NIT' in df.columns:
+                    nit_col = 'NIT_CLIENTE' if 'NIT_CLIENTE' in df.columns else 'NIT'
+                    nits_unicos = df[nit_col].dropna().unique()
+                    
+                    if len(nits_unicos) == 1:
+                        nit_cliente = str(nits_unicos[0])
+                    elif len(nits_unicos) > 1:
+                        # Procesar múltiples clientes
+                        resultados = []
+                        errores = []
+                        
+                        for nit in nits_unicos:
+                            try:
+                                resultado = client_manager.cargar_compras_desde_excel(tmp_path, str(nit))
+                                if "error" in resultado:
+                                    errores.append(f"NIT {nit}: {resultado['error']}")
+                                else:
+                                    resultados.append(resultado)
+                            except Exception as e:
+                                errores.append(f"NIT {nit}: {str(e)}")
+                        
+                        os.unlink(tmp_path)
+                        
+                        return {
+                            "success": True,
+                            "mensaje": f"Procesados {len(resultados)} clientes",
+                            "resultados": resultados,
+                            "errores": errores if errores else None
+                        }
+                    else:
+                        os.unlink(tmp_path)
+                        raise HTTPException(status_code=400, detail="No se encontraron NITs en el archivo Excel. Especifica el NIT del cliente o agrega una columna 'NIT_CLIENTE' o 'NIT' al Excel.")
+                else:
+                    os.unlink(tmp_path)
+                    raise HTTPException(status_code=400, detail="No se especificó NIT del cliente y el archivo no contiene columna 'NIT_CLIENTE' o 'NIT'. Especifica el NIT como parámetro.")
+            
+            # Procesar con el NIT especificado
+            resultado = client_manager.cargar_compras_desde_excel(tmp_path, nit_cliente)
+            
+            os.unlink(tmp_path)
+            
+            if "error" in resultado:
+                raise HTTPException(status_code=400, detail=resultado["error"])
+            
+            return resultado
+            
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise HTTPException(status_code=500, detail=f"Error procesando archivo: {str(e)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error en cargar_compras_desde_excel: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error cargando compras desde Excel: {str(e)}")

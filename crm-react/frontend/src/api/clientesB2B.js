@@ -35,3 +35,19 @@ export const eliminarClienteB2B = async (clienteId) => {
   const response = await apiClient.delete(`/clientes/${clienteId}`)
   return response.data
 }
+
+export const cargarComprasExcel = async (archivo, nitCliente = null) => {
+  const formData = new FormData()
+  formData.append('archivo', archivo)
+  
+  const url = nitCliente 
+    ? `/clientes/b2b/cargar-compras-excel?nit_cliente=${nitCliente}`
+    : '/clientes/b2b/cargar-compras-excel'
+  
+  const response = await apiClient.post(url, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return response.data
+}
