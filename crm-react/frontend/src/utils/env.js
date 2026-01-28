@@ -31,14 +31,23 @@ export const API_URL = getApiUrl()
 export const IS_PRODUCTION = isProduction
 export const IS_DEVELOPMENT = !isProduction
 
-// Log para debugging (solo en desarrollo)
+// Log para debugging
 if (IS_DEVELOPMENT) {
   console.log('🔧 Entorno: DESARROLLO')
   console.log('🔧 API URL:', API_URL)
 } else {
   console.log('🌐 Entorno: PRODUCCIÓN')
   console.log('🌐 API URL:', API_URL)
+  
   if (!import.meta.env.VITE_API_URL) {
-    console.warn('⚠️ VITE_API_URL no configurada. Asegúrate de configurarla en Vercel.')
+    console.error('❌ VITE_API_URL NO ESTÁ CONFIGURADA')
+    console.error('📋 Pasos para solucionarlo:')
+    console.error('   1. Ve a Vercel Dashboard → Tu proyecto frontend')
+    console.error('   2. Settings → Environment Variables')
+    console.error('   3. Agrega: VITE_API_URL = https://backend-navy-eight-27.vercel.app/api')
+    console.error('   4. IMPORTANTE: Redesplegar el frontend después de agregar la variable')
+    console.error('   5. Las variables de Vite solo funcionan si redesplegas después de agregarlas')
+  } else {
+    console.log('✅ VITE_API_URL configurada correctamente')
   }
 }
