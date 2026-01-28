@@ -151,7 +151,13 @@ const GestionClientesB2BView = () => {
     try {
       setLoadingExcel(true)
       setResultadoExcel(null)
+      
+      console.log('📤 Cargando archivo Excel:', archivoExcel.name)
+      console.log('📋 NIT Cliente:', nitClienteExcel || 'No especificado')
+      
       const resultado = await cargarComprasExcel(archivoExcel, nitClienteExcel || null)
+      
+      console.log('✅ Resultado:', resultado)
       setResultadoExcel(resultado)
       
       if (resultado.success) {
@@ -161,10 +167,17 @@ const GestionClientesB2BView = () => {
           setMostrarCargarExcel(false)
           setArchivoExcel(null)
           setNitClienteExcel('')
+          setResultadoExcel(null)
         }, 2000)
       }
     } catch (err) {
-      alert(`Error cargando archivo: ${err.response?.data?.detail || err.message}`)
+      console.error('❌ Error cargando archivo:', err)
+      const errorMessage = err.response?.data?.detail || err.response?.data?.message || err.message || 'Error desconocido'
+      alert(`Error cargando archivo: ${errorMessage}`)
+      setResultadoExcel({
+        success: false,
+        error: errorMessage
+      })
     } finally {
       setLoadingExcel(false)
     }
