@@ -418,11 +418,11 @@ const DashboardView = () => {
         <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-white">Clientes Clave</h3>
-            {mesSeleccionado && (
-              <span className="text-xs text-slate-400">
-                {mesesDisponibles.find(m => m.valor === mesSeleccionado)?.nombre_corto || mesSeleccionado}
-              </span>
-            )}
+            <span className="text-xs text-slate-400">
+              {mesSeleccionado 
+                ? (mesesDisponibles.find(m => m.valor === mesSeleccionado)?.nombre_corto || mesSeleccionado)
+                : 'Todos los meses'}
+            </span>
           </div>
           <div className="space-y-4">
             {clientesClave.length > 0 ? (

@@ -1310,17 +1310,16 @@ async def get_clientes_clave(mes: str = None):
         df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce')
         df['mes_factura'] = df['fecha_factura'].dt.to_period('M').astype(str)
         
-        # Determinar mes a filtrar
+        # Filtrar solo clientes propios
+        df_propios = df[
+            (df.get('cliente_propio', False) == True)
+        ].copy()
+        
+        # Si se especifica un mes, filtrar por ese mes
         if mes:
             mes_filtro = mes  # Formato: "2024-12"
-        else:
-            mes_filtro = date.today().strftime("%Y-%m")  # Mes actual
-        
-        # Filtrar solo clientes propios y del mes seleccionado
-        df_propios = df[
-            (df.get('cliente_propio', False) == True) &
-            (df['mes_factura'] == mes_filtro)
-        ].copy()
+            df_propios = df_propios[df_propios['mes_factura'] == mes_filtro].copy()
+        # Si mes es None, mostrar todos los meses (no filtrar)
         
         if df_propios.empty:
             return {"clientes_clave": []}
