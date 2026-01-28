@@ -643,11 +643,15 @@ async def get_sales_chart():
 
 @router.get("/colombia-map")
 async def get_colombia_map(periodo: str = "historico"):
-    """Obtiene datos para el mapa de Colombia con distribución de clientes"""
+    """Obtiene datos para el mapa de Colombia con distribución de clientes - OPTIMIZADO"""
     try:
-        from business.client_analytics import ClientAnalytics
         from supabase import create_client
         from config.settings import AppConfig
+        import pandas as pd
+        import time
+        from datetime import datetime, timedelta
+        
+        start_time = time.time()
         
         env_status = AppConfig.validate_environment()
         if not env_status["valid"]:
@@ -660,22 +664,151 @@ async def get_colombia_map(periodo: str = "historico"):
             )
         
         supabase = create_client(AppConfig.SUPABASE_URL, AppConfig.SUPABASE_KEY)
+        
+        # OPTIMIZACIÓN: Usar compras_clientes directamente (más rápido que distribucion_geografica)
+        print("🔄 Cargando compras_clientes para mapa de Colombia...")
+        
+        # Calcular fecha límite según período
+        fecha_limite = None
+        if periodo == "mes_actual":
+            fecha_limite = datetime.now().replace(day=1).strftime('%Y-%m-%d')
+        elif periodo == "trimestre":
+            fecha_limite = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+        elif periodo == "año":
+            fecha_limite = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+        # Si es "historico", no aplicar filtro de fecha
+        
+        # Cargar compras con paginación optimizada
+        query_compras = supabase.table("compras_clientes").select("nit_cliente, total, es_devolucion").eq("es_devolucion", False)
+        
+        if fecha_limite:
+            try:
+                query_compras = query_compras.gte("fecha", fecha_limite)
+            except Exception as e:
+                print(f"⚠️ No se pudo aplicar filtro de fecha: {e}")
+        
+        all_compras = []
+        page_size = 1000
+        current_offset = 0
+        max_registros = 5000  # Límite para velocidad
+        
+        while len(all_compras) < max_registros:
+            response_compras = query_compras.range(current_offset, current_offset + page_size - 1).execute()
+            if not response_compras.data:
+                break
+            all_compras.extend(response_compras.data)
+            if len(response_compras.data) < page_size:
+                break
+            current_offset += page_size
+        
+        print(f"⏱️ Compras cargadas en {time.time() - start_time:.2f}s: {len(all_compras)} registros")
+        
+        if not all_compras:
+            return {
+                "distribucion": {
+                    "datos_mapa": [],
+                    "total_clientes": 0,
+                    "total_ciudades": 0
+                },
+                "por_ciudad": [],
+                "total_clientes": 0,
+                "total_ciudades": 0
+            }
+        
+        # Cargar clientes y crear diccionario
+        print("🔄 Cargando clientes_b2b...")
+        all_clientes = []
+        current_offset_clientes = 0
+        
+        while True:
+            response_clientes = supabase.table("clientes_b2b").select("nit, ciudad").range(current_offset_clientes, current_offset_clientes + page_size - 1).execute()
+            if not response_clientes.data:
+                break
+            all_clientes.extend(response_clientes.data)
+            if len(response_clientes.data) < page_size:
+                break
+            current_offset_clientes += page_size
+        
+        nit_a_ciudad = {cliente.get('nit', ''): cliente.get('ciudad', '') for cliente in all_clientes if cliente.get('nit')}
+        
+        # Procesar con pandas
+        df_compras = pd.DataFrame(all_compras)
+        df_compras['ciudad'] = df_compras['nit_cliente'].map(nit_a_ciudad)
+        df_compras = df_compras[df_compras['ciudad'].notna() & (df_compras['ciudad'] != '')]
+        
+        if df_compras.empty:
+            return {
+                "distribucion": {
+                    "datos_mapa": [],
+                    "total_clientes": 0,
+                    "total_ciudades": 0
+                },
+                "por_ciudad": [],
+                "total_clientes": 0,
+                "total_ciudades": 0
+            }
+        
+        # Agrupar por ciudad
+        stats_por_ciudad = df_compras.groupby('ciudad').agg({
+            'total': 'sum',
+            'nit_cliente': 'nunique'
+        }).reset_index()
+        stats_por_ciudad.columns = ['ciudad', 'total_compras', 'num_clientes']
+        
+        # Cargar coordenadas
+        from business.client_analytics import ClientAnalytics
         client_analytics = ClientAnalytics(supabase)
+        coordenadas_dict = client_analytics._obtener_codigos_dane_coordenadas()
         
-        # Obtener distribución geográfica
-        distribucion = client_analytics.distribucion_geografica(periodo=periodo)
+        # Preparar datos del mapa
+        datos_mapa = []
+        por_ciudad = []
         
-        if "error" in distribucion:
-            raise HTTPException(status_code=500, detail=distribucion["error"])
+        for _, row in stats_por_ciudad.iterrows():
+            ciudad = row['ciudad']
+            total_compras = float(row['total_compras'])
+            num_clientes = int(row['num_clientes'])
+            
+            # Buscar coordenadas
+            coords = coordenadas_dict.get(ciudad) or coordenadas_dict.get(ciudad.lower()) or coordenadas_dict.get(ciudad.title())
+            
+            if coords:
+                datos_mapa.append({
+                    'ciudad': ciudad,
+                    'lat': coords.get('lat'),
+                    'lon': coords.get('lon'),
+                    'total_compras': total_compras,
+                    'num_clientes': num_clientes
+                })
+            
+            por_ciudad.append({
+                'ciudad': ciudad,
+                'total_compras': total_compras,
+                'num_clientes': num_clientes
+            })
         
-        # Limpiar NaN antes de devolver
-        return limpiar_nan_para_json(distribucion)
+        total_clientes = df_compras['nit_cliente'].nunique()
+        total_ciudades = len(por_ciudad)
+        
+        print(f"⏱️ Mapa procesado en {time.time() - start_time:.2f}s total")
+        
+        return limpiar_nan_para_json({
+            "distribucion": {
+                "datos_mapa": datos_mapa,
+                "total_clientes": int(total_clientes),
+                "total_ciudades": total_ciudades
+            },
+            "por_ciudad": por_ciudad,
+            "total_clientes": int(total_clientes),
+            "total_ciudades": total_ciudades
+        })
+        
     except HTTPException:
         raise
     except Exception as e:
         import traceback
         error_detail = f"Error en get_colombia_map: {str(e)}\n{traceback.format_exc()}"
-        print(f"❌ {error_detail}")  # Log para debugging
+        print(f"❌ {error_detail}")
         raise HTTPException(status_code=500, detail=f"Error obteniendo mapa de Colombia: {str(e)}")
 
 @router.get("/referencias-por-ciudad")
