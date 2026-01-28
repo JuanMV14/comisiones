@@ -31,7 +31,7 @@ export const API_URL = getApiUrl()
 export const IS_PRODUCTION = isProduction
 export const IS_DEVELOPMENT = !isProduction
 
-// Log para debugging
+// Log para debugging con información detallada
 if (IS_DEVELOPMENT) {
   console.log('🔧 Entorno: DESARROLLO')
   console.log('🔧 API URL:', API_URL)
@@ -39,15 +39,32 @@ if (IS_DEVELOPMENT) {
   console.log('🌐 Entorno: PRODUCCIÓN')
   console.log('🌐 API URL:', API_URL)
   
+  // Debug detallado de variables de entorno
+  console.log('🔍 Debug de variables de entorno:')
+  console.log('   import.meta.env.VITE_API_URL:', import.meta.env.VITE_API_URL || 'NO DEFINIDA')
+  console.log('   import.meta.env.MODE:', import.meta.env.MODE)
+  console.log('   import.meta.env.PROD:', import.meta.env.PROD)
+  console.log('   window.location.hostname:', typeof window !== 'undefined' ? window.location.hostname : 'N/A')
+  
   if (!import.meta.env.VITE_API_URL) {
     console.error('❌ VITE_API_URL NO ESTÁ CONFIGURADA')
-    console.error('📋 Pasos para solucionarlo:')
+    console.error('')
+    console.error('📋 VERIFICACIONES:')
     console.error('   1. Ve a Vercel Dashboard → Tu proyecto frontend')
     console.error('   2. Settings → Environment Variables')
-    console.error('   3. Agrega: VITE_API_URL = https://backend-navy-eight-27.vercel.app/api')
-    console.error('   4. IMPORTANTE: Redesplegar el frontend después de agregar la variable')
-    console.error('   5. Las variables de Vite solo funcionan si redesplegas después de agregarlas')
+    console.error('   3. Verifica que VITE_API_URL esté en el nivel de PROYECTO (no Team)')
+    console.error('   4. Verifica que el valor sea: https://backend-navy-eight-27.vercel.app/api')
+    console.error('   5. Verifica que esté marcada para: Production, Preview y Development')
+    console.error('   6. IMPORTANTE: Después de agregar/cambiar, REDESPLEGAR el frontend')
+    console.error('   7. Las variables de Vite solo están disponibles en BUILD TIME')
+    console.error('')
+    console.error('💡 SOLUCIÓN ALTERNATIVA:')
+    console.error('   Si después de redesplegar sigue sin funcionar:')
+    console.error('   - Elimina la variable')
+    console.error('   - Guarda')
+    console.error('   - Vuelve a agregarla')
+    console.error('   - Redesplegar INMEDIATAMENTE')
   } else {
-    console.log('✅ VITE_API_URL configurada correctamente')
+    console.log('✅ VITE_API_URL configurada correctamente:', import.meta.env.VITE_API_URL)
   }
 }
