@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Users, TrendingUp, DollarSign, Search, Plus, Mail, Phone, Eye, BarChart3, Package, ShoppingCart, FileText, Bell, ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
 import { getClientes } from '../api/clientes';
-import { getDashboardMetrics } from '../api/dashboard';
-import { getClientesDirecto, getMetricsDirecto } from '../utils/supabaseClient';
+import { getDashboardMetrics, getClientesClave } from '../api/dashboard';
+import { getClientesDirecto, getMetricsDirecto, supabaseConfigStatus } from '../utils/supabaseClient';
 
 const CRMCorporativo = () => {
   const [activeTab, setActiveTab] = useState('panel');
@@ -12,6 +12,7 @@ const CRMCorporativo = () => {
   
   // Estados para datos
   const [clientes, setClientes] = useState([]);
+  const [clientesClave, setClientesClave] = useState([]);
   const [estadisticas, setEstadisticas] = useState({
     ventasTotal: 0,
     clientesActivos: 0,
@@ -39,12 +40,14 @@ const CRMCorporativo = () => {
         
         try {
           // Intentar backend primero
-          const [backendClientes, backendMetrics] = await Promise.all([
+          const [backendClientes, backendMetrics, clientesClaveData] = await Promise.all([
             getClientes(),
-            getDashboardMetrics()
+            getDashboardMetrics(),
+            getClientesClave().catch(() => ({ clientes_clave: [] }))
           ]);
           clientesData = backendClientes;
           metricsData = backendMetrics;
+          setClientesClave(clientesClaveData.clientes_clave || []);
         } catch (backendError) {
           console.warn('Backend no disponible, usando conexión directa a Supabase:', backendError);
           // Si el backend falla, usar Supabase directo
@@ -54,6 +57,16 @@ const CRMCorporativo = () => {
           ]);
           clientesData = supabaseClientes;
           metricsData = supabaseMetrics;
+          setClientesClave([]); // No hay clientes clave sin backend
+
+          // Si tampoco hay Supabase configurado, mostrar un error accionable
+          if (!supabaseConfigStatus.configured) {
+            throw new Error(
+              'No se pudo conectar al backend y Supabase no está configurado en el frontend. ' +
+              'Solución: levanta el backend (FastAPI) y apunta el frontend a él (VITE_API_URL), ' +
+              'o configura VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.'
+            );
+          }
         }
 
         // Mapear clientes del backend al formato esperado
@@ -83,7 +96,7 @@ const CRMCorporativo = () => {
         });
       } catch (err) {
         console.error('Error cargando datos:', err);
-        setError('Error al cargar los datos. Por favor, verifica que el backend esté funcionando.');
+        setError(err?.message || 'Error al cargar los datos. Verifica backend y/o configuración de Supabase.');
       } finally {
         setLoading(false);
       }
@@ -212,23 +225,27 @@ const CRMCorporativo = () => {
         <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-6 border border-slate-700/50">
           <h3 className="text-lg font-semibold text-white mb-5">Clientes Clave</h3>
           <div className="space-y-4">
-            {clientes.slice(0, 3).map((cliente) => (
-              <div key={cliente.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-700/30 hover:bg-slate-700/50 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold text-sm">
-                    {cliente.contacto.split(' ').map(n => n[0]).join('')}
+            {clientesClave.length > 0 ? (
+              clientesClave.slice(0, 3).map((cliente, idx) => (
+                <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-slate-700/30 hover:bg-slate-700/50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold text-sm">
+                      {cliente.iniciales || 'N/A'}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-white">{cliente.cliente}</p>
+                      <p className="text-xs text-slate-400">{cliente.ultima_compra}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-white">{cliente.contacto}</p>
-                    <p className="text-xs text-slate-400">{cliente.nombre}</p>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-white">${(cliente.total_ventas / 1000000).toFixed(1)}M</p>
+                    <p className="text-xs text-slate-400">{cliente.num_facturas} facturas</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-white">${(cliente.ventas / 1000000).toFixed(1)}M</p>
-                  <p className="text-xs text-slate-400">{cliente.ultimaCompra}</p>
-                </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="text-slate-500 text-center py-4">No hay clientes clave disponibles</p>
+            )}
           </div>
         </div>
       </div>
@@ -445,7 +462,14 @@ const CRMCorporativo = () => {
             </div>
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                JP
+                {(() => {
+                  const userName = localStorage.getItem('crm_user_name') || 'Usuario'
+                  const palabras = userName.trim().split(' ')
+                  if (palabras.length >= 2) {
+                    return (palabras[0][0] + palabras[1][0]).toUpperCase()
+                  }
+                  return userName.substring(0, 2).toUpperCase()
+                })()}
               </div>
             </div>
           </div>

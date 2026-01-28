@@ -10,6 +10,12 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
+export const supabaseConfigStatus = {
+  urlConfigured: Boolean(supabaseUrl),
+  anonKeyConfigured: Boolean(supabaseKey),
+  configured: Boolean(supabaseUrl && supabaseKey),
+}
+
 if (!supabaseUrl || !supabaseKey) {
   console.warn('⚠️ Variables de Supabase no configuradas.')
   console.warn('VITE_SUPABASE_URL:', supabaseUrl ? '✓ Configurada' : '✗ Faltante')

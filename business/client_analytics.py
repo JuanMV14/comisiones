@@ -116,6 +116,8 @@ class ClientAnalytics:
             'Buenaventura': {'codigo_dane': '76109', 'lat': 3.8801, 'lon': -77.0197, 'departamento': 'Valle del Cauca'},
             'Carepa': {'codigo_dane': '05154', 'lat': 7.7583, 'lon': -76.6633, 'departamento': 'Antioquia'},
             'Corozal': {'codigo_dane': '70221', 'lat': 9.3178, 'lon': -75.2939, 'departamento': 'Sucre'},
+            'Lérida': {'codigo_dane': '73408', 'lat': 4.8611, 'lon': -74.9108, 'departamento': 'Tolima'},
+            'Lerida': {'codigo_dane': '73408', 'lat': 4.8611, 'lon': -74.9108, 'departamento': 'Tolima'},
         }
     
     def distribucion_geografica(self, periodo: str = "historico", fecha_inicio: str = None, fecha_fin: str = None) -> Dict[str, Any]:
@@ -134,30 +136,59 @@ class ClientAnalytics:
             if df_clientes.empty:
                 return {"error": "No hay clientes registrados"}
             
-            # Obtener compras por cliente con filtro de fecha
-            compras_query = self.supabase.table("compras_clientes").select(
-                "nit_cliente, total, es_devolucion, fecha"
-            )
+            # Obtener ventas desde la tabla comisiones (valores correctos: sin IVA, después de descuentos)
+            # Esto es más preciso que usar compras_clientes porque ya tiene los valores calculados correctamente
+            # IMPORTANTE: Solo clientes propios para coincidir con el dashboard principal
+            comisiones_query = self.supabase.table("comisiones").select(
+                "cliente, valor_neto, valor_descuento_pesos, valor_devuelto, fecha_factura, ciudad_destino, cliente_propio"
+            ).eq("cliente_propio", True)  # Solo clientes propios
             
             # Aplicar filtros de fecha según el período
             if periodo == "mes_actual":
                 hoy = datetime.now()
                 primer_dia_mes = hoy.replace(day=1).strftime('%Y-%m-%d')
-                compras_query = compras_query.gte('fecha', primer_dia_mes)
+                comisiones_query = comisiones_query.gte('fecha_factura', primer_dia_mes)
+            elif periodo == "trimestre":
+                hoy = datetime.now()
+                # Calcular inicio del trimestre actual
+                trimestre_actual = (hoy.month - 1) // 3
+                mes_inicio_trimestre = trimestre_actual * 3 + 1
+                inicio_trimestre = hoy.replace(month=mes_inicio_trimestre, day=1).strftime('%Y-%m-%d')
+                comisiones_query = comisiones_query.gte('fecha_factura', inicio_trimestre)
+            elif periodo == "año":
+                hoy = datetime.now()
+                inicio_año = hoy.replace(month=1, day=1).strftime('%Y-%m-%d')
+                comisiones_query = comisiones_query.gte('fecha_factura', inicio_año)
             elif periodo == "personalizado" and fecha_inicio and fecha_fin:
-                compras_query = compras_query.gte('fecha', fecha_inicio).lte('fecha', fecha_fin)
+                comisiones_query = comisiones_query.gte('fecha_factura', fecha_inicio).lte('fecha_factura', fecha_fin)
             # Si es "historico", no aplicamos filtro de fecha
             
-            compras_response = compras_query.execute()
-            df_compras = pd.DataFrame(compras_response.data) if compras_response.data else pd.DataFrame()
+            comisiones_response = comisiones_query.execute()
+            df_comisiones = pd.DataFrame(comisiones_response.data) if comisiones_response.data else pd.DataFrame()
             
-            # Filtrar solo compras (no devoluciones)
-            if not df_compras.empty:
-                df_compras = df_compras[df_compras.get('es_devolucion', False) == False]
-                compras_por_cliente = df_compras.groupby('nit_cliente')['total'].sum().reset_index()
-                compras_por_cliente.columns = ['nit', 'total_compras']
+            # Calcular ventas netas por cliente (sin IVA, después de descuentos y devoluciones)
+            if not df_comisiones.empty:
+                # Convertir a numérico
+                df_comisiones['valor_neto'] = pd.to_numeric(df_comisiones['valor_neto'], errors='coerce').fillna(0)
+                df_comisiones['valor_descuento_pesos'] = pd.to_numeric(df_comisiones['valor_descuento_pesos'], errors='coerce').fillna(0)
+                df_comisiones['valor_devuelto'] = pd.to_numeric(df_comisiones['valor_devuelto'], errors='coerce').fillna(0)
                 
-                df_clientes = df_clientes.merge(compras_por_cliente, on='nit', how='left')
+                # Calcular valor neto ajustado (sin IVA, después de descuentos)
+                df_comisiones['valor_neto_ajustado'] = df_comisiones['valor_neto'] - df_comisiones['valor_descuento_pesos']
+                
+                # Restar devoluciones (convertir a valor sin IVA)
+                df_comisiones['valor_devuelto_sin_iva'] = df_comisiones['valor_devuelto'] / 1.19
+                
+                # Valor final (después de descuentos y devoluciones)
+                df_comisiones['valor_final'] = df_comisiones['valor_neto_ajustado'] - df_comisiones['valor_devuelto_sin_iva']
+                df_comisiones['valor_final'] = df_comisiones['valor_final'].clip(lower=0)  # No puede ser negativo
+                
+                # Agrupar por cliente (usando nombre del cliente para hacer match con clientes_b2b)
+                ventas_por_cliente = df_comisiones.groupby('cliente')['valor_final'].sum().reset_index()
+                ventas_por_cliente.columns = ['nombre_cliente', 'total_compras']
+                
+                # Hacer merge con clientes_b2b usando el nombre
+                df_clientes = df_clientes.merge(ventas_por_cliente, left_on='nombre', right_on='nombre_cliente', how='left')
                 df_clientes['total_compras'] = df_clientes['total_compras'].fillna(0)
             else:
                 df_clientes['total_compras'] = 0

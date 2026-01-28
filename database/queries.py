@@ -360,12 +360,18 @@ class DatabaseManager:
             result = self.supabase.table("comisiones").insert(data_filtrada).execute()
             
             if result.data:
-                st.cache_data.clear()
+                # Limpiar cache si streamlit está disponible
+                try:
+                    import streamlit as st
+                    st.cache_data.clear()
+                except:
+                    pass  # No es un problema si streamlit no está disponible
                 return True
             return False
             
         except Exception as e:
-            st.error(f"Error insertando venta: {e}")
+            # Log error sin depender de streamlit
+            print(f"Error insertando venta: {e}")
             return False
 
     def actualizar_factura(self, factura_id: int, updates: Dict[str, Any]) -> bool:
@@ -456,6 +462,7 @@ class DatabaseManager:
             'dias_pago_real', 'metodo_pago', 'referencia', 'observaciones_pago',
             'comprobante_url', 'comision_perdida', 'razon_perdida', 'valor_devuelto',
             'comision_ajustada', 'descuentos_multiples', 'valor_descuento_pesos',
+            'valor_flete', 'ciudad_destino', 'recogida_local',  # Campos de flete y destino
             'created_at', 'updated_at'
         }
 
@@ -470,18 +477,18 @@ class DatabaseManager:
             try:
                 # Validación por tipo de campo
                 if campo in ['pedido', 'cliente', 'factura', 'referencia', 'observaciones_pago', 
-                           'razon_perdida', 'comprobante_url', 'metodo_pago']:
+                           'razon_perdida', 'comprobante_url', 'metodo_pago', 'ciudad_destino']:
                     safe_updates[campo] = str(valor) if valor is not None else ""
                     
                 elif campo in ['valor', 'valor_neto', 'iva', 'base_comision', 'comision', 
-                             'porcentaje', 'comision_ajustada', 'descuento_adicional', 'valor_descuento_pesos']:
+                             'porcentaje', 'comision_ajustada', 'descuento_adicional', 'valor_descuento_pesos', 'valor_flete']:
                     safe_updates[campo] = float(valor) if valor is not None else 0
                     
                 elif campo in ['dias_pago_real']:
                     safe_updates[campo] = int(float(valor)) if valor is not None else 0
                     
                 elif campo in ['pagado', 'comision_perdida', 'cliente_propio', 'condicion_especial', 
-                             'descuento_pie_factura', 'descuentos_multiples']:
+                             'descuento_pie_factura', 'descuentos_multiples', 'recogida_local']:
                     safe_updates[campo] = bool(valor)
                     
                 elif campo in ['fecha_factura', 'fecha_pago_est', 'fecha_pago_max', 'fecha_pago_real']:

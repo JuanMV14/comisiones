@@ -124,6 +124,7 @@
 | `telefono` | VARCHAR(50) | Teléfono de contacto |
 | `email` | VARCHAR(255) | Email de contacto |
 | `vendedor` | VARCHAR(100) | Nombre del vendedor asignado |
+| `cliente_propio` | BOOLEAN | TRUE = Cliente propio (comisiones 2.5%/1.5%), FALSE = Cliente externo (comisiones 1.0%/0.5%) (default: TRUE) |
 | `activo` | BOOLEAN | TRUE si el cliente está activo (default: TRUE) |
 | `fecha_registro` | TIMESTAMP | Fecha de registro (default: NOW()) |
 | `fecha_actualizacion` | TIMESTAMP | Fecha de última actualización (default: NOW()) |
@@ -391,6 +392,26 @@ CREATE INDEX IF NOT EXISTS idx_compras_factura_id ON compras_clientes(factura_id
 CREATE INDEX IF NOT EXISTS idx_compras_sincronizado ON compras_clientes(sincronizado);
 CREATE INDEX IF NOT EXISTS idx_comisiones_compra_cliente_id ON comisiones(compra_cliente_id);
 CREATE INDEX IF NOT EXISTS idx_comisiones_sincronizado_compras ON comisiones(sincronizado_compras);
+```
+
+#### 6. Campo Cliente Propio
+**Archivo**: `agregar_campo_cliente_propio.sql`
+```sql
+-- Agregar columna cliente_propio a clientes_b2b
+ALTER TABLE clientes_b2b 
+ADD COLUMN IF NOT EXISTS cliente_propio BOOLEAN DEFAULT TRUE;
+
+-- Comentario
+COMMENT ON COLUMN clientes_b2b.cliente_propio IS 'TRUE = Cliente propio (comisiones 2.5%/1.5%), FALSE = Cliente externo (comisiones 1.0%/0.5%)';
+
+-- Índice
+CREATE INDEX IF NOT EXISTS idx_clientes_cliente_propio 
+ON clientes_b2b(cliente_propio);
+
+-- Actualizar clientes existentes
+UPDATE clientes_b2b 
+SET cliente_propio = TRUE 
+WHERE cliente_propio IS NULL;
 ```
 
 ---

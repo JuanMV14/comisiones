@@ -22,10 +22,10 @@ const Sidebar = () => {
   const opcionesVendedor = [
     { icon: Home, label: 'Panel del Vendedor', path: '/panel-vendedor', key: 'panel-vendedor' },
     { icon: Users, label: 'Clientes', path: '/clientes', key: 'clientes' },
-    { icon: TrendingUp, label: 'Nueva Venta Simple', path: '/nueva-venta', key: 'nueva-venta' },
+    { icon: TrendingUp, label: 'Nueva Venta', path: '/nueva-venta', key: 'nueva-venta' },
     { icon: Package, label: 'Catálogo', path: '/catalogo', key: 'catalogo' },
     { icon: MessageSquare, label: 'Mensajería', path: '/mensajeria', key: 'mensajeria', badge: 2 },
-    { icon: DollarSign, label: 'Mis Comisiones', path: '/mis-comisiones', key: 'mis-comisiones' }
+    { icon: FileText, label: 'Facturas', path: '/facturas', key: 'facturas' }
   ]
 
   const opcionesGerencia = [

@@ -64,12 +64,16 @@ El backend estará en: `http://localhost:8000`
 
 ### 3. Configurar Variables de Entorno
 
-Crea un archivo `.env` en el backend con tus credenciales de Supabase:
+Copia `crm-react/backend/env.example` a un archivo `.env` en el backend con tus credenciales de Supabase:
 
 ```env
 SUPABASE_URL=tu_url
 SUPABASE_KEY=tu_key
 ```
+
+Opcional (frontend): copia `crm-react/frontend/env.example` a `crm-react/frontend/.env` si vas a:
+- apuntar el frontend a un backend desplegado (define `VITE_API_URL`)
+- o usar fallback directo a Supabase (`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`)
 
 ## 🔄 Reutilización de Código
 

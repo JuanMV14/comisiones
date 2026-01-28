@@ -21,6 +21,8 @@ class ClientPurchasesManager:
     def registrar_cliente(self, datos_cliente: Dict[str, Any]) -> Dict[str, Any]:
         """Registra un nuevo cliente B2B"""
         try:
+            # Construir data solo con campos que sabemos que existen
+            # Campos base (siempre existen)
             data = {
                 'nombre': datos_cliente['nombre'],
                 'nit': datos_cliente['nit'],
@@ -37,6 +39,14 @@ class ClientPurchasesManager:
                 'fecha_registro': datetime.now().isoformat(),
                 'fecha_actualizacion': datetime.now().isoformat()
             }
+            
+            # Campos opcionales (pueden no existir en la tabla aún)
+            # Solo agregar si están presentes en los datos
+            if 'contacto' in datos_cliente and datos_cliente.get('contacto'):
+                data['contacto'] = datos_cliente.get('contacto', '')
+            
+            if 'cliente_propio' in datos_cliente:
+                data['cliente_propio'] = bool(datos_cliente.get('cliente_propio', True))
             
             # Verificar si ya existe
             existing = self.supabase.table(self.clientes_table).select("id").eq("nit", datos_cliente['nit']).execute()

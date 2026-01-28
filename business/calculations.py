@@ -24,7 +24,10 @@ class ComisionCalculator:
         else:
             base = valor_neto * 0.85
         
-        # LÓGICA SIMPLIFICADA: solo importa SI hay descuento
+        # LÓGICA CORREGIDA: 
+        # - El descuento a pie de factura (15% base) NO reduce la comisión
+        # - Solo los descuentos ADICIONALES reducen la comisión
+        # - tiene_descuento debe referirse SOLO a descuentos adicionales, no al base
         if cliente_propio:
             porcentaje = 1.5 if tiene_descuento else 2.5
         else:
@@ -65,12 +68,15 @@ class ComisionCalculator:
         base_final = base - valor_devuelto
         
         # 3. Determinar porcentaje
-        # REGLA: CUALQUIER descuento adicional (> 0) reduce la comisión
-        tiene_descuento = descuento_aplicado > 0
+        # REGLA CORREGIDA: 
+        # - El descuento_pie_factura (15% base de la empresa) NO reduce la comisión
+        # - Solo los descuentos ADICIONALES (descuento_aplicado > 0) reducen la comisión
+        # - descuento_pie_factura solo afecta la base, no el porcentaje
+        tiene_descuento_adicional = descuento_aplicado > 0
         if cliente_propio:
-            porcentaje = 1.5 if tiene_descuento else 2.5
+            porcentaje = 1.5 if tiene_descuento_adicional else 2.5
         else:
-            porcentaje = 0.5 if tiene_descuento else 1.0
+            porcentaje = 0.5 if tiene_descuento_adicional else 1.0
         
         # 4. Verificar pérdida por +80 días
         if dias_pago and dias_pago > 80:
