@@ -474,10 +474,16 @@ async def get_clientes_b2b_listado(
                 compras_cliente = pd.DataFrame()
 
             # Calcular estadísticas
-            # Contar documentos/facturas únicos, no referencias individuales
+            # Detectar devoluciones: es_devolucion=True O total negativo
             if not compras_cliente.empty:
-                compras_sin_devol = compras_cliente[compras_cliente.get('es_devolucion', False) == False]
-                devoluciones = compras_cliente[compras_cliente.get('es_devolucion', False) == True]
+                compras_cliente['total_numeric'] = pd.to_numeric(compras_cliente.get('total', 0), errors='coerce')
+                compras_cliente['es_devolucion_calculado'] = (
+                    (compras_cliente.get('es_devolucion', False) == True) |
+                    (compras_cliente['total_numeric'] < 0)
+                )
+                
+                compras_sin_devol = compras_cliente[compras_cliente['es_devolucion_calculado'] == False]
+                devoluciones = compras_cliente[compras_cliente['es_devolucion_calculado'] == True]
                 
                 # Contar documentos únicos (facturas), no items/referencias
                 if 'num_documento' in compras_sin_devol.columns:
@@ -490,7 +496,8 @@ async def get_clientes_b2b_listado(
                 else:
                     total_devoluciones = 0
                 
-                valor_total_compras = float(compras_sin_devol['total'].sum()) if 'total' in compras_sin_devol.columns else 0
+                # Para compras, usar valores absolutos (asegurar positivos)
+                valor_total_compras = float(compras_sin_devol['total'].abs().sum()) if 'total' in compras_sin_devol.columns else 0
                 
                 # Última compra
                 compras_sin_devol['fecha'] = pd.to_datetime(compras_sin_devol['fecha'], errors='coerce')
@@ -655,11 +662,19 @@ async def get_compras_cliente(
         df_compras['fecha'] = pd.to_datetime(df_compras['fecha'], errors='coerce')
 
         # Calcular resumen
-        compras_sin_devol = df_compras[df_compras.get('es_devolucion', False) == False]
-        devoluciones = df_compras[df_compras.get('es_devolucion', False) == True]
+        # Detectar devoluciones: es_devolucion=True O total negativo
+        df_compras['es_devolucion_calculado'] = (
+            (df_compras.get('es_devolucion', False) == True) |
+            (pd.to_numeric(df_compras.get('total', 0), errors='coerce') < 0)
+        )
         
-        valor_total = float(compras_sin_devol['total'].sum()) if 'total' in compras_sin_devol.columns and not compras_sin_devol.empty else 0
-        valor_devoluciones = float(devoluciones['total'].sum()) if 'total' in devoluciones.columns and not devoluciones.empty else 0
+        compras_sin_devol = df_compras[df_compras['es_devolucion_calculado'] == False]
+        devoluciones = df_compras[df_compras['es_devolucion_calculado'] == True]
+        
+        # Para compras, usar valores absolutos positivos
+        valor_total = float(compras_sin_devol['total'].abs().sum()) if 'total' in compras_sin_devol.columns and not compras_sin_devol.empty else 0
+        # Para devoluciones, usar valores absolutos (ya son negativos en BD)
+        valor_devoluciones = abs(float(devoluciones['total'].sum())) if 'total' in devoluciones.columns and not devoluciones.empty else 0
 
         # Calcular totales por factura/documento
         totales_por_factura = {}
@@ -974,3 +989,91 @@ async def cargar_compras_desde_excel(
         print(f"Error en cargar_compras_desde_excel: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error cargando compras desde Excel: {str(e)}")
+
+@router.post("/b2b/corregir-devoluciones")
+async def corregir_devoluciones_por_valor_negativo() -> Dict[str, Any]:
+    """
+    Corrige los registros que tienen valores negativos pero están marcados como compras.
+    Los marca como devoluciones (es_devolucion=True) y actualiza la fuente a 'DV' si es necesario.
+    """
+    try:
+        from supabase import create_client
+        from config.settings import AppConfig
+        import pandas as pd
+        
+        env_status = AppConfig.validate_environment()
+        if not env_status["valid"]:
+            raise HTTPException(status_code=500, detail="Faltan variables de entorno")
+        
+        supabase = create_client(AppConfig.SUPABASE_URL, AppConfig.SUPABASE_KEY)
+        
+        # Cargar todas las compras con valores negativos que están marcadas como compras
+        all_compras = []
+        page_size = 1000
+        current_offset = 0
+        
+        while True:
+            response = supabase.table("compras_clientes").select("*").eq("es_devolucion", False).range(current_offset, current_offset + page_size - 1).execute()
+            
+            if not response.data:
+                break
+            
+            all_compras.extend(response.data)
+            
+            if len(response.data) < page_size:
+                break
+            
+            current_offset += page_size
+        
+        if not all_compras:
+            return {
+                "success": True,
+                "mensaje": "No hay registros para corregir",
+                "corregidos": 0
+            }
+        
+        df_compras = pd.DataFrame(all_compras)
+        
+        # Filtrar las que tienen total negativo
+        compras_negativas = df_compras[df_compras['total'] < 0].copy()
+        
+        if compras_negativas.empty:
+            return {
+                "success": True,
+                "mensaje": "No hay registros con valores negativos para corregir",
+                "corregidos": 0
+            }
+        
+        # Actualizar cada registro
+        corregidos = 0
+        errores = 0
+        
+        for _, row in compras_negativas.iterrows():
+            try:
+                update_data = {
+                    'es_devolucion': True,
+                    'fuente': 'DV'  # Cambiar fuente a DV
+                }
+                
+                supabase.table("compras_clientes").update(update_data).eq("id", int(row['id'])).execute()
+                corregidos += 1
+            except Exception as e:
+                print(f"Error corrigiendo registro {row.get('id')}: {e}")
+                errores += 1
+                continue
+        
+        return {
+            "success": True,
+            "mensaje": f"Corregidos {corregidos} registros",
+            "corregidos": corregidos,
+            "errores": errores,
+            "total_encontrados": len(compras_negativas)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error en corregir_devoluciones_por_valor_negativo: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error corrigiendo devoluciones: {str(e)}")

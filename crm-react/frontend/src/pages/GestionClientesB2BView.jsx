@@ -861,9 +861,13 @@ const GestionClientesB2BView = () => {
                           return Object.entries(comprasPorFactura).map(([doc, facturaData]) => {
                             const items = facturaData.items
                             // Calcular total de factura sumando los items (solo compras, excluyendo devoluciones)
+                            // Devolución: es_devolucion=True O total negativo
                             const totalFactura = items
-                              .filter(item => !item.es_devolucion)
-                              .reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0)
+                              .filter(item => {
+                                const esDevolucion = item.es_devolucion || (parseFloat(item.total || 0) < 0)
+                                return !esDevolucion
+                              })
+                              .reduce((sum, item) => sum + Math.abs(parseFloat(item.total || 0)), 0)
                             
                             return (
                               <React.Fragment key={doc}>
@@ -871,7 +875,7 @@ const GestionClientesB2BView = () => {
                                   <tr 
                                     key={`${doc}-${itemIdx}`}
                                     className={`hover:bg-slate-700/30 transition-colors ${
-                                      compra.es_devolucion ? 'bg-red-500/5' : ''
+                                      (compra.es_devolucion || (parseFloat(compra.total || 0) < 0)) ? 'bg-red-500/5' : ''
                                     }`}
                                   >
                                     {itemIdx === 0 && (
@@ -910,18 +914,31 @@ const GestionClientesB2BView = () => {
                                       <p className="text-sm text-slate-300">{compra.descuento || 0}%</p>
                                     </td>
                                     <td className="px-4 py-3 text-right">
-                                      <p className={`text-sm font-semibold ${compra.es_devolucion ? 'text-red-400' : 'text-white'}`}>
-                                        {compra.es_devolucion ? '-' : ''}{formatCurrency(compra.total || 0)}
-                                      </p>
+                                      {(() => {
+                                        // Detectar devolución: es_devolucion=True O total negativo
+                                        const esDevolucion = compra.es_devolucion || (parseFloat(compra.total || 0) < 0)
+                                        const totalAbsoluto = Math.abs(parseFloat(compra.total || 0))
+                                        return (
+                                          <p className={`text-sm font-semibold ${esDevolucion ? 'text-red-400' : 'text-white'}`}>
+                                            {esDevolucion ? '-' : ''}{formatCurrency(totalAbsoluto)}
+                                          </p>
+                                        )
+                                      })()}
                                     </td>
                                     <td className="px-4 py-3 text-center">
-                                      <span className={`inline-flex px-2 py-1 rounded text-xs font-medium ${
-                                        compra.es_devolucion 
-                                          ? 'bg-red-500/20 text-red-400' 
-                                          : 'bg-emerald-500/20 text-emerald-400'
-                                      }`}>
-                                        {compra.es_devolucion ? 'Devolución' : 'Compra'}
-                                      </span>
+                                      {(() => {
+                                        // Detectar devolución: es_devolucion=True O total negativo
+                                        const esDevolucion = compra.es_devolucion || (parseFloat(compra.total || 0) < 0)
+                                        return (
+                                          <span className={`inline-flex px-2 py-1 rounded text-xs font-medium ${
+                                            esDevolucion 
+                                              ? 'bg-red-500/20 text-red-400' 
+                                              : 'bg-emerald-500/20 text-emerald-400'
+                                          }`}>
+                                            {esDevolucion ? 'Devolución' : 'Compra'}
+                                          </span>
+                                        )
+                                      })()}
                                     </td>
                                   </tr>
                                 ))}
