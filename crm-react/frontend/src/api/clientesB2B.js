@@ -40,9 +40,11 @@ export const cargarComprasExcel = async (archivo, nitCliente = null) => {
   const formData = new FormData()
   formData.append('archivo', archivo)
   
-  const url = nitCliente 
-    ? `/clientes/b2b/cargar-compras-excel?nit_cliente=${nitCliente}`
-    : '/clientes/b2b/cargar-compras-excel'
+  // Construir URL con query params si hay NIT
+  let url = '/clientes/b2b/cargar-compras-excel'
+  if (nitCliente && nitCliente.trim()) {
+    url += `?nit_cliente=${encodeURIComponent(nitCliente.trim())}`
+  }
   
   const response = await apiClient.post(url, formData, {
     headers: {
