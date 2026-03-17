@@ -125,7 +125,21 @@ class CatalogManager:
                         "error": "La tabla 'catalogo_productos' no existe en Supabase. Por favor, ejecuta el script SQL 'crear_tabla_catalogo.sql' en el SQL Editor de Supabase primero."
                     }
             # Leer Excel
-            df = pd.read_excel(archivo_path)
+            try:
+                df = pd.read_excel(archivo_path)
+            except ValueError as e:
+                # Si el archivo tiene extensión .xls pero en realidad es un archivo HTML (ej. exportaciones viejas)
+                if "Expected BOF record" in str(e) or "Excel file format cannot be determined" in str(e):
+                    try:
+                        dfs = pd.read_html(archivo_path, decimal=',', thousands='.')
+                        if dfs:
+                            df = dfs[0]
+                        else:
+                            raise e
+                    except Exception:
+                        raise e
+                else:
+                    raise e
             
             # Normalizar nombres de columnas
             df.columns = df.columns.str.strip()
@@ -224,6 +238,10 @@ class CatalogManager:
         productos_desactivados = []
         productos_reactivados = []
         
+        # Listas detalladas para mostrar al usuario
+        detalle_productos_nuevos = []
+        detalle_productos_agotados = []
+        
         # Crear sets de códigos
         codigos_nuevos = set(df_nuevo['cod_ur'].unique())
         codigos_actuales = set(df_actual['cod_ur'].unique()) if not df_actual.empty else set()
@@ -234,7 +252,7 @@ class CatalogManager:
         # Productos que ya existen (actualizar)
         productos_existentes = df_nuevo[df_nuevo['cod_ur'].isin(codigos_actuales)]
         
-        # Productos desactivados (están en el actual pero no en el nuevo)
+        # Productos desactivados (están en el actual pero no en el nuevo) - ESTOS SON LOS QUE SE AGOTARON
         productos_eliminar = df_actual[~df_actual['cod_ur'].isin(codigos_nuevos)] if not df_actual.empty else pd.DataFrame()
         
         # Insertar productos nuevos en lotes (más eficiente)
@@ -258,6 +276,15 @@ class CatalogManager:
                     }
                     datos_insercion.append(data)
                     productos_nuevos.append(producto['cod_ur'])
+                    # Guardar información detallada del producto nuevo
+                    detalle_productos_nuevos.append({
+                        'cod_ur': producto['cod_ur'],
+                        'referencia': producto.get('referencia', ''),
+                        'descripcion': producto.get('descripcion', ''),
+                        'marca': producto.get('marca', ''),
+                        'linea': producto.get('linea', ''),
+                        'precio': float(producto.get('precio', 0))
+                    })
                 
                 # Insertar en lotes de 100 para evitar timeouts
                 lote_size = 100
@@ -301,6 +328,15 @@ class CatalogManager:
                         
                         self.supabase.table(self.table_name).insert(data).execute()
                         productos_nuevos.append(producto['cod_ur'])
+                        # Guardar información detallada del producto nuevo
+                        detalle_productos_nuevos.append({
+                            'cod_ur': producto['cod_ur'],
+                            'referencia': producto.get('referencia', ''),
+                            'descripcion': producto.get('descripcion', ''),
+                            'marca': producto.get('marca', ''),
+                            'linea': producto.get('linea', ''),
+                            'precio': float(producto.get('precio', 0))
+                        })
                     except Exception as e:
                         # Si falla por duplicado, intentar actualizar
                         try:
@@ -317,7 +353,7 @@ class CatalogManager:
             except Exception as e:
                 pass
         
-        # Desactivar productos que ya no están en el nuevo catálogo
+        # Desactivar productos que ya no están en el nuevo catálogo (PRODUCTOS AGOTADOS)
         for _, producto in productos_eliminar.iterrows():
             try:
                 # Verificar si estaba activo antes
@@ -330,6 +366,15 @@ class CatalogManager:
                 
                 if estaba_activo:
                     productos_desactivados.append(producto['cod_ur'])
+                    # Guardar información detallada del producto agotado
+                    detalle_productos_agotados.append({
+                        'cod_ur': producto.get('cod_ur', ''),
+                        'referencia': producto.get('referencia', ''),
+                        'descripcion': producto.get('descripcion', ''),
+                        'marca': producto.get('marca', ''),
+                        'linea': producto.get('linea', ''),
+                        'precio': float(producto.get('precio', 0)) if pd.notna(producto.get('precio')) else 0
+                    })
                 else:
                     productos_reactivados.append(producto['cod_ur'])
                     
@@ -345,9 +390,13 @@ class CatalogManager:
             "productos_nuevos": len(productos_nuevos),
             "productos_actualizados": len(productos_actualizados),
             "productos_desactivados": len(productos_desactivados),
-            "detalle_nuevos": productos_nuevos[:10],  # Primeros 10
+            "productos_agotados": len(productos_desactivados),  # Alias para claridad
+            "detalle_nuevos": productos_nuevos[:10],  # Primeros 10 códigos (compatibilidad)
             "detalle_actualizados": productos_actualizados[:10],
-            "detalle_desactivados": productos_desactivados[:10]
+            "detalle_desactivados": productos_desactivados[:10],
+            # Información detallada completa
+            "productos_nuevos_detalle": detalle_productos_nuevos,  # Lista completa con información detallada
+            "productos_agotados_detalle": detalle_productos_agotados  # Lista completa de productos que se agotaron
         }
     
     def _actualizar_producto(self, producto: pd.Series):

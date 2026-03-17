@@ -658,8 +658,9 @@ async def get_compras_cliente(
 
         df_compras = pd.DataFrame(all_compras)
         
-        # Convertir fechas
-        df_compras['fecha'] = pd.to_datetime(df_compras['fecha'], errors='coerce')
+        # Convertir fechas - usar dayfirst=False para interpretar MM/DD/YYYY (mes/día/año)
+        # Las fechas ya vienen en formato ISO desde la BD, pero por si acaso
+        df_compras['fecha'] = pd.to_datetime(df_compras['fecha'], errors='coerce', dayfirst=False)
 
         # Calcular resumen
         # Detectar devoluciones: es_devolucion=True O total negativo
@@ -929,15 +930,23 @@ async def cargar_compras_desde_excel(
         if not archivo.filename.endswith(('.xlsx', '.xls')):
             raise HTTPException(status_code=400, detail="El archivo debe ser Excel (.xlsx o .xls)")
         
-        # Guardar archivo temporalmente
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+        # Obtener extensión original
+        ext = os.path.splitext(archivo.filename)[1]
+        
+        # Guardar archivo temporalmente con su extensión original
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
             contenido = await archivo.read()
             tmp_file.write(contenido)
             tmp_path = tmp_file.name
         
         try:
             # Leer Excel para detectar clientes si no se especificó NIT
-            df = pd.read_excel(tmp_path)
+            # Si es .xls, forzar el uso del motor xlrd
+            if ext.lower() == '.xls':
+                df = pd.read_excel(tmp_path, engine='xlrd')
+            else:
+                df = pd.read_excel(tmp_path)
+            
             df.columns = df.columns.str.strip()
             
             # Si no se especificó NIT, intentar detectar desde el Excel o procesar todos los clientes únicos
@@ -1001,6 +1010,433 @@ async def cargar_compras_desde_excel(
         print(f"Error en cargar_compras_desde_excel: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error cargando compras desde Excel: {str(e)}")
+
+@router.get("/b2b/{cliente_id}/recomendaciones")
+async def obtener_recomendaciones_cliente(cliente_id: int) -> Dict[str, Any]:
+    """
+    Obtiene recomendaciones de productos para un cliente basadas en su historial de compras
+    """
+    try:
+        from database.client_purchases_manager import ClientPurchasesManager
+        from database.catalog_manager import CatalogManager
+        from supabase import create_client
+        from config.settings import AppConfig
+        
+        env_status = AppConfig.validate_environment()
+        if not env_status["valid"]:
+            raise HTTPException(status_code=500, detail="Faltan variables de entorno")
+        
+        supabase = create_client(AppConfig.SUPABASE_URL, AppConfig.SUPABASE_KEY)
+        
+        # Obtener información del cliente
+        cliente_response = supabase.table("clientes_b2b").select("*").eq("id", cliente_id).execute()
+        if not cliente_response.data:
+            raise HTTPException(status_code=404, detail="Cliente no encontrado")
+        
+        cliente = cliente_response.data[0]
+        nit_cliente = cliente.get('nit', '')
+        
+        if not nit_cliente:
+            raise HTTPException(status_code=400, detail="El cliente no tiene NIT configurado")
+        
+        # Inicializar managers
+        client_manager = ClientPurchasesManager(supabase)
+        catalog_manager = CatalogManager(supabase)
+        
+        # Generar recomendaciones
+        recomendaciones = client_manager.generar_recomendaciones(nit_cliente, catalog_manager)
+        
+        if "error" in recomendaciones:
+            # Si hay error, retornar estructura vacía en lugar de error HTTP
+            return {
+                "cliente_id": cliente_id,
+                "cliente_nombre": cliente.get('nombre', ''),
+                "nit": nit_cliente,
+                "cliente": cliente.get('nombre', ''),
+                "recomendaciones": {
+                    "por_marca": [],
+                    "por_categoria": [],
+                    "complementarios": [],
+                    "recompra": []
+                },
+                "total_recomendaciones": 0,
+                "error": recomendaciones["error"],
+                "mensaje": recomendaciones.get("mensaje", recomendaciones["error"])
+            }
+        
+        return {
+            "cliente_id": cliente_id,
+            "cliente_nombre": cliente.get('nombre', ''),
+            "nit": nit_cliente,
+            **recomendaciones
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error obteniendo recomendaciones: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error obteniendo recomendaciones: {str(e)}")
+
+@router.get("/b2b/analisis-marcas")
+async def obtener_analisis_marcas(
+    periodo: str = Query("historico", description="Período: mes_actual, trimestre, año, historico, año_especifico"),
+    año: Optional[int] = Query(None, description="Año específico (solo si periodo=año_especifico)"),
+    marca_seleccionada: Optional[str] = Query(None, description="Marca específica para ver detalles")
+) -> Dict[str, Any]:
+    """
+    Analiza las compras de clientes para identificar:
+    - La marca líder (más vendida)
+    - El cliente que más compra esa marca líder
+    
+    Parámetros:
+    - periodo: mes_actual, trimestre, año, historico
+    """
+    try:
+        from database.client_purchases_manager import ClientPurchasesManager
+        from supabase import create_client
+        from config.settings import AppConfig
+        import pandas as pd
+        from datetime import datetime, timedelta, date
+        
+        env_status = AppConfig.validate_environment()
+        if not env_status["valid"]:
+            raise HTTPException(status_code=500, detail="Faltan variables de entorno")
+        
+        supabase = create_client(AppConfig.SUPABASE_URL, AppConfig.SUPABASE_KEY)
+        client_manager = ClientPurchasesManager(supabase)
+        
+        # Obtener todas las compras (sin devoluciones)
+        try:
+            result = supabase.table("compras_clientes").select("*").execute()
+            df_compras = pd.DataFrame(result.data) if result.data else pd.DataFrame()
+        except Exception as e:
+            return {"error": f"Error obteniendo compras: {str(e)}"}
+        
+        if df_compras.empty:
+            return {
+                "error": "No hay compras registradas",
+                "marca_lider": None,
+                "cliente_lider": None
+            }
+        
+        # Filtrar solo compras (excluir devoluciones)
+        if 'fuente' in df_compras.columns:
+            df_compras = df_compras[df_compras['fuente'].astype(str).str.upper() == 'FE'].copy()
+        elif 'es_devolucion' in df_compras.columns:
+            df_compras = df_compras[(df_compras['es_devolucion'] == False) | (df_compras['es_devolucion'].isna())].copy()
+        
+        # Filtrar por período si se especifica
+        fecha_actual = datetime.now()
+        fecha_inicio = None
+        
+        if 'fecha' in df_compras.columns:
+            df_compras['fecha'] = pd.to_datetime(df_compras['fecha'], errors='coerce')
+            
+            if periodo == "mes_actual":
+                # Primer día del mes actual
+                fecha_inicio = fecha_actual.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                # Primer día del siguiente mes (límite superior)
+                if fecha_actual.month == 12:
+                    fecha_fin = fecha_actual.replace(year=fecha_actual.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                else:
+                    fecha_fin = fecha_actual.replace(month=fecha_actual.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                # Filtrar solo compras del mes actual (desde el día 1 hasta antes del día 1 del siguiente mes)
+                df_compras = df_compras[
+                    (df_compras['fecha'] >= fecha_inicio) & 
+                    (df_compras['fecha'] < fecha_fin)
+                ].copy()
+                print(f"🔍 Filtro mes actual: desde {fecha_inicio} hasta {fecha_fin}, compras encontradas: {len(df_compras)}")
+            elif periodo == "trimestre":
+                # Primer día del trimestre actual
+                mes_actual = fecha_actual.month
+                trimestre = (mes_actual - 1) // 3
+                mes_inicio_trimestre = trimestre * 3 + 1
+                fecha_inicio = fecha_actual.replace(month=mes_inicio_trimestre, day=1, hour=0, minute=0, second=0, microsecond=0)
+                # Primer día del siguiente trimestre (límite superior)
+                mes_fin_trimestre = trimestre * 3 + 3
+                if mes_fin_trimestre == 12:
+                    fecha_fin = fecha_actual.replace(year=fecha_actual.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                else:
+                    fecha_fin = fecha_actual.replace(month=mes_fin_trimestre + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                df_compras = df_compras[(df_compras['fecha'] >= fecha_inicio) & (df_compras['fecha'] < fecha_fin)].copy()
+                print(f"🔍 Filtro trimestre: desde {fecha_inicio} hasta {fecha_fin}, compras encontradas: {len(df_compras)}")
+            elif periodo == "año":
+                # Primer día del año actual
+                fecha_inicio = fecha_actual.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                # Primer día del siguiente año (límite superior)
+                fecha_fin = fecha_actual.replace(year=fecha_actual.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                df_compras = df_compras[(df_compras['fecha'] >= fecha_inicio) & (df_compras['fecha'] < fecha_fin)].copy()
+                print(f"🔍 Filtro año: desde {fecha_inicio} hasta {fecha_fin}, compras encontradas: {len(df_compras)}")
+            elif periodo == "año_especifico" and año:
+                # Filtrar por año específico
+                fecha_inicio = datetime(año, 1, 1, 0, 0, 0)
+                fecha_fin = datetime(año + 1, 1, 1, 0, 0, 0)
+                df_compras = df_compras[(df_compras['fecha'] >= fecha_inicio) & (df_compras['fecha'] < fecha_fin)].copy()
+                print(f"🔍 Filtro año específico {año}: desde {fecha_inicio} hasta {fecha_fin}, compras encontradas: {len(df_compras)}")
+            # Si es "historico", no filtrar por fecha
+        
+        # Verificar si hay compras después del filtro
+        if df_compras.empty:
+            return {
+                "error": f"No hay compras registradas para el período seleccionado ({periodo})",
+                "marca_lider": None,
+                "cliente_lider": None,
+                "periodo": periodo,
+                "año": año if periodo == "año_especifico" else None,
+                "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d") if fecha_inicio else None,
+                "fecha_fin": fecha_actual.strftime("%Y-%m-%d") if periodo != "historico" else None
+            }
+        
+        if df_compras.empty:
+            return {
+                "error": "No hay compras válidas (solo devoluciones)",
+                "marca_lider": None,
+                "cliente_lider": None
+            }
+        
+        # Análisis de marcas (por volumen de ventas)
+        if 'marca' not in df_compras.columns or df_compras['marca'].isna().all():
+            return {
+                "error": "Las compras no tienen información de marca",
+                "marca_lider": None,
+                "cliente_lider": None
+            }
+        
+        # Limpiar marcas (eliminar nulos y espacios)
+        df_compras['marca'] = df_compras['marca'].astype(str).str.strip()
+        df_compras = df_compras[df_compras['marca'].notna() & (df_compras['marca'] != 'nan') & (df_compras['marca'] != '')]
+        
+        if df_compras.empty:
+            return {
+                "error": "No hay compras con marca válida",
+                "marca_lider": None,
+                "cliente_lider": None
+            }
+        
+        # Calcular ventas por marca
+        ventas_por_marca = df_compras.groupby('marca').agg({
+            'total': 'sum',
+            'cantidad': 'sum',
+            'cod_articulo': 'count'
+        }).rename(columns={'cod_articulo': 'transacciones'}).sort_values('total', ascending=False)
+        
+        # Determinar qué marca analizar (si se especifica una marca, usar esa; sino usar la líder)
+        marca_a_analizar = marca_seleccionada.upper().strip() if marca_seleccionada else None
+        
+        if marca_a_analizar and marca_a_analizar in ventas_por_marca.index:
+            # Usar la marca seleccionada
+            marca_analizada_nombre = marca_a_analizar
+            marca_analizada_stats = ventas_por_marca.loc[marca_a_analizar]
+            es_marca_lider = marca_a_analizar == ventas_por_marca.index[0]
+        else:
+            # Usar la marca líder
+            marca_analizada_nombre = ventas_por_marca.index[0]
+            marca_analizada_stats = ventas_por_marca.iloc[0]
+            es_marca_lider = True
+        
+        # Filtrar compras de la marca a analizar
+        df_marca_analizada = df_compras[df_compras['marca'] == marca_analizada_nombre].copy()
+        
+        # Obtener información de clientes
+        clientes_info = {}
+        try:
+            clientes_result = supabase.table("clientes_b2b").select("nit, nombre").execute()
+            if clientes_result.data:
+                for cliente in clientes_result.data:
+                    clientes_info[cliente.get('nit', '')] = cliente.get('nombre', '')
+        except:
+            pass
+        
+        # Calcular compras por cliente de la marca analizada
+        if 'nit_cliente' in df_marca_analizada.columns:
+            compras_por_cliente = df_marca_analizada.groupby('nit_cliente').agg({
+                'total': 'sum',
+                'cantidad': 'sum',
+                'cod_articulo': 'count'
+            }).rename(columns={'cod_articulo': 'transacciones'}).sort_values('total', ascending=False)
+            
+            # Cliente líder de la marca
+            cliente_lider_nit = compras_por_cliente.index[0] if not compras_por_cliente.empty else None
+            cliente_lider_stats = compras_por_cliente.iloc[0] if not compras_por_cliente.empty else None
+            cliente_lider_nombre = clientes_info.get(cliente_lider_nit, cliente_lider_nit) if cliente_lider_nit else None
+        else:
+            cliente_lider_nit = None
+            cliente_lider_nombre = None
+            cliente_lider_stats = None
+        
+        # Top 5 marcas
+        top_5_marcas = []
+        for idx, (marca, stats) in enumerate(ventas_por_marca.head(5).iterrows()):
+            top_5_marcas.append({
+                'posicion': idx + 1,
+                'marca': marca,
+                'total_ventas': float(stats['total']),
+                'cantidad_total': float(stats['cantidad']),
+                'transacciones': int(stats['transacciones']),
+                'es_seleccionada': marca == marca_analizada_nombre
+            })
+        
+        # Top 5 clientes de la marca analizada
+        top_5_clientes_marca = []
+        if cliente_lider_nit and 'nit_cliente' in df_marca_analizada.columns and not compras_por_cliente.empty:
+            for idx, (nit, stats) in enumerate(compras_por_cliente.head(5).iterrows()):
+                top_5_clientes_marca.append({
+                    'posicion': idx + 1,
+                    'nit': nit,
+                    'nombre': clientes_info.get(nit, nit),
+                    'total_ventas': float(stats['total']),
+                    'cantidad_total': float(stats['cantidad']),
+                    'transacciones': int(stats['transacciones'])
+                })
+        
+        return {
+            "marca_analizada": {
+                "marca": marca_analizada_nombre,
+                "total_ventas": float(marca_analizada_stats['total']),
+                "cantidad_total": float(marca_analizada_stats['cantidad']),
+                "transacciones": int(marca_analizada_stats['transacciones']),
+                "porcentaje_ventas": float((marca_analizada_stats['total'] / df_compras['total'].sum()) * 100) if df_compras['total'].sum() > 0 else 0,
+                "es_marca_lider": es_marca_lider
+            },
+            "marca_lider": {
+                "marca": ventas_por_marca.index[0],
+                "total_ventas": float(ventas_por_marca.iloc[0]['total']),
+                "cantidad_total": float(ventas_por_marca.iloc[0]['cantidad']),
+                "transacciones": int(ventas_por_marca.iloc[0]['transacciones']),
+                "porcentaje_ventas": float((ventas_por_marca.iloc[0]['total'] / df_compras['total'].sum()) * 100) if df_compras['total'].sum() > 0 else 0
+            },
+            "cliente_lider_marca": {
+                "nit": cliente_lider_nit,
+                "nombre": cliente_lider_nombre,
+                "total_ventas": float(cliente_lider_stats['total']) if cliente_lider_stats is not None else 0,
+                "cantidad_total": float(cliente_lider_stats['cantidad']) if cliente_lider_stats is not None else 0,
+                "transacciones": int(cliente_lider_stats['transacciones']) if cliente_lider_stats is not None else 0,
+                "porcentaje_marca": float((cliente_lider_stats['total'] / marca_analizada_stats['total']) * 100) if cliente_lider_stats is not None and marca_analizada_stats['total'] > 0 else 0
+            },
+            "top_5_marcas": top_5_marcas,
+            "top_5_clientes_marca_lider": top_5_clientes_marca,
+            "total_compras_analizadas": len(df_compras),
+            "total_marcas": len(ventas_por_marca),
+            "periodo": periodo,
+            "año": año if periodo == "año_especifico" else None,
+            "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d") if periodo != "historico" and fecha_inicio else None,
+            "fecha_fin": fecha_fin.strftime("%Y-%m-%d") if periodo != "historico" and 'fecha_fin' in locals() else fecha_actual.strftime("%Y-%m-%d") if periodo != "historico" else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error en análisis de marcas: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error analizando marcas: {str(e)}")
+
+@router.get("/b2b/porcentajes-marcas-factura")
+async def obtener_porcentajes_marcas_por_factura(
+    num_factura: str = Query(..., description="Número de factura"),
+    nit_cliente: Optional[str] = Query(None, description="NIT del cliente (opcional, para mayor precisión)")
+) -> Dict[str, Any]:
+    """
+    Calcula el porcentaje de cada marca en una factura específica.
+    Relaciona los items del Excel (compras_clientes) con la factura por número de documento.
+    
+    Retorna:
+    - porcentajes: Lista de marcas con su porcentaje y valor total
+    - total_factura: Valor total de la factura
+    - items_encontrados: Cantidad de items encontrados para esa factura
+    """
+    try:
+        from supabase import create_client
+        from config.settings import AppConfig
+        import pandas as pd
+        
+        env_status = AppConfig.validate_environment()
+        if not env_status["valid"]:
+            raise HTTPException(status_code=500, detail="Faltan variables de entorno")
+        
+        supabase = create_client(AppConfig.SUPABASE_URL, AppConfig.SUPABASE_KEY)
+        
+        # Buscar items de compras_clientes que coincidan con el número de factura
+        query = supabase.table("compras_clientes").select("*").eq("num_documento", num_factura).eq("es_devolucion", False)
+        
+        # Si se especificó NIT, filtrar por NIT también
+        if nit_cliente:
+            query = query.eq("nit_cliente", nit_cliente)
+        
+        compras_response = query.execute()
+        
+        if not compras_response.data or len(compras_response.data) == 0:
+            return {
+                "num_factura": num_factura,
+                "nit_cliente": nit_cliente,
+                "porcentajes": [],
+                "total_factura": 0,
+                "items_encontrados": 0,
+                "mensaje": f"No se encontraron items para la factura {num_factura}"
+            }
+        
+        # Convertir a DataFrame para facilitar cálculos
+        df_items = pd.DataFrame(compras_response.data)
+        
+        # Asegurar que 'total' y 'marca' sean numéricos/texto correctos
+        df_items['total'] = pd.to_numeric(df_items['total'], errors='coerce').fillna(0)
+        df_items['marca'] = df_items['marca'].fillna('Sin Marca').astype(str)
+        
+        # Calcular total de la factura (suma de todos los items)
+        total_factura = float(df_items['total'].sum())
+        
+        if total_factura == 0:
+            return {
+                "num_factura": num_factura,
+                "nit_cliente": nit_cliente,
+                "porcentajes": [],
+                "total_factura": 0,
+                "items_encontrados": len(df_items),
+                "mensaje": "La factura tiene un total de $0"
+            }
+        
+        # Agrupar por marca y calcular totales
+        ventas_por_marca = df_items.groupby('marca').agg({
+            'total': 'sum',
+            'cantidad': 'sum',
+            'cod_articulo': 'count'  # Contar items por marca
+        }).reset_index()
+        
+        ventas_por_marca.columns = ['marca', 'total_marca', 'cantidad_total', 'num_items']
+        
+        # Calcular porcentajes
+        porcentajes = []
+        for _, row in ventas_por_marca.iterrows():
+            porcentaje = (row['total_marca'] / total_factura) * 100
+            porcentajes.append({
+                "marca": str(row['marca']),
+                "total": float(row['total_marca']),
+                "porcentaje": round(float(porcentaje), 2),
+                "cantidad": int(row['cantidad_total']),
+                "num_items": int(row['num_items'])
+            })
+        
+        # Ordenar por porcentaje descendente
+        porcentajes.sort(key=lambda x: x['porcentaje'], reverse=True)
+        
+        return {
+            "num_factura": num_factura,
+            "nit_cliente": nit_cliente,
+            "porcentajes": porcentajes,
+            "total_factura": round(total_factura, 2),
+            "items_encontrados": len(df_items),
+            "mensaje": f"Factura {num_factura} analizada correctamente"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error calculando porcentajes de marcas: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error calculando porcentajes de marcas: {str(e)}")
 
 @router.post("/b2b/corregir-devoluciones")
 async def corregir_devoluciones_por_valor_negativo() -> Dict[str, Any]:

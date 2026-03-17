@@ -35,3 +35,15 @@ export const getResumenCatalogo = async () => {
   const response = await apiClient.get('/catalogo/productos/stats/resumen')
   return response.data
 }
+
+// Actualizar catálogo desde archivo Excel
+export const actualizarCatalogoDesdeExcel = async (archivo) => {
+  const formData = new FormData()
+  formData.append('archivo', archivo)
+  
+  // El interceptor del apiClient detecta FormData y configura el Content-Type automáticamente
+  const response = await apiClient.post('/catalogo/actualizar-desde-excel', formData, {
+    timeout: 120000 // 2 minutos para archivos grandes
+  })
+  return response.data
+}

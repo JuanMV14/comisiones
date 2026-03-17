@@ -16,7 +16,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..
 # que colisiona con el paquete `app/` del backend (FastAPI).
 sys.path.append(project_root)
 
-from app.api import dashboard, clientes, ventas, comisiones, analytics, devoluciones, catalogo
+from app.api import dashboard, clientes, ventas, comisiones, analytics, devoluciones, catalogo, presupuestos
 from config.settings import AppConfig
 
 # Cargar variables de entorno (busca .env si existe; en este repo se recomienda usar env.example como plantilla)
@@ -75,6 +75,7 @@ app.include_router(comisiones.router, prefix="/api/comisiones", tags=["comisione
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
 app.include_router(devoluciones.router, prefix="/api/devoluciones", tags=["devoluciones"])
 app.include_router(catalogo.router, prefix="/api/catalogo", tags=["catalogo"])
+app.include_router(presupuestos.router, prefix="/api/presupuestos", tags=["presupuestos"])
 
 @app.get("/")
 def root():

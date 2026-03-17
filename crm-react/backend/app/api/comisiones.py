@@ -85,7 +85,8 @@ async def get_facturas(
             }
 
         # Convertir fecha_factura
-        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce')
+        # Usar dayfirst=True para interpretar DD/MM/YYYY correctamente cuando hay ambigüedad
+        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce', dayfirst=True)
         df['mes_factura'] = df['fecha_factura'].dt.to_period('M').astype(str)
 
         # Filtrar por clientes propios si es necesario
@@ -93,8 +94,15 @@ async def get_facturas(
             df = df[df.get('cliente_propio', False) == True].copy()
 
         # Filtrar por mes si se especifica
-        if mes:
-            df = df[df['mes_factura'] == mes].copy()
+        if mes and mes.strip() and mes != 'todos':
+            # Validar formato del mes (YYYY-MM)
+            mes = mes.strip()
+            print(f"🔍 Filtrando facturas por mes: {mes}")
+            print(f"📊 Total facturas antes del filtro: {len(df)}")
+            print(f"📅 Meses únicos disponibles: {df['mes_factura'].dropna().unique()[:10]}")
+            # Eliminar valores NaN antes de filtrar y asegurar comparación exacta
+            df = df[df['mes_factura'].notna() & (df['mes_factura'] == mes)].copy()
+            print(f"✅ Total facturas después del filtro: {len(df)}")
 
         # Filtrar por cliente si se especifica
         if cliente:
@@ -122,6 +130,80 @@ async def get_facturas(
             print(f"Error obteniendo ciudades de clientes: {e}")
             # Continuar sin ciudades si hay error
 
+        # Obtener descuentos_predeterminados de todos los clientes únicos para optimizar consultas
+        clientes_unicos = df['cliente'].unique().tolist()
+        descuentos_clientes = {}
+        try:
+            clientes_response = supabase.table("clientes_b2b").select("nombre, descuento_predeterminado").in_("nombre", clientes_unicos).execute()
+            for cliente_data in clientes_response.data:
+                descuentos_clientes[cliente_data['nombre']] = float(cliente_data.get('descuento_predeterminado', 0) or 0)
+        except Exception as e:
+            print(f"⚠️ No se pudieron obtener descuentos_predeterminados: {e}")
+
+        # --- Cargar devoluciones de compras_clientes (no enlazadas a factura) ---
+        devoluciones_compras_por_cliente = {}
+        try:
+            query_devol = supabase.table("compras_clientes").select("nit_cliente, total, fecha").eq("es_devolucion", True)
+            
+            # Si hay filtro de mes, filtrar devoluciones del mismo mes
+            if mes and mes.strip() and mes != 'todos':
+                fecha_inicio_devol = pd.to_datetime(f"{mes}-01")
+                fecha_fin_devol = fecha_inicio_devol + pd.offsets.MonthEnd(0)
+                query_devol = query_devol.gte("fecha", fecha_inicio_devol.strftime('%Y-%m-%d'))
+                query_devol = query_devol.lte("fecha", fecha_fin_devol.strftime('%Y-%m-%d'))
+            
+            # Paginar resultados
+            all_devol = []
+            offset_devol = 0
+            while True:
+                result_devol = query_devol.range(offset_devol, offset_devol + 999).execute()
+                if not result_devol.data:
+                    break
+                all_devol.extend(result_devol.data)
+                if len(result_devol.data) < 1000:
+                    break
+                offset_devol += 1000
+            
+            if all_devol:
+                # Obtener mapeo NIT → nombre cliente
+                nits_devol = list(set(d['nit_cliente'] for d in all_devol if d.get('nit_cliente')))
+                nit_a_nombre = {}
+                if nits_devol:
+                    # Paginar consulta de clientes si hay muchos NITs
+                    for i in range(0, len(nits_devol), 100):
+                        batch_nits = nits_devol[i:i+100]
+                        clientes_nit_resp = supabase.table("clientes_b2b").select("nit, nombre").in_("nit", batch_nits).execute()
+                        if clientes_nit_resp.data:
+                            for c in clientes_nit_resp.data:
+                                nit_a_nombre[c['nit']] = c['nombre']
+                
+                # Agrupar devoluciones por nombre de cliente (valor absoluto, incluye IVA)
+                for devol in all_devol:
+                    nit = devol.get('nit_cliente', '')
+                    nombre = nit_a_nombre.get(nit, '')
+                    if nombre:
+                        total_devol = abs(float(devol.get('total', 0) or 0))
+                        devoluciones_compras_por_cliente[nombre] = devoluciones_compras_por_cliente.get(nombre, 0) + total_devol
+                
+                if devoluciones_compras_por_cliente:
+                    print(f"📊 Devoluciones compras_clientes cargadas: {len(devoluciones_compras_por_cliente)} clientes, total: ${sum(devoluciones_compras_por_cliente.values()):,.0f}")
+        except Exception as e:
+            print(f"⚠️ Error cargando devoluciones de compras_clientes: {e}")
+        
+        # Calcular valor_neto total por cliente para distribución proporcional de devoluciones
+        valor_neto_por_cliente = {}
+        if devoluciones_compras_por_cliente:
+            for _, row in df.iterrows():
+                nombre_cl = row.get('cliente', '')
+                if nombre_cl in devoluciones_compras_por_cliente:
+                    vn = row.get('valor_neto', 0)
+                    if vn == 0 or pd.isna(vn):
+                        vt = row.get('valor', 0)
+                        if vt and not pd.isna(vt):
+                            vf = row.get('valor_flete', 0) or 0
+                            vn = (vt - vf) / 1.19
+                    valor_neto_por_cliente[nombre_cl] = valor_neto_por_cliente.get(nombre_cl, 0) + (float(vn) if not pd.isna(vn) else 0)
+
         # Recalcular comisiones para cada factura
         comision_calc = ComisionCalculator()
         facturas_lista = []
@@ -143,6 +225,18 @@ async def get_facturas(
             valor_devuelto = row.get('valor_devuelto', 0) or 0
             dias_pago = row.get('dias_pago_real')
             condicion_especial = row.get('condicion_especial', False)
+            nombre_cliente = row.get('cliente', '')
+            descuento_predeterminado = descuentos_clientes.get(nombre_cliente, 0)
+
+            # Calcular devoluciones de compras_clientes proporcional a esta factura
+            devolucion_compras_factura = 0
+            if nombre_cliente in devoluciones_compras_por_cliente and valor_neto_por_cliente.get(nombre_cliente, 0) > 0:
+                # Distribuir proporcionalmente según el valor_neto de esta factura vs total del cliente
+                proporcion = (float(valor_neto) if not pd.isna(valor_neto) else 0) / valor_neto_por_cliente[nombre_cliente]
+                devolucion_compras_factura = devoluciones_compras_por_cliente[nombre_cliente] * proporcion
+
+            # Total devoluciones: las registradas en la tabla comisiones + las de compras_clientes
+            valor_devuelto_total = valor_devuelto + devolucion_compras_factura
 
             # Calcular base de comisión
             if descuento_pie_factura:
@@ -154,20 +248,19 @@ async def get_facturas(
                 else:
                     base = valor_neto
 
-            # Restar devoluciones
-            base_final = base - (valor_devuelto / 1.19 if valor_devuelto else 0)
+            # Restar devoluciones (total = comisiones + compras_clientes)
+            base_final = base - (valor_devuelto_total / 1.19 if valor_devuelto_total else 0)
             base_final = max(0, base_final)
 
             # Determinar porcentaje
-            # REGLA CORREGIDA:
-            # - El descuento_pie_factura (15% base de la empresa) NO reduce la comisión
-            # - Solo los descuentos ADICIONALES (descuento_aplicado > 0) reducen la comisión
-            # - descuento_pie_factura solo afecta la base, no el porcentaje
+            # REGLA: Si el descuento base es > 15%, pierde un punto (1.5% en lugar de 2.5%)
+            # También si hay descuento adicional, pierde un punto
             tiene_descuento_adicional = descuento_aplicado > 0
+            descuento_base_superior_15 = descuento_predeterminado > 15
             if cliente_propio:
-                porcentaje = 1.5 if tiene_descuento_adicional else 2.5
+                porcentaje = 1.5 if (descuento_base_superior_15 or tiene_descuento_adicional) else 2.5
             else:
-                porcentaje = 0.5 if tiene_descuento_adicional else 1.0
+                porcentaje = 0.5 if (descuento_base_superior_15 or tiene_descuento_adicional) else 1.0
 
             # Verificar pérdida por +80 días
             if dias_pago and dias_pago > 80:
@@ -175,8 +268,11 @@ async def get_facturas(
             else:
                 comision_calculada = base_final * (porcentaje / 100)
 
-            # Formatear fecha
-            fecha_factura_str = row['fecha_factura'].strftime('%Y-%m-%d') if pd.notna(row['fecha_factura']) else 'N/A'
+            # Formatear fecha - asegurar que se muestre correctamente
+            if pd.notna(row['fecha_factura']):
+                fecha_factura_str = row['fecha_factura'].strftime('%Y-%m-%d')
+            else:
+                fecha_factura_str = 'N/A'
             fecha_pago_str = row.get('fecha_pago_real')
             if fecha_pago_str and pd.notna(fecha_pago_str):
                 if isinstance(fecha_pago_str, str):
@@ -185,6 +281,23 @@ async def get_facturas(
                     fecha_pago_str = fecha_pago_str.strftime('%Y-%m-%d')
             else:
                 fecha_pago_str = None
+            
+            # Formatear fecha_pago_max y fecha_pago_est
+            fecha_pago_max_str = None
+            if pd.notna(row.get('fecha_pago_max')):
+                fecha_pago_max = row['fecha_pago_max']
+                if isinstance(fecha_pago_max, str):
+                    fecha_pago_max_str = fecha_pago_max.split('T')[0]  # Tomar solo la parte de fecha
+                else:
+                    fecha_pago_max_str = fecha_pago_max.strftime('%Y-%m-%d')
+            
+            fecha_pago_est_str = None
+            if pd.notna(row.get('fecha_pago_est')):
+                fecha_pago_est = row['fecha_pago_est']
+                if isinstance(fecha_pago_est, str):
+                    fecha_pago_est_str = fecha_pago_est.split('T')[0]  # Tomar solo la parte de fecha
+                else:
+                    fecha_pago_est_str = fecha_pago_est.strftime('%Y-%m-%d')
 
             # Obtener ciudad destino
             ciudad_destino = str(row.get('ciudad_destino', 'N/A'))
@@ -206,11 +319,11 @@ async def get_facturas(
             valor_descuento_pesos = float(row.get('valor_descuento_pesos', 0)) if pd.notna(row.get('valor_descuento_pesos')) else 0
             valor_neto_ajustado = float(valor_neto) - valor_descuento_pesos
             
-            # Calcular valor_devuelto sin IVA
-            valor_devuelto_sin_iva = (valor_devuelto / 1.19) if valor_devuelto > 0 else 0
+            # Calcular valor_devuelto sin IVA (incluye devoluciones de compras_clientes)
+            valor_devuelto_total_sin_iva = (valor_devuelto_total / 1.19) if valor_devuelto_total > 0 else 0
             
-            # Valor neto final (después de descuentos y devoluciones)
-            valor_neto_final = max(0, valor_neto_ajustado - valor_devuelto_sin_iva)
+            # Valor neto final (después de descuentos y devoluciones totales)
+            valor_neto_final = max(0, valor_neto_ajustado - valor_devuelto_total_sin_iva)
             
             factura = {
                 "id": int(row.get('id', 0)),
@@ -219,12 +332,15 @@ async def get_facturas(
                 "cliente": cliente_nombre,
                 "fecha_factura": fecha_factura_str,
                 "fecha_pago": fecha_pago_str,
+                "fecha_pago_max": fecha_pago_max_str,
+                "fecha_pago_est": fecha_pago_est_str,
                 "valor": float(row.get('valor', 0)) if not pd.isna(row.get('valor', 0)) else 0,  # Valor con IVA (para referencia)
                 "valor_neto": float(valor_neto) if not pd.isna(valor_neto) else 0,  # Valor neto sin IVA (antes de descuentos)
                 "valor_neto_ajustado": float(valor_neto_ajustado),  # Valor neto sin IVA, después de descuentos
                 "valor_neto_final": float(valor_neto_final),  # Valor neto final (después de descuentos y devoluciones)
                 "valor_descuento_pesos": float(valor_descuento_pesos),
-                "valor_devuelto": float(valor_devuelto) if not pd.isna(valor_devuelto) else 0,
+                "valor_devuelto": float(valor_devuelto_total) if not pd.isna(valor_devuelto_total) else 0,  # Total devoluciones (comisiones + compras_clientes)
+                "valor_devuelto_compras": float(devolucion_compras_factura),  # Solo la parte de compras_clientes
                 "comision": float(comision_calculada) if not pd.isna(comision_calculada) else 0,
                 "porcentaje": float(porcentaje),
                 "dias_pago": int(dias_pago) if dias_pago and not pd.isna(dias_pago) else None,
@@ -460,8 +576,28 @@ async def actualizar_factura(factura_id: int, factura_data: FacturaUpdate) -> Di
 
         # Si se actualiza fecha_factura, recalcular fechas de pago
         if factura_data.fecha_factura:
-            fecha_factura = datetime.fromisoformat(factura_data.fecha_factura.replace('Z', '+00:00')).date()
-            update_data['fecha_factura'] = fecha_factura.isoformat()
+            try:
+                fecha_factura_str = factura_data.fecha_factura.strip()
+                
+                # Manejar diferentes formatos de fecha
+                if '/' in fecha_factura_str:
+                    # Formato DD/MM/YYYY o MM/DD/YYYY - asumimos DD/MM/YYYY (formato colombiano)
+                    partes = fecha_factura_str.split('/')
+                    if len(partes) == 3:
+                        # Interpretar como DD/MM/YYYY
+                        fecha_factura = date(int(partes[2]), int(partes[1]), int(partes[0]))
+                    else:
+                        raise ValueError("Formato de fecha inválido")
+                else:
+                    # Formato YYYY-MM-DD o ISO
+                    try:
+                        fecha_factura = datetime.fromisoformat(fecha_factura_str.replace('Z', '+00:00')).date()
+                    except:
+                        fecha_factura = datetime.strptime(fecha_factura_str, '%Y-%m-%d').date()
+                
+                update_data['fecha_factura'] = fecha_factura.isoformat()
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Formato de fecha de factura inválido: {str(e)}")
             
             condicion_especial = factura_actual.get('condicion_especial', False)
             dias_pago = 60 if condicion_especial else 35

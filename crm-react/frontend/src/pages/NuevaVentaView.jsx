@@ -97,15 +97,16 @@ const NuevaVentaView = () => {
     let base = tiene_descuento_predeterminado ? valor_neto : valor_neto * 0.85
 
     // Determinar porcentaje
-    // IMPORTANTE: Solo el descuento ADICIONAL (superior al base) reduce la comisión
-    // El descuento predeterminado del 15% NO reduce la comisión
+    // REGLA: Si el descuento base es > 15%, pierde un punto (1.5% en lugar de 2.5%)
+    // También si hay descuento adicional, pierde un punto
     const tiene_descuento_adicional = formData.descuento_adicional > 0
-    // NO incluir descuento_predeterminado aquí - solo afecta la base, no el porcentaje
+    const descuento_base_superior_15 = descuento_predeterminado > 15
     let porcentaje = 0
     if (cliente_propio) {
-      porcentaje = tiene_descuento_adicional ? 1.5 : 2.5
+      // Si el descuento base > 15% O hay descuento adicional, la comisión es 1.5%
+      porcentaje = (descuento_base_superior_15 || tiene_descuento_adicional) ? 1.5 : 2.5
     } else {
-      porcentaje = tiene_descuento_adicional ? 0.5 : 1.0
+      porcentaje = (descuento_base_superior_15 || tiene_descuento_adicional) ? 0.5 : 1.0
     }
 
     const comision = base * (porcentaje / 100)

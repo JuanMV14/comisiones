@@ -14,6 +14,20 @@ const apiClient = axios.create({
   },
 })
 
+// Interceptor de request: si es FormData, no establecer Content-Type (Axios lo hace automáticamente)
+apiClient.interceptors.request.use(
+  (config) => {
+    // Si el data es FormData, eliminar Content-Type para que Axios lo establezca automáticamente con el boundary
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type']
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
 // Interceptor para manejar errores
 apiClient.interceptors.response.use(
   (response) => response,

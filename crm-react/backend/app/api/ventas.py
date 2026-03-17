@@ -65,6 +65,15 @@ async def crear_nueva_venta(venta_data: NuevaVentaData):
         valor_neto_calculado = valor_productos_con_iva / 1.19
         iva_calculado = valor_productos_con_iva - valor_neto_calculado
 
+        # Obtener descuento_predeterminado del cliente
+        descuento_predeterminado = 0
+        try:
+            cliente_response = supabase.table("clientes_b2b").select("descuento_predeterminado").eq("nombre", venta_data.cliente).limit(1).execute()
+            if cliente_response.data and len(cliente_response.data) > 0:
+                descuento_predeterminado = float(cliente_response.data[0].get('descuento_predeterminado', 0) or 0)
+        except Exception as e:
+            print(f"⚠️ No se pudo obtener descuento_predeterminado del cliente: {e}")
+        
         # Calcular comisión
         total_con_descuento_pie = valor_neto_calculado + iva_calculado
         tiene_descuento_adicional = venta_data.descuento_adicional > 0
@@ -73,7 +82,8 @@ async def crear_nueva_venta(venta_data: NuevaVentaData):
             total_con_descuento_pie,
             venta_data.cliente_propio,
             tiene_descuento_adicional,
-            venta_data.descuento_pie_factura
+            venta_data.descuento_pie_factura,
+            descuento_predeterminado
         )
 
         # Preparar datos para insertar

@@ -97,8 +97,25 @@ const DevolucionesView = () => {
   const formatDate = (dateStr) => {
     if (!dateStr || dateStr === 'N/A') return 'N/A'
     try {
-      const date = new Date(dateStr)
-      return date.toLocaleDateString('es-CO', { year: 'numeric', month: 'short', day: 'numeric' })
+      let date
+      // Si viene en formato ISO (YYYY-MM-DD o YYYY-MM-DDTHH:mm:ss)
+      if (dateStr.includes('-')) {
+        const parts = dateStr.split('T')[0].split('-')
+        if (parts.length === 3) {
+          // Crear fecha en formato YYYY-MM-DD (mes es 0-indexed, así que restamos 1)
+          date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+        } else {
+          date = new Date(dateStr)
+        }
+      } else {
+        date = new Date(dateStr)
+      }
+      
+      if (isNaN(date.getTime())) {
+        return dateStr
+      }
+      
+      return date.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' })
     } catch {
       return dateStr
     }
@@ -178,17 +195,30 @@ const DevolucionesView = () => {
     }
   }
 
-  const devolucionesFiltradas = devoluciones.filter(devolucion =>
-    devolucion.factura?.cliente?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    devolucion.factura?.factura?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    devolucion.factura?.pedido?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    devolucion.motivo?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const devolucionesFiltradas = mostrarComprasClientes 
+    ? devolucionesCompras.filter(d => 
+        !searchTerm || 
+        d.nombre_cliente?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        d.nit_cliente?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        d.num_documento?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        d.referencia?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : devoluciones.filter(devolucion =>
+        devolucion.factura?.cliente?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        devolucion.factura?.factura?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        devolucion.factura?.pedido?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        devolucion.motivo?.toLowerCase().includes(searchTerm.toLowerCase())
+      )
 
-  const totales = {
-    valor: devolucionesFiltradas.reduce((sum, d) => sum + (d.valor_devuelto || 0), 0),
-    cantidad: devolucionesFiltradas.length
-  }
+  const totales = mostrarComprasClientes
+    ? {
+        valor: devolucionesCompras.reduce((sum, d) => sum + (d.total || 0), 0),
+        cantidad: devolucionesCompras.length
+      }
+    : {
+        valor: devolucionesFiltradas.reduce((sum, d) => sum + (d.valor_devuelto || 0), 0),
+        cantidad: devolucionesFiltradas.length
+      }
 
   if (loading) {
     return (
@@ -224,15 +254,33 @@ const DevolucionesView = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white mb-1">Devoluciones</h2>
-          <p className="text-sm text-slate-400">Gestión de devoluciones de facturas</p>
+          <p className="text-sm text-slate-400">
+            {mostrarComprasClientes 
+              ? 'Devoluciones desde compras_clientes organizadas por mes, año y cliente'
+              : 'Gestión de devoluciones de facturas'}
+          </p>
         </div>
-        <button
-          onClick={handleNuevaDevolucion}
-          className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
-        >
-          <Plus className="w-5 h-5" />
-          Nueva Devolución
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setMostrarComprasClientes(!mostrarComprasClientes)}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              mostrarComprasClientes
+                ? 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                : 'bg-slate-700 hover:bg-slate-600 text-white'
+            }`}
+          >
+            {mostrarComprasClientes ? 'Desde compras_clientes' : 'Desde tabla devoluciones'}
+          </button>
+          {!mostrarComprasClientes && (
+            <button
+              onClick={handleNuevaDevolucion}
+              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              Nueva Devolución
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Métricas */}
@@ -282,7 +330,9 @@ const DevolucionesView = () => {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
               <input
                 type="text"
-                placeholder="Buscar por cliente, factura, pedido o motivo..."
+                placeholder={mostrarComprasClientes 
+                  ? "Buscar por cliente, NIT, documento o referencia..."
+                  : "Buscar por cliente, factura, pedido o motivo..."}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -309,28 +359,115 @@ const DevolucionesView = () => {
         </div>
       </div>
 
+      {/* Resumen por Mes y Cliente (solo para compras_clientes) */}
+      {mostrarComprasClientes && Object.keys(resumenPorMes).length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Resumen por Mes */}
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+            <h3 className="text-lg font-semibold text-white mb-4">Resumen por Mes</h3>
+            <div className="space-y-2">
+              {Object.values(resumenPorMes)
+                .sort((a, b) => b.mes.localeCompare(a.mes))
+                .map((resumen) => (
+                  <div key={resumen.mes} className="flex items-center justify-between p-3 rounded-lg bg-slate-700/30">
+                    <div>
+                      <p className="text-sm font-medium text-white">{resumen.mes_nombre}</p>
+                      <p className="text-xs text-slate-400">{resumen.cantidad} devoluciones</p>
+                    </div>
+                    <p className="text-sm font-semibold text-red-400">{formatCurrency(resumen.valor_total)}</p>
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          {/* Resumen por Cliente */}
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+            <h3 className="text-lg font-semibold text-white mb-4">Resumen por Cliente</h3>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {Object.values(resumenPorCliente)
+                .sort((a, b) => b.valor_total - a.valor_total)
+                .slice(0, 10)
+                .map((resumen) => (
+                  <div key={resumen.nit} className="flex items-center justify-between p-3 rounded-lg bg-slate-700/30">
+                    <div>
+                      <p className="text-sm font-medium text-white">{resumen.nombre}</p>
+                      <p className="text-xs text-slate-400">NIT: {resumen.nit} • {resumen.cantidad} devoluciones</p>
+                    </div>
+                    <p className="text-sm font-semibold text-red-400">{formatCurrency(resumen.valor_total)}</p>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tabla */}
       <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-900/50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Factura</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Cliente</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Fecha</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Valor Devuelto</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Motivo</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Afecta Comisión</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">Acciones</th>
+                {mostrarComprasClientes ? (
+                  <>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Fecha</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Mes/Año</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Cliente</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">NIT</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Documento</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Referencia</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Cantidad</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Valor Devuelto</th>
+                  </>
+                ) : (
+                  <>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Factura</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Cliente</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Fecha</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Valor Devuelto</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Motivo</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">Afecta Comisión</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase tracking-wider">Acciones</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/50">
               {devolucionesFiltradas.length === 0 ? (
                 <tr>
-                  <td colSpan="7" className="px-6 py-12 text-center text-slate-400">
+                  <td colSpan={mostrarComprasClientes ? 8 : 7} className="px-6 py-12 text-center text-slate-400">
                     No hay devoluciones registradas
                   </td>
                 </tr>
+              ) : mostrarComprasClientes ? (
+                devolucionesFiltradas.map((devolucion) => (
+                  <tr key={devolucion.id} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-slate-300">{formatDate(devolucion.fecha)}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-white">{devolucion.mes || 'N/A'}</div>
+                      <div className="text-xs text-slate-400">{devolucion.año || 'N/A'}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-white">{devolucion.nombre_cliente || 'N/A'}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-slate-300">{devolucion.nit_cliente || 'N/A'}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-slate-300">{devolucion.num_documento || 'N/A'}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-slate-300">{devolucion.referencia || devolucion.cod_articulo || 'N/A'}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-slate-300">{devolucion.cantidad || 0}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-red-400">{formatCurrency(devolucion.total || 0)}</div>
+                    </td>
+                  </tr>
+                ))
               ) : (
                 devolucionesFiltradas.map((devolucion) => (
                   <tr key={devolucion.id} className="hover:bg-slate-800/30 transition-colors">

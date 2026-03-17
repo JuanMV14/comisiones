@@ -155,7 +155,21 @@ class ClientPurchasesManager:
         """Carga compras de un cliente desde archivo Excel (FE=compras, DV=devoluciones)"""
         try:
             # Leer Excel
-            df = pd.read_excel(archivo_path)
+            try:
+                df = pd.read_excel(archivo_path)
+            except ValueError as e:
+                # Si el archivo tiene extensión .xls pero en realidad es un archivo HTML (ej. exportaciones viejas)
+                if "Expected BOF record" in str(e) or "Excel file format cannot be determined" in str(e):
+                    try:
+                        dfs = pd.read_html(archivo_path, decimal=',', thousands='.')
+                        if dfs:
+                            df = dfs[0]
+                        else:
+                            raise e
+                    except Exception:
+                        raise e
+                else:
+                    raise e
             
             # Normalizar columnas
             df.columns = df.columns.str.strip()
@@ -193,13 +207,17 @@ class ClientPurchasesManager:
             # Procesar COMPRAS (FE y Total positivo)
             for _, row in df_compras.iterrows():
                 try:
-                    # Parsear fecha
+                    # Parsear fecha - usar dayfirst=False para interpretar MM/DD/YYYY (mes/día/año)
                     fecha = row.get('FECHA', '')
                     if pd.notna(fecha):
                         if isinstance(fecha, str):
-                            fecha = pd.to_datetime(fecha).isoformat()
+                            # Parsear con dayfirst=False para formato MM/DD/YYYY
+                            fecha_parsed = pd.to_datetime(fecha, errors='coerce', dayfirst=False)
+                            fecha = fecha_parsed.isoformat() if not pd.isna(fecha_parsed) else datetime.now().isoformat()
                         else:
-                            fecha = pd.to_datetime(fecha).isoformat()
+                            # Si ya es un objeto datetime, convertir directamente
+                            fecha_parsed = pd.to_datetime(fecha, errors='coerce')
+                            fecha = fecha_parsed.isoformat() if not pd.isna(fecha_parsed) else datetime.now().isoformat()
                     else:
                         fecha = datetime.now().isoformat()
                     
@@ -246,13 +264,17 @@ class ClientPurchasesManager:
             # Procesar DEVOLUCIONES (DV o Total negativo)
             for _, row in df_devoluciones.iterrows():
                 try:
-                    # Parsear fecha
+                    # Parsear fecha - usar dayfirst=False para interpretar MM/DD/YYYY (mes/día/año)
                     fecha = row.get('FECHA', '')
                     if pd.notna(fecha):
                         if isinstance(fecha, str):
-                            fecha = pd.to_datetime(fecha).isoformat()
+                            # Parsear con dayfirst=False para formato MM/DD/YYYY
+                            fecha_parsed = pd.to_datetime(fecha, errors='coerce', dayfirst=False)
+                            fecha = fecha_parsed.isoformat() if not pd.isna(fecha_parsed) else datetime.now().isoformat()
                         else:
-                            fecha = pd.to_datetime(fecha).isoformat()
+                            # Si ya es un objeto datetime, convertir directamente
+                            fecha_parsed = pd.to_datetime(fecha, errors='coerce')
+                            fecha = fecha_parsed.isoformat() if not pd.isna(fecha_parsed) else datetime.now().isoformat()
                     else:
                         fecha = datetime.now().isoformat()
                     
@@ -406,8 +428,8 @@ class ClientPurchasesManager:
             if df.empty:
                 return {"error": "No hay compras registradas para este cliente"}
             
-            # Convertir fechas
-            df['fecha'] = pd.to_datetime(df['fecha'])
+            # Convertir fechas - usar dayfirst=False para interpretar MM/DD/YYYY (mes/día/año)
+            df['fecha'] = pd.to_datetime(df['fecha'], errors='coerce', dayfirst=False)
             
             # Separar compras y devoluciones
             df_compras = df[df.get('es_devolucion', False) == False].copy()
@@ -454,8 +476,8 @@ class ClientPurchasesManager:
             if df.empty:
                 return {"error": "No hay compras registradas para este cliente"}
             
-            # Convertir fecha
-            df['fecha'] = pd.to_datetime(df['fecha'])
+            # Convertir fecha - usar dayfirst=False para interpretar MM/DD/YYYY (mes/día/año)
+            df['fecha'] = pd.to_datetime(df['fecha'], errors='coerce', dayfirst=False)
             
             # Separar compras y devoluciones
             # Usar fuente como fuente principal de verdad (más confiable)
@@ -570,6 +592,19 @@ class ClientPurchasesManager:
             
             df_compras = self.obtener_compras_cliente(nit_cliente)
             
+            if df_compras.empty:
+                return {
+                    "cliente": analisis.get('cliente', {}).get('nombre', 'Cliente'),
+                    "recomendaciones": {
+                        "por_marca": [],
+                        "por_categoria": [],
+                        "complementarios": [],
+                        "recompra": []
+                    },
+                    "total_recomendaciones": 0,
+                    "mensaje": "El cliente no tiene compras registradas aún"
+                }
+            
             recomendaciones = {
                 "por_marca": [],
                 "por_categoria": [],
@@ -578,70 +613,103 @@ class ClientPurchasesManager:
             }
             
             # 1. Recomendaciones por marca preferida
-            marcas_cliente = [m['marca'] for m in analisis['marcas_preferidas'][:3]]
-            productos_comprados = set(df_compras['cod_articulo'].unique())
+            marcas_cliente = []
+            if 'marcas_preferidas' in analisis and analisis['marcas_preferidas']:
+                marcas_cliente = [m.get('marca', '') for m in analisis['marcas_preferidas'][:3] if m.get('marca')]
+            
+            # Obtener productos comprados (puede ser cod_articulo o referencia)
+            productos_comprados = set()
+            if 'cod_articulo' in df_compras.columns:
+                productos_comprados.update(df_compras['cod_articulo'].dropna().astype(str).str.upper())
+            if 'referencia' in df_compras.columns:
+                productos_comprados.update(df_compras['referencia'].dropna().astype(str).str.upper())
             
             for marca in marcas_cliente:
-                productos_marca = catalogo[
-                    (catalogo['marca'].str.upper() == marca.upper()) & 
-                    (~catalogo['cod_ur'].isin(productos_comprados))
-                ].head(5)
-                
-                for _, prod in productos_marca.iterrows():
-                    recomendaciones['por_marca'].append({
-                        'cod_ur': prod['cod_ur'],
-                        'referencia': prod.get('referencia', ''),
-                        'descripcion': prod.get('descripcion', ''),
-                        'marca': prod.get('marca', ''),
-                        'precio': prod.get('precio', 0),
-                        'razon': f"Compra frecuentemente marca {marca}"
-                    })
+                if not marca:
+                    continue
+                try:
+                    # Filtrar productos de la marca que no ha comprado
+                    mask_marca = catalogo['marca'].astype(str).str.upper() == marca.upper()
+                    mask_no_comprado = ~catalogo['cod_ur'].astype(str).str.upper().isin(productos_comprados)
+                    productos_marca = catalogo[mask_marca & mask_no_comprado].head(5)
+                    
+                    for _, prod in productos_marca.iterrows():
+                        recomendaciones['por_marca'].append({
+                            'cod_ur': str(prod.get('cod_ur', '')),
+                            'referencia': str(prod.get('referencia', '')),
+                            'descripcion': str(prod.get('descripcion', '')),
+                            'marca': str(prod.get('marca', '')),
+                            'precio': float(prod.get('precio', 0)) if pd.notna(prod.get('precio')) else 0,
+                            'razon': f"Compra frecuentemente marca {marca}"
+                        })
+                except Exception as e:
+                    print(f"Error procesando marca {marca}: {e}")
+                    continue
             
             # 2. Recomendaciones por categoría/línea
-            lineas_cliente = [g['grupo'] for g in analisis['grupos_preferidos'][:3]]
+            lineas_cliente = []
+            if 'grupos_preferidos' in analisis and analisis['grupos_preferidos']:
+                lineas_cliente = [g.get('grupo', '') for g in analisis['grupos_preferidos'][:3] if g.get('grupo')]
             
             for linea in lineas_cliente:
-                # Buscar en catálogo por línea similar
-                productos_linea = catalogo[
-                    (catalogo['linea'].str.upper().str.contains(linea.upper().split()[0], na=False)) &
-                    (~catalogo['cod_ur'].isin(productos_comprados))
-                ].head(5)
-                
-                for _, prod in productos_linea.iterrows():
-                    if prod['cod_ur'] not in [r['cod_ur'] for r in recomendaciones['por_categoria']]:
-                        recomendaciones['por_categoria'].append({
-                            'cod_ur': prod['cod_ur'],
-                            'referencia': prod.get('referencia', ''),
-                            'descripcion': prod.get('descripcion', ''),
-                            'marca': prod.get('marca', ''),
-                            'precio': prod.get('precio', 0),
-                            'razon': f"Compra productos de {linea}"
-                        })
+                if not linea:
+                    continue
+                try:
+                    # Buscar en catálogo por línea similar
+                    primera_palabra = linea.upper().split()[0] if linea.split() else ''
+                    if not primera_palabra:
+                        continue
+                    
+                    mask_linea = catalogo['linea'].astype(str).str.upper().str.contains(primera_palabra, na=False)
+                    mask_no_comprado = ~catalogo['cod_ur'].astype(str).str.upper().isin(productos_comprados)
+                    productos_linea = catalogo[mask_linea & mask_no_comprado].head(5)
+                    
+                    codigos_ya_recomendados = {r['cod_ur'] for r in recomendaciones['por_categoria']}
+                    
+                    for _, prod in productos_linea.iterrows():
+                        cod_ur = str(prod.get('cod_ur', ''))
+                        if cod_ur not in codigos_ya_recomendados:
+                            recomendaciones['por_categoria'].append({
+                                'cod_ur': cod_ur,
+                                'referencia': str(prod.get('referencia', '')),
+                                'descripcion': str(prod.get('descripcion', '')),
+                                'marca': str(prod.get('marca', '')),
+                                'precio': float(prod.get('precio', 0)) if pd.notna(prod.get('precio')) else 0,
+                                'razon': f"Compra productos de {linea}"
+                            })
+                except Exception as e:
+                    print(f"Error procesando línea {linea}: {e}")
+                    continue
             
             # 3. Productos para recompra (comprados hace tiempo)
-            df_compras['fecha'] = pd.to_datetime(df_compras['fecha'])
-            hace_90_dias = datetime.now() - timedelta(days=90)
-            
-            productos_antiguos = df_compras[df_compras['fecha'] < hace_90_dias].groupby('cod_articulo').agg({
-                'cantidad': 'sum',
-                'detalle': 'first',
-                'marca': 'first',
-                'fecha': 'max'
-            }).sort_values('cantidad', ascending=False).head(10)
-            
-            for cod, row in productos_antiguos.iterrows():
-                dias_desde_compra = (datetime.now() - row['fecha']).days
-                recomendaciones['recompra'].append({
-                    'cod_articulo': cod,
-                    'detalle': row['detalle'],
-                    'marca': row['marca'],
-                    'cantidad_historica': row['cantidad'],
-                    'dias_sin_comprar': dias_desde_compra,
-                    'razon': f"No ha comprado en {dias_desde_compra} días"
-                })
+            try:
+                if 'fecha' in df_compras.columns:
+                    df_compras['fecha'] = pd.to_datetime(df_compras['fecha'], errors='coerce', dayfirst=False)
+                    hace_90_dias = datetime.now() - timedelta(days=90)
+                    
+                    productos_antiguos = df_compras[df_compras['fecha'] < hace_90_dias].groupby('cod_articulo').agg({
+                        'cantidad': 'sum',
+                        'detalle': 'first',
+                        'marca': 'first',
+                        'fecha': 'max'
+                    }).sort_values('cantidad', ascending=False).head(10)
+                    
+                    for cod, row in productos_antiguos.iterrows():
+                        dias_desde_compra = (datetime.now() - row['fecha']).days if pd.notna(row['fecha']) else 0
+                        recomendaciones['recompra'].append({
+                            'cod_articulo': str(cod),
+                            'detalle': str(row.get('detalle', '')),
+                            'marca': str(row.get('marca', '')),
+                            'cantidad_historica': int(row.get('cantidad', 0)),
+                            'dias_sin_comprar': int(dias_desde_compra),
+                            'razon': f"No ha comprado en {int(dias_desde_compra)} días"
+                        })
+            except Exception as e:
+                print(f"Error procesando recompra: {e}")
+                # Continuar sin productos de recompra si hay error
             
             return {
-                "cliente": analisis['cliente']['nombre'],
+                "cliente": analisis.get('cliente', {}).get('nombre', 'Cliente'),
                 "recomendaciones": recomendaciones,
                 "total_recomendaciones": (
                     len(recomendaciones['por_marca']) +
@@ -651,4 +719,8 @@ class ClientPurchasesManager:
             }
             
         except Exception as e:
-            return {"error": str(e)}
+            import traceback
+            error_msg = f"Error generando recomendaciones: {str(e)}"
+            print(error_msg)
+            print(traceback.format_exc())
+            return {"error": error_msg}

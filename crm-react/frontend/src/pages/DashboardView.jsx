@@ -1,8 +1,19 @@
 import React, { useState, useEffect } from 'react'
-import { TrendingUp, DollarSign, Users, Package, ArrowUpRight, Loader2, FileText, X } from 'lucide-react'
+import { TrendingUp, DollarSign, Users, Package, ArrowUpRight, Loader2, FileText, X, Target, Calendar, Plus, Edit2, Trash2, Save } from 'lucide-react'
 import { getDashboardMetrics, getSalesChart, getClientesClave, getMesesDisponibles } from '../api/dashboard'
 import { getMetricsDirecto } from '../utils/supabaseClient'
+import { getPresupuestos, crearPresupuesto, actualizarPresupuesto, eliminarPresupuesto, getPresupuestosMarcas, crearPresupuestoMarca, actualizarPresupuestoMarca } from '../api/presupuestos'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+
+// Función de utilidad para formatear moneda (debe estar fuera del componente para que MetricCard pueda usarla)
+const formatCurrency = (val) => {
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(val || 0)
+}
 
 const DashboardView = () => {
   const [metrics, setMetrics] = useState({
@@ -24,6 +35,21 @@ const DashboardView = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [userName, setUserName] = useState('Usuario') // Estado para el nombre del usuario
+  const [mostrarPresupuestos, setMostrarPresupuestos] = useState(false)
+  const [presupuestos, setPresupuestos] = useState([])
+  const [loadingPresupuestos, setLoadingPresupuestos] = useState(false)
+  const [presupuestoEditando, setPresupuestoEditando] = useState(null)
+  const [formPresupuesto, setFormPresupuesto] = useState({
+    mes: '',
+    meta_ventas: '',
+    meta_clientes_nuevos: ''
+  })
+  const [presupuestoMarcas, setPresupuestoMarcas] = useState(null)
+  const [loadingPresupuestosMarcas, setLoadingPresupuestosMarcas] = useState(false)
+  const [mostrarPresupuestosMarcas, setMostrarPresupuestosMarcas] = useState(false)
+  const [formPresupuestoMarca, setFormPresupuestoMarca] = useState({
+    meta_ventas: ''
+  })
 
   useEffect(() => {
     // Obtener nombre del usuario desde localStorage o usar predeterminado
@@ -37,6 +63,9 @@ const DashboardView = () => {
   // Recargar datos cuando cambie el mes seleccionado (incluye cuando es null para "Ver todo")
   useEffect(() => {
     loadDashboardData()
+    if (mesSeleccionado) {
+      cargarPresupuestosMarcas()
+    }
   }, [mesSeleccionado])
 
   const loadMesesDisponibles = async () => {
@@ -48,8 +77,10 @@ const DashboardView = () => {
       
       if (mesesData && mesesData.meses && mesesData.meses.length > 0) {
         setMesesDisponibles(mesesData.meses)
-        // Seleccionar el mes más reciente por defecto
+        // Seleccionar el mes actual por defecto (siempre el primero de la lista que es el más reciente)
         if (!mesSeleccionado) {
+          // El backend ya ordena los meses de más reciente a más antiguo
+          // y siempre incluye el mes actual, así que el primero es el mes actual
           setMesSeleccionado(mesesData.meses[0].valor)
         }
       }
@@ -132,6 +163,145 @@ const DashboardView = () => {
     return name.substring(0, 2).toUpperCase()
   }
 
+
+  const cargarPresupuestos = async () => {
+    try {
+      setLoadingPresupuestos(true)
+      const data = await getPresupuestos()
+      setPresupuestos(data.presupuestos || [])
+    } catch (error) {
+      console.error('Error cargando presupuestos:', error)
+    } finally {
+      setLoadingPresupuestos(false)
+    }
+  }
+
+  const cargarPresupuestosMarcas = async () => {
+    if (!mesSeleccionado) return
+    
+    try {
+      setLoadingPresupuestosMarcas(true)
+      const data = await getPresupuestosMarcas(mesSeleccionado)
+      setPresupuestoMarcas(data)
+    } catch (error) {
+      console.error('Error cargando presupuestos por marca:', error)
+      setPresupuestoMarcas(null)
+    } finally {
+      setLoadingPresupuestosMarcas(false)
+    }
+  }
+
+  const handleGuardarPresupuestoMarca = async () => {
+    if (!mesSeleccionado || !formPresupuestoMarca.meta_ventas) {
+      alert('Por favor ingresa la meta de ventas')
+      return
+    }
+
+    try {
+      setLoadingPresupuestosMarcas(true)
+      
+      const data = {
+        mes: mesSeleccionado,
+        meta_ventas: parseFloat(formPresupuestoMarca.meta_ventas) || 0
+      }
+
+      if (presupuestoMarcas && presupuestoMarcas.meta_ventas_total > 0) {
+        await actualizarPresupuestoMarca(mesSeleccionado, { meta_ventas: data.meta_ventas })
+      } else {
+        await crearPresupuestoMarca(data)
+      }
+
+      await cargarPresupuestosMarcas()
+      setFormPresupuestoMarca({
+        meta_ventas: ''
+      })
+    } catch (error) {
+      console.error('Error guardando presupuesto por marca:', error)
+      alert(error.response?.data?.detail || 'Error al guardar el presupuesto por marca')
+    } finally {
+      setLoadingPresupuestosMarcas(false)
+    }
+  }
+
+  const handleAbrirPresupuestos = () => {
+    setMostrarPresupuestos(true)
+    cargarPresupuestos()
+  }
+
+  const handleNuevoPresupuesto = () => {
+    const mesActual = new Date().toISOString().slice(0, 7) // YYYY-MM
+    setPresupuestoEditando(null)
+    setFormPresupuesto({
+      mes: mesActual,
+      meta_ventas: '',
+      meta_clientes_nuevos: ''
+    })
+  }
+
+  const handleEditarPresupuesto = (presupuesto) => {
+    setPresupuestoEditando(presupuesto.mes)
+    setFormPresupuesto({
+      mes: presupuesto.mes,
+      meta_ventas: presupuesto.meta_ventas || '',
+      meta_clientes_nuevos: presupuesto.meta_clientes_nuevos || ''
+    })
+  }
+
+  const handleGuardarPresupuesto = async () => {
+    try {
+      setLoadingPresupuestos(true)
+      
+      const data = {
+        mes: formPresupuesto.mes,
+        meta_ventas: parseFloat(formPresupuesto.meta_ventas) || 0,
+        meta_clientes_nuevos: parseInt(formPresupuesto.meta_clientes_nuevos) || 0
+      }
+
+      if (presupuestoEditando) {
+        await actualizarPresupuesto(presupuestoEditando, data)
+      } else {
+        await crearPresupuesto(data)
+      }
+
+      await cargarPresupuestos()
+      setPresupuestoEditando(null)
+      setFormPresupuesto({
+        mes: '',
+        meta_ventas: '',
+        meta_clientes_nuevos: ''
+      })
+    } catch (error) {
+      console.error('Error guardando presupuesto:', error)
+      alert(error.response?.data?.detail || 'Error al guardar el presupuesto')
+    } finally {
+      setLoadingPresupuestos(false)
+    }
+  }
+
+  const handleEliminarPresupuesto = async (mes) => {
+    if (!confirm(`¿Estás seguro de eliminar el presupuesto de ${mes}?`)) {
+      return
+    }
+
+    try {
+      setLoadingPresupuestos(true)
+      await eliminarPresupuesto(mes)
+      await cargarPresupuestos()
+    } catch (error) {
+      console.error('Error eliminando presupuesto:', error)
+      alert(error.response?.data?.detail || 'Error al eliminar el presupuesto')
+    } finally {
+      setLoadingPresupuestos(false)
+    }
+  }
+
+  const formatearMes = (mes) => {
+    if (!mes) return ''
+    const [año, mesNum] = mes.split('-')
+    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+    return `${meses[parseInt(mesNum) - 1]} ${año}`
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -184,6 +354,13 @@ const DashboardView = () => {
           <h2 className="text-2xl font-bold text-white">Panel del Vendedor</h2>
           <p className="text-sm text-slate-400">Resumen de tu actividad comercial</p>
         </div>
+        <button
+          onClick={handleAbrirPresupuestos}
+          className="flex items-center gap-2 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+        >
+          <Target className="w-4 h-4" />
+          Gestionar Presupuestos
+        </button>
         <div className="flex items-center gap-3">
           <select 
             value={mesSeleccionado === null ? 'todos' : (mesSeleccionado || '')}
@@ -330,11 +507,30 @@ const DashboardView = () => {
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-300">
-                        {factura.fecha_factura ? new Date(factura.fecha_factura).toLocaleDateString('es-CO', { 
-                          year: 'numeric', 
-                          month: 'numeric', 
-                          day: 'numeric' 
-                        }) : 'N/A'}
+                        {factura.fecha_factura ? (() => {
+                          try {
+                            let date
+                            const dateStr = factura.fecha_factura
+                            if (dateStr.includes('-')) {
+                              const parts = dateStr.split('T')[0].split('-')
+                              if (parts.length === 3) {
+                                date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+                              } else {
+                                date = new Date(dateStr)
+                              }
+                            } else {
+                              date = new Date(dateStr)
+                            }
+                            if (isNaN(date.getTime())) return 'N/A'
+                            return date.toLocaleDateString('es-CO', { 
+                              year: 'numeric', 
+                              month: '2-digit', 
+                              day: '2-digit' 
+                            })
+                          } catch {
+                            return 'N/A'
+                          }
+                        })() : 'N/A'}
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-300">
                         {factura.factura}
@@ -375,6 +571,180 @@ const DashboardView = () => {
               </tfoot>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Presupuesto por Marcas (EFFIX, MOTEK USA, KBS, TOYAMA) */}
+      {mesSeleccionado && (
+        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-white">Presupuesto por Marcas</h3>
+              <p className="text-sm text-slate-400">
+                {mesesDisponibles.find(m => m.valor === mesSeleccionado)?.nombre || mesSeleccionado} - EFFIX, MOTEK USA, KBS, TOYAMA
+              </p>
+            </div>
+            <button
+              onClick={() => setMostrarPresupuestosMarcas(!mostrarPresupuestosMarcas)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors text-sm"
+            >
+              <Target className="w-4 h-4" />
+              {mostrarPresupuestosMarcas ? 'Ocultar' : 'Gestionar'}
+            </button>
+          </div>
+
+          {loadingPresupuestosMarcas ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-purple-500 mr-3" />
+              <p className="text-slate-400">Cargando presupuesto por marca...</p>
+            </div>
+          ) : presupuestoMarcas ? (
+            <div className="space-y-4">
+              {/* Presupuesto Total */}
+              <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-sm font-semibold text-white">Presupuesto Total (4 Marcas)</h4>
+                  {presupuestoMarcas.meta_ventas_total > 0 && (
+                    <button
+                      onClick={() => {
+                        setFormPresupuestoMarca({
+                          meta_ventas: presupuestoMarcas.meta_ventas_total.toString()
+                        })
+                      }}
+                      className="p-1 text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
+                      title="Editar presupuesto"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-slate-400">Meta Total:</span>
+                    <span className="text-lg font-bold text-white">{formatCurrency(presupuestoMarcas.meta_ventas_total)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-slate-400">Ventas Totales:</span>
+                    <span className="text-lg font-bold text-emerald-400">{formatCurrency(presupuestoMarcas.ventas_totales_marcas)}</span>
+                  </div>
+                  {presupuestoMarcas.meta_ventas_total > 0 && (
+                    <>
+                      <div className="w-full bg-slate-700/50 rounded-full h-3 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 flex items-center justify-center ${
+                            presupuestoMarcas.progreso_total >= 100
+                              ? 'bg-emerald-500'
+                              : presupuestoMarcas.progreso_total >= 75
+                              ? 'bg-blue-500'
+                              : presupuestoMarcas.progreso_total >= 50
+                              ? 'bg-amber-500'
+                              : 'bg-red-500'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.max(0, presupuestoMarcas.progreso_total))}%` }}
+                        >
+                          {presupuestoMarcas.progreso_total > 10 && (
+                            <span className="text-xs font-semibold text-white">
+                              {presupuestoMarcas.progreso_total.toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {presupuestoMarcas.progreso_total < 10 && (
+                        <p className="text-xs text-slate-400 text-center">
+                          {presupuestoMarcas.progreso_total.toFixed(1)}% completado
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 gap-4 mt-3">
+                        <div>
+                          <span className="text-xs text-slate-400">Progreso:</span>
+                          <p className={`text-sm font-semibold ${presupuestoMarcas.progreso_total >= 100 ? 'text-emerald-400' : 'text-white'}`}>
+                            {presupuestoMarcas.progreso_total.toFixed(1)}%
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-xs text-slate-400">Faltante:</span>
+                          <p className="text-sm font-semibold text-amber-400">{formatCurrency(presupuestoMarcas.faltante_total)}</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Desglose por Marca */}
+              {presupuestoMarcas.ventas_por_marca && (
+                <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
+                  <h4 className="text-sm font-semibold text-white mb-3">Desglose por Marca</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {presupuestoMarcas.marcas.map((marca) => {
+                      const ventasMarca = presupuestoMarcas.ventas_por_marca[marca] || 0
+                      const porcentajeDelTotal = presupuestoMarcas.ventas_totales_marcas > 0 
+                        ? (ventasMarca / presupuestoMarcas.ventas_totales_marcas) * 100 
+                        : 0
+                      
+                      return (
+                        <div key={marca} className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/30">
+                          <p className="text-xs font-semibold text-slate-300 mb-2">{marca}</p>
+                          <p className="text-sm font-bold text-emerald-400 mb-1">{formatCurrency(ventasMarca)}</p>
+                          {presupuestoMarcas.ventas_totales_marcas > 0 && (
+                            <p className="text-xs text-slate-400">{porcentajeDelTotal.toFixed(1)}% del total</p>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-slate-400 text-sm">No hay presupuesto configurado para este mes</p>
+            </div>
+          )}
+
+          {/* Formulario para editar presupuesto */}
+          {mostrarPresupuestosMarcas && (
+            <div className="mt-6 bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
+              <h4 className="text-sm font-semibold text-white mb-4">Gestionar Presupuesto Total por Marcas</h4>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-2">
+                    Meta de Ventas Total (COP) - EFFIX, MOTEK USA, KBS, TOYAMA
+                  </label>
+                  <input
+                    type="number"
+                    value={formPresupuestoMarca.meta_ventas}
+                    onChange={(e) => setFormPresupuestoMarca({ ...formPresupuestoMarca, meta_ventas: e.target.value })}
+                    placeholder={presupuestoMarcas?.meta_ventas_total?.toString() || "0"}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                    Este presupuesto es para las 4 marcas combinadas: EFFIX, MOTEK USA, KBS y TOYAMA
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleGuardarPresupuestoMarca}
+                    disabled={loadingPresupuestosMarcas || !formPresupuestoMarca.meta_ventas}
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50 text-sm"
+                  >
+                    <Save className="w-4 h-4" />
+                    {presupuestoMarcas?.meta_ventas_total > 0 ? 'Actualizar' : 'Guardar'}
+                  </button>
+                  {presupuestoMarcas?.meta_ventas_total > 0 && (
+                    <button
+                      onClick={() => {
+                        setFormPresupuestoMarca({ meta_ventas: '' })
+                      }}
+                      className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors text-sm"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -526,16 +896,218 @@ const DashboardView = () => {
           </div>
         )}
       </div>
+
+      {/* Modal de Presupuestos */}
+      {mostrarPresupuestos && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Target className="w-6 h-6 text-purple-400" />
+                  <h3 className="text-xl font-semibold text-white">Gestión de Presupuestos Mensuales</h3>
+                </div>
+                <button
+                  onClick={() => {
+                    setMostrarPresupuestos(false)
+                    setPresupuestoEditando(null)
+                    setFormPresupuesto({
+                      mes: '',
+                      meta_ventas: '',
+                      meta_clientes_nuevos: ''
+                    })
+                  }}
+                  className="text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Formulario de Presupuesto */}
+              <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-lg font-semibold text-white">
+                    {presupuestoEditando ? 'Editar Presupuesto' : 'Nuevo Presupuesto'}
+                  </h4>
+                  {!presupuestoEditando && (
+                    <button
+                      onClick={handleNuevoPresupuesto}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Nuevo
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">
+                      Mes (YYYY-MM)
+                    </label>
+                    <input
+                      type="month"
+                      value={formPresupuesto.mes}
+                      onChange={(e) => setFormPresupuesto({ ...formPresupuesto, mes: e.target.value })}
+                      disabled={!!presupuestoEditando}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">
+                      Meta de Ventas (COP)
+                    </label>
+                    <input
+                      type="number"
+                      value={formPresupuesto.meta_ventas}
+                      onChange={(e) => setFormPresupuesto({ ...formPresupuesto, meta_ventas: e.target.value })}
+                      placeholder="0"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">
+                      Meta de Clientes con Ventas
+                    </label>
+                    <input
+                      type="number"
+                      value={formPresupuesto.meta_clientes_nuevos}
+                      onChange={(e) => setFormPresupuesto({ ...formPresupuesto, meta_clientes_nuevos: e.target.value })}
+                      placeholder="0"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  {/* Campo de Meta de Comisiones comentado porque no existe en la BD
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-300 mb-2">
+                      Meta de Comisiones (COP)
+                    </label>
+                    <input
+                      type="number"
+                      value={formPresupuesto.meta_comisiones}
+                      onChange={(e) => setFormPresupuesto({ ...formPresupuesto, meta_comisiones: e.target.value })}
+                      placeholder="0"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  */}
+                </div>
+
+                {formPresupuesto.mes && (
+                  <div className="mt-4 flex gap-3">
+                    <button
+                      onClick={handleGuardarPresupuesto}
+                      disabled={loadingPresupuestos || !formPresupuesto.mes}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50"
+                    >
+                      <Save className="w-4 h-4" />
+                      {presupuestoEditando ? 'Actualizar' : 'Guardar'}
+                    </button>
+                    {presupuestoEditando && (
+                      <button
+                        onClick={() => {
+                          setPresupuestoEditando(null)
+                          setFormPresupuesto({
+                            mes: '',
+                            meta_ventas: '',
+                            meta_clientes_nuevos: ''
+                          })
+                        }}
+                        className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Lista de Presupuestos */}
+              <div>
+                <h4 className="text-lg font-semibold text-white mb-4">Presupuestos Registrados</h4>
+                {loadingPresupuestos ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-purple-500 mr-3" />
+                    <p className="text-slate-400">Cargando presupuestos...</p>
+                  </div>
+                ) : presupuestos.length === 0 ? (
+                  <div className="text-center py-8 bg-slate-900/50 rounded-lg border border-slate-700/50">
+                    <Calendar className="w-12 h-12 text-slate-500 mx-auto mb-3" />
+                    <p className="text-slate-400">No hay presupuestos registrados</p>
+                    <p className="text-xs text-slate-500 mt-2">Crea uno nuevo usando el formulario de arriba</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {presupuestos.map((presupuesto) => (
+                      <div
+                        key={presupuesto.mes}
+                        className={`bg-slate-900/50 rounded-lg p-4 border ${
+                          presupuestoEditando === presupuesto.mes
+                            ? 'border-purple-500/50 bg-purple-500/10'
+                            : 'border-slate-700/50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <Calendar className="w-5 h-5 text-purple-400" />
+                              <h5 className="text-lg font-semibold text-white">
+                                {formatearMes(presupuesto.mes)}
+                              </h5>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                              <div>
+                                <p className="text-xs text-slate-400 mb-1">Meta de Ventas</p>
+                                <p className="text-sm font-semibold text-emerald-400">
+                                  {formatCurrency(presupuesto.meta_ventas || 0)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-400 mb-1">Meta de Clientes con Ventas</p>
+                                <p className="text-sm font-semibold text-blue-400">
+                                  {presupuesto.meta_clientes_nuevos || 0}
+                                </p>
+                              </div>
+                              {/* Campo de Meta de Comisiones comentado porque no existe en la BD
+                              <div>
+                                <p className="text-xs text-slate-400 mb-1">Meta de Comisiones</p>
+                                <p className="text-sm font-semibold text-purple-400">
+                                  {formatCurrency(presupuesto.meta_comisiones || 0)}
+                                </p>
+                              </div>
+                              */}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 ml-4">
+                            <button
+                              onClick={() => handleEditarPresupuesto(presupuesto)}
+                              className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
+                              title="Editar"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleEliminarPresupuesto(presupuesto.mes)}
+                              className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                              title="Eliminar"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
-}
-
-const formatCurrency = (val) => {
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    minimumFractionDigits: 0
-  }).format(val)
 }
 
 const MetricCard = ({ title, value, icon: Icon, trend, trendUp, subtitle }) => {

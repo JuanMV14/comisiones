@@ -121,9 +121,13 @@ class DatabaseManager:
                 else row['valor_neto'] * 0.85, axis=1)
 
     def _procesar_fechas(self, df: pd.DataFrame):
-        """Procesa todas las columnas de fecha"""
-        columnas_fecha = ['fecha_factura', 'fecha_pago_est', 'fecha_pago_max', 'fecha_pago_real', 'created_at', 'updated_at']
-        for col in columnas_fecha:
+        """Procesa todas las columnas de fecha (dayfirst=True para formato DD/MM/YYYY de Colombia)"""
+        # fecha_factura puede venir en formato DD/MM/YYYY — usar dayfirst=True
+        if 'fecha_factura' in df.columns:
+            df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce', dayfirst=True)
+        # Las demás fechas vienen en ISO y no necesitan dayfirst
+        columnas_fecha_iso = ['fecha_pago_est', 'fecha_pago_max', 'fecha_pago_real', 'created_at', 'updated_at']
+        for col in columnas_fecha_iso:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
 

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { FileText, Search, Calendar, DollarSign, TrendingUp, Loader2, Eye, Filter, Download, Edit, CheckCircle, Upload, X, Save, FileImage } from 'lucide-react'
+import { FileText, Search, Calendar, DollarSign, TrendingUp, Loader2, Eye, Filter, Download, Edit, CheckCircle, Upload, X, Save, FileImage, Package } from 'lucide-react'
 import { getFacturas, actualizarFactura, marcarFacturaPagado, subirComprobantePago, obtenerComprobantePago } from '../api/facturas'
 import { getMesesDisponibles } from '../api/dashboard'
+import { getPorcentajesMarcasFactura } from '../api/clientesB2B'
 
 const ComisionesView = () => {
   const [facturas, setFacturas] = useState([])
@@ -22,6 +23,9 @@ const ComisionesView = () => {
   const [mostrarComprobante, setMostrarComprobante] = useState(false)
   const [comprobanteData, setComprobanteData] = useState(null)
   const [cargandoComprobante, setCargandoComprobante] = useState(false)
+  const [porcentajesMarcas, setPorcentajesMarcas] = useState(null)
+  const [cargandoPorcentajes, setCargandoPorcentajes] = useState(false)
+  const [estadoFiltro, setEstadoFiltro] = useState('todos')
 
   useEffect(() => {
     const cargarMeses = async () => {
@@ -48,7 +52,10 @@ const ComisionesView = () => {
       setLoading(true)
       setError(null)
       // Si mesSeleccionado es null, pasar null para obtener todas las facturas
-      const data = await getFacturas(mesSeleccionado || null, searchTerm || null, false)
+      const mesParam = mesSeleccionado && mesSeleccionado !== 'todos' ? mesSeleccionado : null
+      console.log('🔍 Cargando facturas con mes:', mesParam)
+      const data = await getFacturas(mesParam, searchTerm || null, false)
+      console.log('✅ Facturas recibidas:', data.facturas?.length || 0)
       setFacturas(data.facturas || [])
     } catch (err) {
       console.error('Error cargando facturas:', err)
@@ -69,8 +76,31 @@ const ComisionesView = () => {
   const formatDate = (dateStr) => {
     if (!dateStr || dateStr === 'N/A') return 'N/A'
     try {
-      const date = new Date(dateStr)
-      return date.toLocaleDateString('es-CO', { year: 'numeric', month: 'short', day: 'numeric' })
+      let date
+      // Si viene en formato ISO (YYYY-MM-DD o YYYY-MM-DDTHH:mm:ss)
+      // El backend ya parsea correctamente las fechas, así que confiamos en el formato ISO
+      if (dateStr.includes('-')) {
+        // Formato ISO: YYYY-MM-DD - confiar en que el backend ya parseó correctamente
+        const parts = dateStr.split('T')[0].split('-')
+        if (parts.length === 3) {
+          // Crear fecha directamente desde YYYY-MM-DD (el backend ya corrigió el parseo)
+          date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+        } else {
+          date = new Date(dateStr)
+        }
+      } else {
+        date = new Date(dateStr)
+      }
+
+      // Validar que la fecha sea válida
+      if (isNaN(date.getTime())) {
+        return dateStr
+      }
+
+      const day = String(date.getDate()).padStart(2, '0')
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const year = date.getFullYear()
+      return `${day}/${month}/${year}`
     } catch {
       return dateStr
     }
@@ -87,11 +117,33 @@ const ComisionesView = () => {
     }
   }
 
-  const facturasFiltradas = facturas.filter(factura =>
-    factura.cliente.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    factura.factura.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    factura.pedido.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const cargarPorcentajesMarcas = async (numFactura, nitCliente = null) => {
+    if (!numFactura) return
+
+    try {
+      setCargandoPorcentajes(true)
+      setPorcentajesMarcas(null)
+      const resultado = await getPorcentajesMarcasFactura(numFactura, nitCliente)
+      // Solo establecer si hay items encontrados
+      if (resultado.items_encontrados > 0) {
+        setPorcentajesMarcas(resultado)
+      }
+    } catch (err) {
+      console.error(`Error cargando porcentajes para factura ${numFactura}:`, err)
+      // No mostrar error al usuario si no hay datos relacionados
+      setPorcentajesMarcas(null)
+    } finally {
+      setCargandoPorcentajes(false)
+    }
+  }
+
+  const facturasFiltradas = facturas.filter(factura => {
+    const coincideBusqueda = factura.cliente.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      factura.factura.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      factura.pedido.toLowerCase().includes(searchTerm.toLowerCase())
+    const coincideEstado = estadoFiltro === 'todos' || factura.estado === estadoFiltro
+    return coincideBusqueda && coincideEstado
+  })
 
   const totales = {
     // Usar valor_neto_final (sin IVA, después de descuentos y devoluciones) si está disponible
@@ -213,6 +265,16 @@ const ComisionesView = () => {
               className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+          <select
+            value={estadoFiltro}
+            onChange={(e) => setEstadoFiltro(e.target.value)}
+            className="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="todos">📋 Todos los estados</option>
+            <option value="Pendiente">🟡 Pendiente</option>
+            <option value="Pagado">🟢 Pagado</option>
+            <option value="Vencido">🔴 Vencido</option>
+          </select>
         </div>
       </div>
 
@@ -271,6 +333,9 @@ const ComisionesView = () => {
                           <p className="text-xs text-slate-400">Neto: {formatCurrency(factura.valor_neto || 0)}</p>
                         </>
                       )}
+                      {factura.valor_devuelto_compras > 0 && (
+                        <p className="text-xs text-red-400 mt-0.5">📦 Dev: -{formatCurrency(factura.valor_devuelto_compras / 1.19)}</p>
+                      )}
                     </td>
                     <td className="px-4 py-4">
                       <p className="text-sm font-semibold text-emerald-400">{formatCurrency(factura.comision)}</p>
@@ -287,9 +352,12 @@ const ComisionesView = () => {
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             setFacturaSeleccionada(factura)
                             setMostrarDetalle(true)
+                            // Cargar porcentajes de marcas automáticamente cuando se abre el detalle
+                            // Buscar por número de factura (sin NIT, ya que el número de factura debería ser único)
+                            await cargarPorcentajesMarcas(factura.factura, null)
                           }}
                           className="p-1.5 text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
                           title="Ver detalle"
@@ -306,7 +374,7 @@ const ComisionesView = () => {
                             } else if (factura.fecha_pago_real) {
                               fechaPagoFormato = factura.fecha_pago_real.split('T')[0]
                             }
-                            
+
                             setFormData({
                               pedido: factura.pedido,
                               factura: factura.factura,
@@ -386,8 +454,8 @@ const ComisionesView = () => {
                 <tr>
                   <td colSpan="7" className="px-4 py-8 text-center">
                     <p className="text-slate-500">
-                      {mesSeleccionado === null 
-                        ? 'No se encontraron facturas' 
+                      {mesSeleccionado === null
+                        ? 'No se encontraron facturas'
                         : 'No se encontraron facturas para este mes'}
                     </p>
                   </td>
@@ -408,6 +476,7 @@ const ComisionesView = () => {
                 onClick={() => {
                   setMostrarDetalle(false)
                   setFacturaSeleccionada(null)
+                  setPorcentajesMarcas(null)
                 }}
                 className="text-slate-400 hover:text-white transition-colors"
               >
@@ -494,6 +563,50 @@ const ComisionesView = () => {
                   )}
                 </div>
               </div>
+
+              {/* Sección de Porcentajes de Marcas */}
+              {cargandoPorcentajes && (
+                <div className="border-t border-slate-700 pt-4">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <p className="text-sm">Buscando información de artículos relacionados...</p>
+                  </div>
+                </div>
+              )}
+
+              {!cargandoPorcentajes && porcentajesMarcas && porcentajesMarcas.porcentajes && porcentajesMarcas.porcentajes.length > 0 && (
+                <div className="border-t border-slate-700 pt-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Package className="w-5 h-5 text-purple-400" />
+                    <h4 className="text-sm font-semibold text-slate-300">Distribución por Marca</h4>
+                  </div>
+                  <div className="bg-slate-900/50 rounded-lg p-4 space-y-2">
+                    {porcentajesMarcas.porcentajes.map((marca, idx) => (
+                      <div key={idx} className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-white">{marca.marca}</p>
+                          <p className="text-xs text-slate-400">
+                            {marca.num_items} {marca.num_items === 1 ? 'artículo' : 'artículos'} • {marca.cantidad} unidades
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-blue-400">{marca.porcentaje}%</p>
+                          <p className="text-xs text-slate-400">{formatCurrency(marca.total)}</p>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="border-t border-slate-700 pt-2 mt-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-slate-400">Total Factura (items relacionados)</p>
+                        <p className="text-sm font-semibold text-emerald-400">{formatCurrency(porcentajesMarcas.total_factura)}</p>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {porcentajesMarcas.items_encontrados} {porcentajesMarcas.items_encontrados === 1 ? 'item encontrado' : 'items encontrados'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

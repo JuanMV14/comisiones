@@ -34,8 +34,11 @@ export const getMesesDisponibles = async () => {
   return response.data
 }
 
-export const getMapaInteractivo = async (referencia = null) => {
-  const params = referencia ? { referencia } : {}
+export const getMapaInteractivo = async (referencia = null, periodo = 'historico') => {
+  const params = { periodo }
+  if (referencia) {
+    params.referencia = referencia
+  }
   const response = await apiClient.get('/dashboard/mapa-interactivo', { params })
   return response.data
 }

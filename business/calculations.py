@@ -7,7 +7,8 @@ class ComisionCalculator:
     
     @staticmethod
     def calcular_comision_inteligente(valor_total: float, cliente_propio: bool = False, 
-                                     tiene_descuento: bool = False, descuento_pie: bool = False) -> Dict[str, float]:
+                                     tiene_descuento: bool = False, descuento_pie: bool = False,
+                                     descuento_base: float = 0) -> Dict[str, float]:
         """
         Calcula comisión con lógica simplificada
         
@@ -16,6 +17,7 @@ class ComisionCalculator:
             cliente_propio: Si es cliente propio o externo  
             tiene_descuento: Boolean - True si hay cualquier descuento adicional
             descuento_pie: Si el descuento aparece en factura
+            descuento_base: Porcentaje de descuento base del cliente (predeterminado)
         """
         valor_neto = valor_total / 1.19
         
@@ -24,14 +26,13 @@ class ComisionCalculator:
         else:
             base = valor_neto * 0.85
         
-        # LÓGICA CORREGIDA: 
-        # - El descuento a pie de factura (15% base) NO reduce la comisión
-        # - Solo los descuentos ADICIONALES reducen la comisión
-        # - tiene_descuento debe referirse SOLO a descuentos adicionales, no al base
+        # REGLA: Si el descuento base es > 15%, pierde un punto (1.5% en lugar de 2.5%)
+        # También si hay descuento adicional, pierde un punto
+        descuento_base_superior_15 = descuento_base > 15
         if cliente_propio:
-            porcentaje = 1.5 if tiene_descuento else 2.5
+            porcentaje = 1.5 if (descuento_base_superior_15 or tiene_descuento) else 2.5
         else:
-            porcentaje = 0.5 if tiene_descuento else 1.0
+            porcentaje = 0.5 if (descuento_base_superior_15 or tiene_descuento) else 1.0
         
         comision = base * (porcentaje / 100)
         
@@ -64,19 +65,21 @@ class ComisionCalculator:
             else:
                 base = valor_neto
         
-        # 2. Restar devoluciones
-        base_final = base - valor_devuelto
+        # 2. Restar devoluciones (valor_devuelto incluye IVA — dividir por 1.19 para obtener valor neto)
+        valor_devuelto_neto = (valor_devuelto / 1.19) if valor_devuelto else 0
+        base_final = base - valor_devuelto_neto
         
         # 3. Determinar porcentaje
-        # REGLA CORREGIDA: 
-        # - El descuento_pie_factura (15% base de la empresa) NO reduce la comisión
-        # - Solo los descuentos ADICIONALES (descuento_aplicado > 0) reducen la comisión
-        # - descuento_pie_factura solo afecta la base, no el porcentaje
+        # REGLA: Si el descuento base es > 15%, pierde un punto (1.5% en lugar de 2.5%)
+        # También si hay descuento adicional, pierde un punto
         tiene_descuento_adicional = descuento_aplicado > 0
+        # Obtener descuento base del cliente si está disponible
+        descuento_base = row.get('descuento_base', 0) or row.get('descuento_predeterminado', 0) or 0
+        descuento_base_superior_15 = descuento_base > 15
         if cliente_propio:
-            porcentaje = 1.5 if tiene_descuento_adicional else 2.5
+            porcentaje = 1.5 if (descuento_base_superior_15 or tiene_descuento_adicional) else 2.5
         else:
-            porcentaje = 0.5 if tiene_descuento_adicional else 1.0
+            porcentaje = 0.5 if (descuento_base_superior_15 or tiene_descuento_adicional) else 1.0
         
         # 4. Verificar pérdida por +80 días
         if dias_pago and dias_pago > 80:

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { MapPin, TrendingUp, DollarSign, Users, Package, BarChart3, Loader2, AlertCircle, ArrowUp, ArrowDown, Brain, Target, Lightbulb, X } from 'lucide-react'
-import { getColombiaMap, getReferenciasPorCiudad, getMapaInteractivo } from '../api/dashboard'
+import { getColombiaMap, getReferenciasPorCiudad, getMapaInteractivo, getDashboardMetrics } from '../api/dashboard'
 import Plot from 'react-plotly.js'
 
 const DashboardEjecutivoView = () => {
   const [mapaData, setMapaData] = useState(null)
   const [mapaInteractivoData, setMapaInteractivoData] = useState(null)
   const [referenciasData, setReferenciasData] = useState(null)
+  const [metricsData, setMetricsData] = useState(null) // Para ventas del mes actual
   const [loading, setLoading] = useState(true)
   const [loadingMapa, setLoadingMapa] = useState(false)
   const [error, setError] = useState(null)
@@ -21,11 +22,11 @@ const DashboardEjecutivoView = () => {
   }, [periodo])
 
   useEffect(() => {
-    // Cargar datos del mapa interactivo cuando cambia la referencia seleccionada
+    // Cargar datos del mapa interactivo cuando cambia la referencia seleccionada o el período
     if (mapaData) { // Solo cargar si ya tenemos los datos básicos
       cargarMapaInteractivo()
     }
-  }, [referenciaSeleccionada])
+  }, [referenciaSeleccionada, periodo])
 
   const cargarDatos = async () => {
     try {
@@ -34,23 +35,41 @@ const DashboardEjecutivoView = () => {
       
       console.log('🔄 Cargando datos del Dashboard Ejecutivo...')
       
-      // Cargar solo los datos esenciales primero (sin el mapa interactivo)
-      const [mapa, referencias] = await Promise.all([
+      // Si es mes_actual, también cargar métricas del dashboard normal para obtener ventas correctas
+      const promises = [
         getColombiaMap(periodo).catch(err => {
           console.error('Error cargando mapa:', err)
-          // No lanzar error, permitir que continúe sin el mapa
           return { distribucion: { datos_mapa: [] }, por_ciudad: [], total_clientes: 0, total_ciudades: 0 }
         }),
         getReferenciasPorCiudad().catch(err => {
           console.error('Error cargando referencias:', err)
           return { referencias_por_ciudad: [], total_ciudades: 0, total_referencias_unicas: 0 }
         })
-      ])
+      ]
       
-      console.log('✅ Datos básicos cargados:', { mapa, referencias })
+      // Si es mes_actual, obtener métricas del dashboard normal
+      if (periodo === 'mes_actual') {
+        // Obtener el mes actual en formato YYYY-MM
+        const ahora = new Date()
+        const mesActual = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}`
+        promises.push(
+          getDashboardMetrics(mesActual).catch(err => {
+            console.warn('Error cargando métricas del dashboard:', err)
+            return null
+          })
+        )
+      }
+      
+      const resultados = await Promise.all(promises)
+      const mapa = resultados[0]
+      const referencias = resultados[1]
+      const metrics = periodo === 'mes_actual' ? resultados[2] : null
+      
+      console.log('✅ Datos básicos cargados:', { mapa, referencias, metrics })
       
       setMapaData(mapa)
       setReferenciasData(referencias)
+      setMetricsData(metrics)
       
       // Cargar el mapa interactivo de forma lazy (después de que se muestren los KPIs)
       // Esto mejora la experiencia de usuario mostrando datos rápidamente
@@ -71,8 +90,8 @@ const DashboardEjecutivoView = () => {
   const cargarMapaInteractivo = async () => {
     try {
       setLoadingMapa(true)
-      console.log('🔄 Cargando mapa interactivo...', referenciaSeleccionada ? `(Referencia: ${referenciaSeleccionada})` : '')
-      const mapaInteractivo = await getMapaInteractivo(referenciaSeleccionada).catch(err => {
+      console.log('🔄 Cargando mapa interactivo...', referenciaSeleccionada ? `(Referencia: ${referenciaSeleccionada})` : '', `(Período: ${periodo})`)
+      const mapaInteractivo = await getMapaInteractivo(referenciaSeleccionada, periodo).catch(err => {
         console.error('Error cargando mapa interactivo:', err)
         return { ciudades: [], referencias_disponibles: [], error: err.message }
       })
@@ -93,12 +112,22 @@ const DashboardEjecutivoView = () => {
     const datosMapa = mapaData.datos_mapa || mapaData.distribucion?.datos_mapa || []
     const porCiudad = mapaData.por_ciudad || []
 
-    // Ventas Totales (suma de TODAS las ciudades, no solo las con coordenadas)
-    // Usar por_ciudad que incluye todas las ciudades, no solo datosMapa
-    const ventasTotales = porCiudad.reduce((sum, ciudad) => {
-      // Usar total_compras que ya debería estar sin IVA y después de descuentos
-      return sum + (ciudad.total_compras || 0)
-    }, 0)
+    // Ventas Totales
+    // Si es mes_actual y tenemos métricas del dashboard normal, usar esas (más precisas)
+    // De lo contrario, sumar desde los datos del mapa
+    let ventasTotales = 0
+    if (periodo === 'mes_actual' && metricsData && metricsData.totalVentas) {
+      ventasTotales = metricsData.totalVentas || 0
+      console.log('💰 Usando ventas del dashboard normal:', ventasTotales)
+    } else {
+      // Ventas Totales (suma de TODAS las ciudades, no solo las con coordenadas)
+      // Usar por_ciudad que incluye todas las ciudades, no solo datosMapa
+      ventasTotales = porCiudad.reduce((sum, ciudad) => {
+        // Usar total_compras que ya debería estar sin IVA y después de descuentos
+        return sum + (ciudad.total_compras || 0)
+      }, 0)
+      console.log('💰 Usando ventas del mapa:', ventasTotales)
+    }
 
     // Clientes Activos (clientes únicos)
     const clientesActivos = mapaData.total_clientes || 0
@@ -389,17 +418,16 @@ const DashboardEjecutivoView = () => {
       {/* 2️⃣ KPIs - FILA 1 (MÁS ENFOCADOS) */}
       {kpis && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* KPI DOMINANTE: Ventas Totales */}
-          <div className="bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 rounded-xl p-6 border-2 border-emerald-500/30 col-span-1 md:col-span-2">
-            <div className="flex items-center justify-between mb-4">
-              <div className="p-3 bg-emerald-500/20 rounded-lg">
-                <DollarSign className="w-6 h-6 text-emerald-400" />
-              </div>
-            </div>
-            <p className="text-sm text-slate-400 mb-2">💰 Ventas Totales</p>
-            <p className="text-4xl font-bold text-white mb-1">{formatCurrency(kpis.ventasTotales)}</p>
-            <p className="text-xs text-slate-500">¿Cuánto estamos facturando?</p>
-          </div>
+          {/* Ventas Totales */}
+          <MetricCard
+            icon={DollarSign}
+            title="💰 Ventas Totales"
+            value={kpis.ventasTotales}
+            subtitle="¿Cuánto estamos facturando?"
+            color="bg-emerald-500/10 text-emerald-400"
+            isCurrency={true}
+            formatCurrency={formatCurrency}
+          />
 
           {/* Clientes Activos */}
           <MetricCard
@@ -961,8 +989,11 @@ const DashboardEjecutivoView = () => {
   )
 }
 
-const MetricCard = ({ icon: Icon, title, value, subtitle, color }) => {
+const MetricCard = ({ icon: Icon, title, value, subtitle, color, isCurrency = false, formatCurrency }) => {
   const formatValue = (val) => {
+    if (isCurrency && formatCurrency) {
+      return formatCurrency(val)
+    }
     return val.toLocaleString('es-CO')
   }
 
@@ -974,7 +1005,7 @@ const MetricCard = ({ icon: Icon, title, value, subtitle, color }) => {
         </div>
       </div>
       <p className="text-sm text-slate-400 mb-1">{title}</p>
-      <p className="text-2xl font-bold text-white">{formatValue(value)}</p>
+      <p className={`${isCurrency ? 'text-2xl' : 'text-2xl'} font-bold text-white`}>{formatValue(value)}</p>
       {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
     </div>
   )

@@ -128,7 +128,7 @@ async def get_analisis_comercial():
             df['valor_neto_final'] = df['valor_neto_final'].clip(lower=0)  # No permitir valores negativos
         
         # Ventas mensuales últimos 12 meses (usar valor_neto_final)
-        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce')
+        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce', dayfirst=True)
         df['mes'] = df['fecha_factura'].dt.to_period('M').astype(str)
         
         ventas_mensuales = df.groupby('mes').agg({
@@ -295,7 +295,7 @@ async def get_comisiones_mensuales():
         # Las comisiones se calculan para todos los clientes
         
         # Convertir fechas
-        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce')
+        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce', dayfirst=True)
         df['fecha_pago_real'] = pd.to_datetime(df['fecha_pago_real'], errors='coerce')
         
         # Separar facturas pagadas y pendientes
@@ -427,7 +427,7 @@ async def get_facturas_por_mes(mes: str):
             return {"facturas": []}
 
         # Convertir fechas
-        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce')
+        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce', dayfirst=True)
         df['fecha_pago_real'] = pd.to_datetime(df['fecha_pago_real'], errors='coerce')
         
         # Filtrar solo facturas pagadas con fecha_pago_real válida
@@ -518,7 +518,7 @@ async def get_comisiones_gerencia():
             }
         
         # Convertir fechas
-        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce')
+        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce', dayfirst=True)
         df['fecha_pago_real'] = pd.to_datetime(df['fecha_pago_real'], errors='coerce')
         df['fecha_pago_est'] = pd.to_datetime(df['fecha_pago_est'], errors='coerce')
         
@@ -786,6 +786,11 @@ async def get_analisis_compras(
         
         # Convertir fechas
         df_compras['fecha'] = pd.to_datetime(df_compras['fecha'], errors='coerce')
+        
+        # Filtrar fechas futuras (solo incluir hasta el mes actual)
+        mes_actual = datetime.now().replace(day=1)
+        df_compras = df_compras[df_compras['fecha'] <= mes_actual].copy()
+        
         df_compras['mes'] = df_compras['fecha'].dt.to_period('M').astype(str)
         
         # Cargar información de clientes
@@ -845,7 +850,35 @@ async def get_analisis_compras(
             lambda x: (hoy - pd.to_datetime(x).to_pydatetime()).days if pd.notna(x) else None
         )
         
-        # Top referencias por valor total
+        # Para cada cliente del top, obtener sus top referencias (top 5)
+        top_clientes_lista = []
+        for _, cliente_row in top_clientes.iterrows():
+            nit_cliente = cliente_row['nit']
+            df_cliente = df_compras[df_compras['nit_cliente'] == nit_cliente]
+            
+            # Obtener top 5 referencias de este cliente
+            top_refs_cliente = df_cliente.groupby('cod_articulo').agg({
+                'total': 'sum',
+                'cantidad': 'sum',
+                'detalle': 'first'
+            }).reset_index().sort_values('total', ascending=False).head(5)
+            
+            referencias_lista = []
+            for _, ref_row in top_refs_cliente.iterrows():
+                referencias_lista.append({
+                    'codigo': str(ref_row['cod_articulo']) if pd.notna(ref_row['cod_articulo']) else 'N/A',
+                    'detalle': ref_row['detalle'] if pd.notna(ref_row['detalle']) else 'N/A',
+                    'valor_total': float(ref_row['total']),
+                    'cantidad': float(ref_row['cantidad'])
+                })
+            
+            cliente_dict = cliente_row.to_dict()
+            cliente_dict['top_referencias'] = referencias_lista
+            top_clientes_lista.append(cliente_dict)
+        
+        top_clientes = top_clientes_lista
+        
+        # Top referencias por número de clientes (prioridad) y valor total (desempate)
         top_referencias = df_compras.groupby('cod_articulo').agg({
             'total': 'sum',
             'cantidad': 'sum',
@@ -856,7 +889,46 @@ async def get_analisis_compras(
         }).reset_index()
         
         top_referencias.columns = ['codigo', 'valor_total', 'cantidad_total', 'num_compras', 'clientes_unicos', 'detalle', 'marca']
-        top_referencias = top_referencias.sort_values('valor_total', ascending=False).head(20)
+        
+        # Asegurar que clientes_unicos y valor_total sean numéricos para ordenamiento correcto
+        top_referencias['clientes_unicos'] = pd.to_numeric(top_referencias['clientes_unicos'], errors='coerce').fillna(0)
+        top_referencias['valor_total'] = pd.to_numeric(top_referencias['valor_total'], errors='coerce').fillna(0)
+        
+        # Ordenar primero por número de clientes únicos (descendente), luego por valor total (descendente) como desempate
+        top_referencias = top_referencias.sort_values(['clientes_unicos', 'valor_total'], ascending=[False, False]).head(20)
+        
+        # Resetear índice para que el ranking sea correcto
+        top_referencias = top_referencias.reset_index(drop=True)
+        
+        # Para cada referencia del top, obtener los clientes que la compran (top 10)
+        top_referencias_lista = []
+        for _, ref_row in top_referencias.iterrows():
+            codigo_ref = ref_row['codigo']
+            df_ref = df_compras[df_compras['cod_articulo'] == codigo_ref]
+            
+            # Obtener top 10 clientes que compran esta referencia
+            top_clientes_ref = df_ref.groupby('nit_cliente').agg({
+                'total': 'sum',
+                'cantidad': 'sum',
+                'nombre_cliente': 'first',
+                'ciudad_cliente': 'first'
+            }).reset_index().sort_values('total', ascending=False).head(10)
+            
+            clientes_lista = []
+            for _, cliente_row in top_clientes_ref.iterrows():
+                clientes_lista.append({
+                    'nit': cliente_row['nit_cliente'],
+                    'nombre': cliente_row['nombre_cliente'] if pd.notna(cliente_row['nombre_cliente']) else cliente_row['nit_cliente'],
+                    'ciudad': cliente_row['ciudad_cliente'] if pd.notna(cliente_row['ciudad_cliente']) else '',
+                    'valor_total': float(cliente_row['total']),
+                    'cantidad': float(cliente_row['cantidad'])
+                })
+            
+            ref_dict = ref_row.to_dict()
+            ref_dict['top_clientes'] = clientes_lista
+            top_referencias_lista.append(ref_dict)
+        
+        top_referencias = top_referencias_lista
         
         # Análisis de frecuencia de compras por cliente
         frecuencia_compras = df_compras.groupby('nit_cliente').agg({

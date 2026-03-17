@@ -31,7 +31,7 @@ const MetricCard = ({ icon: Icon, title, value, subtitle, color, isCurrency = fa
         )}
       </div>
       <p className="text-sm text-slate-400 mb-1">{title}</p>
-      <p className={`text-2xl font-bold ${color.includes('text-') ? '' : 'text-white'}`}>
+      <p className="text-2xl font-bold text-white">
         {formatValue(value)}
       </p>
       {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
@@ -44,6 +44,8 @@ const AnalisisComprasView = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [periodo, setPeriodo] = useState('12')
+  const [referenciaExpandida, setReferenciaExpandida] = useState(null)
+  const [clienteExpandido, setClienteExpandido] = useState(null)
 
   useEffect(() => {
     cargarDatos()
@@ -75,7 +77,24 @@ const AnalisisComprasView = () => {
   const formatDate = (dateStr) => {
     if (!dateStr || dateStr === 'N/A') return 'N/A'
     try {
-      const date = new Date(dateStr)
+      let date
+      // Si viene en formato ISO (YYYY-MM-DD o YYYY-MM-DDTHH:mm:ss)
+      if (dateStr.includes('-')) {
+        const parts = dateStr.split('T')[0].split('-')
+        if (parts.length === 3) {
+          // Crear fecha en formato YYYY-MM-DD (mes es 0-indexed, así que restamos 1)
+          date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+        } else {
+          date = new Date(dateStr)
+        }
+      } else {
+        date = new Date(dateStr)
+      }
+      
+      if (isNaN(date.getTime())) {
+        return dateStr
+      }
+      
       return date.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' })
     } catch {
       return dateStr
@@ -265,29 +284,64 @@ const AnalisisComprasView = () => {
               <tbody className="divide-y divide-slate-700/50">
                 {data?.top_clientes && data.top_clientes.length > 0 ? (
                   data.top_clientes.map((cliente, idx) => (
-                    <tr key={idx} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="px-4 py-3">
-                        <span className="text-xs text-slate-400">#{idx + 1}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-white text-sm">{cliente.nombre || cliente.nit || 'N/A'}</p>
-                        {cliente.ciudad && (
-                          <p className="text-xs text-slate-500">{cliente.ciudad}</p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <p className="text-sm font-semibold text-white">{formatCurrency(cliente.valor_total || 0)}</p>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <p className="text-sm text-slate-300">{cliente.num_compras || 0}</p>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <p className="text-sm text-slate-300">{formatDate(cliente.ultima_compra)}</p>
-                        {cliente.dias_desde_compra !== null && (
-                          <p className="text-xs text-slate-500">{cliente.dias_desde_compra} días</p>
-                        )}
-                      </td>
-                    </tr>
+                    <React.Fragment key={idx}>
+                      <tr 
+                        className="hover:bg-slate-700/30 transition-colors cursor-pointer"
+                        onClick={() => setClienteExpandido(clienteExpandido === idx ? null : idx)}
+                      >
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-slate-400">#{idx + 1}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-white text-sm">{cliente.nombre || cliente.nit || 'N/A'}</p>
+                            {cliente.top_referencias && cliente.top_referencias.length > 0 && (
+                              <span className="text-xs text-blue-400">({cliente.top_referencias.length} refs)</span>
+                            )}
+                          </div>
+                          {cliente.ciudad && (
+                            <p className="text-xs text-slate-500">{cliente.ciudad}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <p className="text-sm font-semibold text-white">{formatCurrency(cliente.valor_total || 0)}</p>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <p className="text-sm text-slate-300">{cliente.num_compras || 0}</p>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <p className="text-sm text-slate-300">{formatDate(cliente.ultima_compra)}</p>
+                          {cliente.dias_desde_compra !== null && (
+                            <p className="text-xs text-slate-500">{cliente.dias_desde_compra} días</p>
+                          )}
+                        </td>
+                      </tr>
+                      {clienteExpandido === idx && cliente.top_referencias && cliente.top_referencias.length > 0 && (
+                        <tr>
+                          <td colSpan="5" className="px-4 py-3 bg-slate-900/50">
+                            <div className="ml-4">
+                              <p className="text-xs font-semibold text-slate-400 mb-2">Top Referencias de este Cliente:</p>
+                              <div className="space-y-1">
+                                {cliente.top_referencias.map((ref, refIdx) => (
+                                  <div key={refIdx} className="flex items-center justify-between text-xs">
+                                    <div>
+                                      <span className="text-slate-300 font-semibold">{ref.codigo}</span>
+                                      <span className="text-slate-500 ml-2">{ref.detalle}</span>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                      <span className="text-slate-400">Cant: {ref.cantidad || 0}</span>
+                                      <span className="text-emerald-400 font-semibold">
+                                        {formatCurrency(ref.valor_total || 0)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))
                 ) : (
                   <tr>
@@ -306,7 +360,7 @@ const AnalisisComprasView = () => {
           <div className="p-4 border-b border-slate-700/50">
             <h3 className="text-lg font-semibold text-white flex items-center gap-2">
               <Package className="w-5 h-5 text-emerald-400" />
-              Top 20 Referencias por Valor
+              Top 20 Referencias por Número de Clientes
             </h3>
           </div>
           <div className="overflow-x-auto">
@@ -316,37 +370,74 @@ const AnalisisComprasView = () => {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">#</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Código</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Detalle</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Clientes</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Valor Total</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Cantidad</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Clientes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/50">
                 {data?.top_referencias && data.top_referencias.length > 0 ? (
                   data.top_referencias.map((ref, idx) => (
-                    <tr key={idx} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="px-4 py-3">
-                        <span className="text-xs text-slate-400">#{idx + 1}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-white text-sm">{ref.codigo || 'N/A'}</p>
-                      </td>
-                      <td className="px-4 py-3">
-                        <p className="text-sm text-slate-300">{ref.detalle || 'N/A'}</p>
-                        {ref.marca && (
-                          <p className="text-xs text-slate-500">{ref.marca}</p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <p className="text-sm font-semibold text-white">{formatCurrency(ref.valor_total || 0)}</p>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <p className="text-sm text-slate-300">{ref.cantidad_total || 0}</p>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <p className="text-sm text-slate-300">{ref.clientes_unicos || 0}</p>
-                      </td>
-                    </tr>
+                    <React.Fragment key={idx}>
+                      <tr 
+                        className="hover:bg-slate-700/30 transition-colors cursor-pointer"
+                        onClick={() => setReferenciaExpandida(referenciaExpandida === idx ? null : idx)}
+                      >
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-slate-400">#{idx + 1}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="font-semibold text-white text-sm">{ref.codigo || 'N/A'}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm text-slate-300">{ref.detalle || 'N/A'}</p>
+                            {ref.top_clientes && ref.top_clientes.length > 0 && (
+                              <span className="text-xs text-blue-400">({ref.top_clientes.length} clientes)</span>
+                            )}
+                          </div>
+                          {ref.marca && (
+                            <p className="text-xs text-slate-500">{ref.marca}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <p className="text-sm font-semibold text-white">{ref.clientes_unicos || 0}</p>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <p className="text-sm font-semibold text-white">{formatCurrency(ref.valor_total || 0)}</p>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <p className="text-sm text-slate-300">{ref.cantidad_total || 0}</p>
+                        </td>
+                      </tr>
+                      {referenciaExpandida === idx && ref.top_clientes && ref.top_clientes.length > 0 && (
+                        <tr>
+                          <td colSpan="6" className="px-4 py-3 bg-slate-900/50">
+                            <div className="ml-4">
+                              <p className="text-xs font-semibold text-slate-400 mb-2">Clientes que compran esta Referencia:</p>
+                              <div className="space-y-1">
+                                {ref.top_clientes.map((cliente, clienteIdx) => (
+                                  <div key={clienteIdx} className="flex items-center justify-between text-xs">
+                                    <div>
+                                      <span className="text-slate-300 font-semibold">{cliente.nombre || cliente.nit}</span>
+                                      {cliente.ciudad && (
+                                        <span className="text-slate-500 ml-2">({cliente.ciudad})</span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                      <span className="text-slate-400">Cant: {cliente.cantidad || 0}</span>
+                                      <span className="text-emerald-400 font-semibold">
+                                        {formatCurrency(cliente.valor_total || 0)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))
                 ) : (
                   <tr>

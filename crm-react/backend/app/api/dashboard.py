@@ -114,8 +114,8 @@ async def get_dashboard_metrics(mes: str = None) -> Dict[str, Any]:
                 "facturasDetalle": []
             }
         
-        # Convertir fecha_factura a datetime
-        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce')
+        # Convertir fecha_factura a datetime (dayfirst=True para formato DD/MM/YYYY)
+        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce', dayfirst=True)
         df['mes_factura'] = df['fecha_factura'].dt.to_period('M').astype(str)
         
         # Filtrar por mes seleccionado (si aplica) y solo clientes propios
@@ -213,6 +213,16 @@ async def get_dashboard_metrics(mes: str = None) -> Dict[str, Any]:
         if not df_mes_propios.empty:
             from business.calculations import ComisionCalculator
             
+            # Obtener descuentos_predeterminados de todos los clientes únicos para optimizar consultas
+            clientes_unicos = df_mes_propios['cliente'].unique().tolist()
+            descuentos_clientes = {}
+            try:
+                clientes_response = supabase.table("clientes_b2b").select("nombre, descuento_predeterminado").in_("nombre", clientes_unicos).execute()
+                for cliente_data in clientes_response.data:
+                    descuentos_clientes[cliente_data['nombre']] = float(cliente_data.get('descuento_predeterminado', 0) or 0)
+            except Exception as e:
+                print(f"⚠️ No se pudieron obtener descuentos_predeterminados: {e}")
+            
             # Calcular comisión para cada venta del mes
             for _, row in df_mes_propios.iterrows():
                 # Obtener valores necesarios
@@ -229,6 +239,8 @@ async def get_dashboard_metrics(mes: str = None) -> Dict[str, Any]:
                 valor_devuelto = row.get('valor_devuelto', 0) or 0
                 dias_pago = row.get('dias_pago_real')
                 condicion_especial = row.get('condicion_especial', False)
+                nombre_cliente = row.get('cliente', '')
+                descuento_predeterminado = descuentos_clientes.get(nombre_cliente, 0)
                 
                 # Calcular base de comisión
                 if descuento_pie_factura:
@@ -245,14 +257,14 @@ async def get_dashboard_metrics(mes: str = None) -> Dict[str, Any]:
                 base_final = max(0, base_final)  # No puede ser negativo
                 
                 # Determinar porcentaje según reglas de negocio
-                # REGLA CORREGIDA:
-                # - El descuento_pie_factura (15% base de la empresa) NO reduce la comisión
-                # - Solo los descuentos ADICIONALES (descuento_aplicado > 0) reducen la comisión
+                # REGLA: Si el descuento base es > 15%, pierde un punto (1.5% en lugar de 2.5%)
+                # También si hay descuento adicional, pierde un punto
                 tiene_descuento_adicional = descuento_aplicado > 0
+                descuento_base_superior_15 = descuento_predeterminado > 15
                 if cliente_propio:
-                    porcentaje = 1.5 if tiene_descuento_adicional else 2.5
+                    porcentaje = 1.5 if (descuento_base_superior_15 or tiene_descuento_adicional) else 2.5
                 else:
-                    porcentaje = 0.5 if tiene_descuento_adicional else 1.0
+                    porcentaje = 0.5 if (descuento_base_superior_15 or tiene_descuento_adicional) else 1.0
                 
                 # Verificar pérdida por +80 días
                 if dias_pago and dias_pago > 80:
@@ -455,8 +467,8 @@ async def get_sales_chart():
                 "comisiones_mensuales": []
             }
         
-        # Convertir fecha_factura
-        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce')
+        # Convertir fecha_factura (dayfirst=True para formato DD/MM/YYYY)
+        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce', dayfirst=True)
         df['mes_factura'] = df['fecha_factura'].dt.to_period('M').astype(str)
         
         # Filtrar solo clientes propios
@@ -472,7 +484,8 @@ async def get_sales_chart():
         hoy = date.today()
         meses = []
         for i in range(5, -1, -1):  # Últimos 6 meses
-            fecha = hoy.replace(day=1) - timedelta(days=30 * i)
+            # Usar DateOffset para calcular meses correctamente (evitar problemas con meses de distinta duración)
+            fecha = pd.Timestamp(hoy.replace(day=1)) - pd.DateOffset(months=i)
             meses.append(fecha.strftime("%Y-%m"))
         
         # Agrupar por mes
@@ -565,6 +578,17 @@ async def get_sales_chart():
                 
                 ventas = max(0, -float(devoluciones_mes_totales) / 1.19) if devoluciones_mes_totales > 0 else 0
             
+            # Obtener descuentos_predeterminados de todos los clientes únicos para optimizar consultas
+            clientes_unicos_mes = df_mes['cliente'].unique().tolist() if not df_mes.empty else []
+            descuentos_clientes_mes = {}
+            if clientes_unicos_mes:
+                try:
+                    clientes_response = supabase.table("clientes_b2b").select("nombre, descuento_predeterminado").in_("nombre", clientes_unicos_mes).execute()
+                    for cliente_data in clientes_response.data:
+                        descuentos_clientes_mes[cliente_data['nombre']] = float(cliente_data.get('descuento_predeterminado', 0) or 0)
+                except Exception as e:
+                    print(f"⚠️ No se pudieron obtener descuentos_predeterminados para gráfico: {e}")
+            
             # RECALCULAR comisiones usando las mismas reglas que en /metrics
             # Esto asegura consistencia entre el gráfico y las métricas
             comisiones = 0
@@ -585,6 +609,8 @@ async def get_sales_chart():
                     valor_devuelto = row.get('valor_devuelto', 0) or 0
                     dias_pago = row.get('dias_pago_real')
                     condicion_especial = row.get('condicion_especial', False)
+                    nombre_cliente = row.get('cliente', '')
+                    descuento_predeterminado = descuentos_clientes_mes.get(nombre_cliente, 0)
                     
                     # Calcular base de comisión
                     if descuento_pie_factura:
@@ -601,11 +627,14 @@ async def get_sales_chart():
                     base_final = max(0, base_final)  # No puede ser negativo
                     
                     # Determinar porcentaje según reglas de negocio
+                    # REGLA: Si el descuento base es > 15%, pierde un punto (1.5% en lugar de 2.5%)
+                    # También si hay descuento adicional, pierde un punto
                     tiene_descuento = descuento_aplicado > 0
+                    descuento_base_superior_15 = descuento_predeterminado > 15
                     if cliente_propio:
-                        porcentaje = 1.5 if tiene_descuento else 2.5
+                        porcentaje = 1.5 if (descuento_base_superior_15 or tiene_descuento) else 2.5
                     else:
-                        porcentaje = 0.5 if tiene_descuento else 1.0
+                        porcentaje = 0.5 if (descuento_base_superior_15 or tiene_descuento) else 1.0
                     
                     # Verificar pérdida por +80 días
                     if dias_pago and dias_pago > 80:
@@ -690,9 +719,9 @@ async def get_colombia_map(periodo: str = "historico"):
         all_compras = []
         page_size = 1000
         current_offset = 0
-        max_registros = 5000  # Límite para velocidad
+        # Eliminar límite de registros para incluir todas las compras
         
-        while len(all_compras) < max_registros:
+        while True:
             response_compras = query_compras.range(current_offset, current_offset + page_size - 1).execute()
             if not response_compras.data:
                 break
@@ -747,6 +776,9 @@ async def get_colombia_map(periodo: str = "historico"):
                 "total_clientes": 0,
                 "total_ciudades": 0
             }
+        
+        # Convertir total a numérico
+        df_compras['total'] = pd.to_numeric(df_compras['total'], errors='coerce').fillna(0)
         
         # Agrupar por ciudad
         stats_por_ciudad = df_compras.groupby('ciudad').agg({
@@ -965,13 +997,17 @@ async def get_referencias_por_ciudad():
         raise HTTPException(status_code=500, detail=f"Error obteniendo referencias por ciudad: {str(e)}")
 
 @router.get("/mapa-interactivo")
-async def get_mapa_interactivo(referencia: Optional[str] = Query(None, description="Filtrar por referencia específica")):
+async def get_mapa_interactivo(
+    referencia: Optional[str] = Query(None, description="Filtrar por referencia específica"),
+    periodo: Optional[str] = Query("historico", description="Período: mes_actual, trimestre, año, historico")
+):
     """Obtiene datos para el mapa interactivo: top cliente por ciudad y distribución de referencias - OPTIMIZADO"""
     try:
         from supabase import create_client
         from config.settings import AppConfig
         import pandas as pd
         import time
+        from datetime import datetime, timedelta
         
         start_time = time.time()
         
@@ -988,20 +1024,27 @@ async def get_mapa_interactivo(referencia: Optional[str] = Query(None, descripti
         supabase = create_client(AppConfig.SUPABASE_URL, AppConfig.SUPABASE_KEY)
         
         # OPTIMIZACIÓN 1: Cargar solo campos necesarios y filtrar en la consulta
-        print("🔄 Cargando compras_clientes...")
-        campos_necesarios = "nit_cliente, cod_articulo, total, cantidad, es_devolucion"
+        print(f"🔄 Cargando compras_clientes... (período: {periodo})")
+        campos_necesarios = "nit_cliente, cod_articulo, total, cantidad, es_devolucion, fecha"
         query_compras = supabase.table("compras_clientes").select(campos_necesarios).eq("es_devolucion", False)
         
         if referencia:
             query_compras = query_compras.eq("cod_articulo", referencia)
         
-        # OPTIMIZACIÓN EXTRA: Limitar a últimos 12 meses para mejorar velocidad (si no hay filtro de referencia)
-        # Esto reduce significativamente la cantidad de datos a procesar sin perder información relevante
-        if not referencia:
-            from datetime import datetime, timedelta
+        # Calcular fecha límite según período (igual que en get_colombia_map)
+        fecha_limite = None
+        if periodo == "mes_actual":
+            fecha_limite = datetime.now().replace(day=1).strftime('%Y-%m-%d')
+        elif periodo == "trimestre":
+            fecha_limite = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+        elif periodo == "año":
             fecha_limite = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+        # Si es "historico", no aplicar filtro de fecha
+        
+        if fecha_limite:
             try:
                 query_compras = query_compras.gte("fecha", fecha_limite)
+                print(f"📅 Aplicando filtro de fecha desde: {fecha_limite}")
             except Exception as e:
                 # Si la columna fecha no existe o hay error, continuar sin filtro
                 print(f"⚠️ No se pudo aplicar filtro de fecha: {e}")
@@ -1254,8 +1297,13 @@ async def get_meses_disponibles():
         df['mes_factura'] = df['fecha_factura'].dt.to_period('M').astype(str)
         meses_unicos = df['mes_factura'].dropna().unique()
         
+        # Agregar el mes actual si no está en la lista (para que siempre aparezca aunque no tenga datos)
+        mes_actual = datetime.now().strftime("%Y-%m")
+        if mes_actual not in meses_unicos:
+            meses_unicos = list(meses_unicos) + [mes_actual]
+        
         # Ordenar meses de más reciente a más antiguo
-        meses_ordenados = sorted(meses_unicos, reverse=True)
+        meses_ordenados = sorted(set(meses_unicos), reverse=True)
         
         # Formatear meses para mostrar (en español)
         nombres_meses_es = {
@@ -1306,8 +1354,8 @@ async def get_clientes_clave(mes: str = None):
         if df.empty:
             return {"clientes_clave": []}
         
-        # Convertir fecha_factura a datetime
-        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce')
+        # Convertir fecha_factura a datetime (dayfirst=True para formato DD/MM/YYYY)
+        df['fecha_factura'] = pd.to_datetime(df['fecha_factura'], errors='coerce', dayfirst=True)
         df['mes_factura'] = df['fecha_factura'].dt.to_period('M').astype(str)
         
         # Filtrar solo clientes propios

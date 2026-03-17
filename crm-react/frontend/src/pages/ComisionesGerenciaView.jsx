@@ -41,7 +41,24 @@ const ComisionesGerenciaView = () => {
   const formatDate = (dateStr) => {
     if (!dateStr || dateStr === 'N/A') return 'N/A'
     try {
-      const date = new Date(dateStr)
+      let date
+      // Si viene en formato ISO (YYYY-MM-DD o YYYY-MM-DDTHH:mm:ss)
+      if (dateStr.includes('-')) {
+        const parts = dateStr.split('T')[0].split('-')
+        if (parts.length === 3) {
+          // Crear fecha en formato YYYY-MM-DD (mes es 0-indexed, así que restamos 1)
+          date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+        } else {
+          date = new Date(dateStr)
+        }
+      } else {
+        date = new Date(dateStr)
+      }
+      
+      if (isNaN(date.getTime())) {
+        return dateStr
+      }
+      
       return date.toLocaleDateString('es-CO', { year: 'numeric', month: '2-digit', day: '2-digit' })
     } catch {
       return dateStr

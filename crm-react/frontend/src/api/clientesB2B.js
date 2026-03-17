@@ -36,6 +36,31 @@ export const eliminarClienteB2B = async (clienteId) => {
   return response.data
 }
 
+// Obtener recomendaciones de productos para un cliente
+export const getRecomendacionesCliente = async (clienteId) => {
+  const response = await apiClient.get(`/clientes/b2b/${clienteId}/recomendaciones`)
+  return response.data
+}
+
+// Obtener análisis de marcas (marca líder y cliente líder)
+export const getAnalisisMarcas = async (periodo = 'historico', año = null, marcaSeleccionada = null) => {
+  const params = { periodo }
+  if (año) params.año = año
+  if (marcaSeleccionada) params.marca_seleccionada = marcaSeleccionada
+  
+  const response = await apiClient.get('/clientes/b2b/analisis-marcas', { params })
+  return response.data
+}
+
+// Obtener porcentajes de marcas por factura
+export const getPorcentajesMarcasFactura = async (numFactura, nitCliente = null) => {
+  const params = { num_factura: numFactura }
+  if (nitCliente) params.nit_cliente = nitCliente
+  
+  const response = await apiClient.get('/clientes/b2b/porcentajes-marcas-factura', { params })
+  return response.data
+}
+
 export const cargarComprasExcel = async (archivo, nitCliente = null) => {
   const formData = new FormData()
   formData.append('archivo', archivo)

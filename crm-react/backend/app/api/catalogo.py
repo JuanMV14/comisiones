@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response
 from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
@@ -7,6 +7,7 @@ import sys
 import os
 import pandas as pd
 import io
+import tempfile
 
 # Agregar el directorio raíz al path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
@@ -534,3 +535,68 @@ async def exportar_catalogo_csv():
         print(f"Error exportando catálogo a CSV: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error exportando catálogo: {str(e)}")
+
+@router.get("/test-upload-endpoint")
+async def test_upload_endpoint():
+    """Endpoint de prueba para verificar que el router funciona"""
+    return {"message": "Endpoint de catálogo funcionando correctamente", "status": "ok"}
+
+@router.post("/actualizar-desde-excel")
+async def actualizar_catalogo_desde_excel(
+    archivo: UploadFile = File(..., description="Archivo Excel con el catálogo actualizado")
+) -> Dict[str, Any]:
+    """
+    Actualiza el catálogo desde un archivo Excel.
+    El archivo debe contener las columnas: Cod_UR, Referencia, Descripcion, Precio, Marca, Linea, Equivalencia, DetalleDescuento
+    """
+    try:
+        print(f"📤 Recibiendo archivo: {archivo.filename}")
+        from database.catalog_manager import CatalogManager
+        from supabase import create_client
+        from config.settings import AppConfig
+        
+        env_status = AppConfig.validate_environment()
+        if not env_status["valid"]:
+            raise HTTPException(status_code=500, detail="Faltan variables de entorno")
+        
+        supabase = create_client(AppConfig.SUPABASE_URL, AppConfig.SUPABASE_KEY)
+        catalog_manager = CatalogManager(supabase)
+        
+        # Validar que sea un archivo Excel
+        if not archivo.filename or not archivo.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="El archivo debe ser Excel (.xlsx o .xls)")
+        
+        # Guardar archivo temporalmente
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            contenido = await archivo.read()
+            tmp_file.write(contenido)
+            tmp_path = tmp_file.name
+        
+        try:
+            # Procesar el archivo usando CatalogManager
+            resultado = catalog_manager.cargar_catalogo_desde_excel(tmp_path)
+            
+            # Limpiar archivo temporal
+            os.unlink(tmp_path)
+            
+            if "error" in resultado:
+                raise HTTPException(status_code=400, detail=resultado["error"])
+            
+            return resultado
+            
+        except HTTPException:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise HTTPException(status_code=500, detail=f"Error procesando archivo: {str(e)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error en actualizar_catalogo_desde_excel: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error actualizando catálogo: {str(e)}")
